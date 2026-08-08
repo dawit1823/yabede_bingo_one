@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom, 1rem));
+  }
+  .pt-safe {
+    padding-top: max(1rem, env(safe-area-inset-top, 1rem));
+  }
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+html, body {
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Custom smooth dark scrollbar for mobile lists */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.5);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(245, 158, 11, 0.8);
+}
+
+/* ==========================================================================
+   GOLDEN HOUR & THEME CUSTOMIZATIONS
+   ========================================================================== */
+
+/* Golden Hour Theme (Warm Sunset-Inspired Palette) */
+.theme-golden {
+  background-color: #150d0a !important;
+  background-image: radial-gradient(ellipse at 50% 0%, #3a1c10 0%, #1c0e09 50%, #100705 100%) !important;
+  background-attachment: fixed;
+  color: #fff7ed;
+}
+
+.theme-golden header,
+.theme-golden .bg-slate-900 {
+  background-color: #1e110c !important;
+}
+
+.theme-golden .bg-slate-950 {
+  background-color: #130a07 !important;
+}
+
+.theme-golden .bg-slate-800 {
+  background-color: #2c1811 !important;
+}
+
+.theme-golden .bg-slate-800\/90,
+.theme-golden .bg-slate-800\/80 {
+  background-color: rgba(44, 24, 17, 0.9) !important;
+}
+
+.theme-golden .bg-slate-800\/50,
+.theme-golden .bg-slate-800\/40 {
+  background-color: rgba(44, 24, 17, 0.5) !important;
+}
+
+.theme-golden .border-slate-800 {
+  border-color: #422318 !important;
+}
+
+.theme-golden .border-slate-700 {
+  border-color: #5c3021 !important;
+}
+
+.theme-golden .text-slate-400 {
+  color: #fdba74 !important;
+}
+
+.theme-golden .text-slate-300 {
+  color: #fed7aa !important;
+}
+
+.theme-golden .text-slate-200 {
+  color: #ffedd5 !important;
+}
+
+/* Light Theme Overrides */
+.theme-light {
+  background-color: #f8fafc !important;
+  color: #0f172a;
+}
+
+.theme-light header,
+.theme-light .bg-slate-900 {
+  background-color: #ffffff !important;
+}
+
+.theme-light .bg-slate-950 {
+  background-color: #f1f5f9 !important;
+}
+
+.theme-light .bg-slate-800 {
+  background-color: #e2e8f0 !important;
+}
+
+.theme-light .border-slate-800,
+.theme-light .border-slate-700 {
+  border-color: #cbd5e1 !important;
+}
+
+.theme-light .text-slate-100,
+.theme-light .text-slate-200,
+.theme-light .text-slate-300 {
+  color: #0f172a !important;
+}
+
+.theme-light .text-slate-400 {
+  color: #475569 !important;
+}
+
+
