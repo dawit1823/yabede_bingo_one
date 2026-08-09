@@ -679,8 +679,11 @@ export class AdminService {
     ) {
       return { valid: false, error: 'Minimum withdrawal cannot exceed maximum withdrawal' };
     }
-    if (settings.countdownDurationSeconds !== undefined && settings.countdownDurationSeconds < 5) {
+    if (settings.countdownDurationSeconds !== undefined && Number(settings.countdownDurationSeconds) < 5) {
       return { valid: false, error: 'Countdown duration must be at least 5 seconds' };
+    }
+    if (settings.ballDrawIntervalSeconds !== undefined && Number(settings.ballDrawIntervalSeconds) < 1) {
+      return { valid: false, error: 'Ball draw interval must be at least 1 second' };
     }
     return { valid: true };
   }
@@ -690,18 +693,53 @@ export class AdminService {
     updatedBy: string = AdminService.FIXED_ADMIN_EMAIL,
     ipAddress?: string
   ): Promise<{ success: boolean; settings: SystemSettingsConfig; error?: string }> {
-    const combined = { ...this.systemSettings, ...newSettings };
+    const parsedSettings: Partial<SystemSettingsConfig> = { ...newSettings };
+    const numericKeys: (keyof SystemSettingsConfig)[] = [
+      'countdownDurationSeconds',
+      'ballDrawIntervalSeconds',
+      'resultScreenDurationSeconds',
+      'maxCardsPerPlayer',
+      'maxPlayers',
+      'minPlayers',
+      'prizePercentage',
+      'platformFeePercent',
+      'cardReservationTimeoutSeconds',
+      'privateGroupMaxPlayers',
+      'privateGroupMaxTicketsPerPlayer',
+      'minDepositBirr',
+      'maxDepositBirr',
+      'minWithdrawalBirr',
+      'maxWithdrawalBirr',
+      'referralRewardBirr',
+      'welcomeBonusBirr',
+      'maxReferralBonusBirr',
+    ];
+
+    for (const key of numericKeys) {
+      const val = (parsedSettings as any)[key];
+      if (val !== undefined && val !== null && val !== '') {
+        (parsedSettings as any)[key] = Number(val);
+      }
+    }
+
+    if (parsedSettings.platformFeePercent !== undefined && parsedSettings.prizePercentage === undefined) {
+      parsedSettings.prizePercentage = Math.max(0, 100 - Number(parsedSettings.platformFeePercent));
+    } else if (parsedSettings.prizePercentage !== undefined && parsedSettings.platformFeePercent === undefined) {
+      parsedSettings.platformFeePercent = Math.max(0, 100 - Number(parsedSettings.prizePercentage));
+    }
+
+    const combined = { ...this.systemSettings, ...parsedSettings };
     const validation = this.validateSystemSettings(combined);
     if (!validation.valid) {
       return { success: false, settings: this.systemSettings, error: validation.error };
     }
 
     const changes: Record<string, { old: any; new: any }> = {};
-    for (const key of Object.keys(newSettings) as (keyof SystemSettingsConfig)[]) {
-      if (JSON.stringify(this.systemSettings[key]) !== JSON.stringify(newSettings[key])) {
+    for (const key of Object.keys(parsedSettings) as (keyof SystemSettingsConfig)[]) {
+      if (JSON.stringify(this.systemSettings[key]) !== JSON.stringify(parsedSettings[key])) {
         changes[key] = {
           old: this.systemSettings[key],
-          new: newSettings[key],
+          new: parsedSettings[key],
         };
       }
     }
@@ -720,7 +758,7 @@ export class AdminService {
       adminDb.collection('settingsHistory').doc(historyRec.id).set(historyRec).catch(console.warn);
     }
 
-    await adminDb.collection('settings').doc('platformConfig').set(this.systemSettings);
+    await adminDb.collection('settings').doc('platformConfig').set(this.systemSettings, { merge: true });
     await this.logAction('SETTINGS_CHANGE', 'SUCCESS', `Updated system settings: ${Object.keys(changes).join(', ')}`, ipAddress);
 
     return { success: true, settings: this.systemSettings };

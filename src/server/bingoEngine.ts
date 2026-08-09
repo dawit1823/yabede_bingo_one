@@ -6,6 +6,7 @@
 import crypto from 'crypto';
 import { db, OFFICIAL_ROOMS, generateGameReferenceId } from './db.js';
 import { adminDb } from './firebaseAdmin.js';
+import { adminService } from './adminService.js';
 import { BingoRoom, BingoTicket, GameWinner, WinningPattern, WalletTransaction } from '../types.js';
 import { generateCardMatrixByNumber } from '../lib/bingoUtils.js';
 
@@ -85,8 +86,11 @@ export function createTicket(roomId: string, userId: string): BingoTicket {
   db.tickets.set(ticket.id, ticket);
 
   // Increase room prize pool
-  room.prizePool += Math.round(room.ticketPrice * 0.80); // 80% goes to prize pool, 20% platform fee
-  room.platformFee = (room.platformFee || 0) + Math.round(room.ticketPrice * 0.20);
+  const sysSettings = adminService.getSystemSettings();
+  const platformFeePct = sysSettings.platformFeePercent ?? 20;
+  const prizePct = sysSettings.prizePercentage ?? 80;
+  room.prizePool += Math.round(room.ticketPrice * (prizePct / 100));
+  room.platformFee = (room.platformFee || 0) + Math.round(room.ticketPrice * (platformFeePct / 100));
   room.activePlayersCount += 1;
 
   return ticket;

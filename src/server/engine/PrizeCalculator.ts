@@ -1,6 +1,7 @@
 import { BingoRoom, GameWinner, WalletTransaction } from '../../types.js';
 import { db } from '../db.js';
 import { adminDb } from '../firebaseAdmin.js';
+import { adminService } from '../adminService.js';
 
 export class PrizeCalculator {
   /**
@@ -77,8 +78,10 @@ export class PrizeCalculator {
     }
 
     // Update room object in memory
+    const sysSettings = adminService.getSystemSettings();
+    const platformFeePct = sysSettings.platformFeePercent ?? 20;
     room.prizePool = finalPrizePool;
-    room.platformFee = Math.round(totalTicketSales * 0.20);
+    room.platformFee = Math.round(totalTicketSales * (platformFeePct / 100));
     room.lastWinners = calculatedWinners;
 
     return { calculatedWinners, transactions };

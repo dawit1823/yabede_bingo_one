@@ -162,6 +162,8 @@ export default function App() {
   const [isBotOpen, setIsBotOpen] = useState(false);
   const [isGateOpen, setIsGateOpen] = useState(false);
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
+  const [tgAuthStatus, setTgAuthStatus] = useState<'checking' | 'authenticated' | 'outside_telegram' | 'auth_error'>('checking');
+  const [tgAuthErrorMessage, setTgAuthErrorMessage] = useState<string>('');
 
   // Check Maintenance Mode & System Settings
   useEffect(() => {
@@ -175,43 +177,44 @@ export default function App() {
       .catch(() => null);
   }, []);
 
-  // Initialize Telegram App & Deep Links
+  // Initialize Telegram App & Real WebApp Session Verification
   useEffect(() => {
     initTelegramApp();
 
-    // Verify Telegram User Registration with Backend Gateway
+    // Retrieve real Telegram initData string
     const initData = window.Telegram?.WebApp?.initData || '';
-    fetch('/api/auth/telegram-login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        initData,
-        mockUser: {
-          id: currentUser.telegramId || 100001,
-          first_name: currentUser.firstName,
-          last_name: currentUser.lastName,
-          username: currentUser.username,
-        },
-      }),
-    })
-      .then(async (res) => {
-        if (!res.ok) return null;
-        return res.json();
+
+    if (initData) {
+      // Send real Telegram initData to backend for HMAC verification & auto-registration
+      fetch('/api/auth/telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData }),
       })
-      .then((data) => {
-        if (!data) return;
-        if (data.registered && data.user) {
-          setCurrentUser(data.user);
-          setIsLoggedIn(true);
-          setIsGateOpen(false);
-        } else if (data.registered === false) {
+        .then(async (res) => {
+          const data = await res.json();
+          if (res.ok && data.success && data.user) {
+            setCurrentUser(data.user);
+            setIsLoggedIn(true);
+            localStorage.setItem('ahun_jwt_token', data.token);
+            setTgAuthStatus('authenticated');
+            setIsGateOpen(false);
+          } else {
+            setIsLoggedIn(false);
+            setTgAuthErrorMessage(data.message || 'Telegram authentication failed.');
+            setTgAuthStatus('auth_error');
+          }
+        })
+        .catch((err) => {
+          console.warn('Telegram session verification note:', err);
           setIsLoggedIn(false);
-          setIsGateOpen(true);
-        }
-      })
-      .catch((err) => {
-        console.warn('Telegram auth check note:', err);
-      });
+          setTgAuthErrorMessage('Network error verifying Telegram session.');
+          setTgAuthStatus('auth_error');
+        });
+    } else {
+      // Opened outside Telegram Mini App
+      setTgAuthStatus('outside_telegram');
+    }
 
     // Check Telegram Start Param for Group Invite (e.g. startapp=group_YABEDE77)
     if (window.Telegram?.WebApp?.initDataUnsafe?.start_param) {
@@ -232,7 +235,7 @@ export default function App() {
           .catch(console.error);
       }
     }
-  }, [currentUser.id]);
+  }, []);
 
   // Connect Socket.IO
   useEffect(() => {
@@ -805,6 +808,84 @@ export default function App() {
       console.warn('Adjust balance note:', err);
     }
   };
+
+  if (tgAuthStatus === 'outside_telegram' && activeTab !== 'admin' && !import.meta.env.DEV) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="max-w-md w-full bg-slate-900/90 border border-slate-800 rounded-3xl p-6 md:p-8 text-center shadow-2xl backdrop-blur-xl relative z-10 space-y-6">
+          <div className="w-20 h-20 bg-amber-500/10 border-2 border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto text-4xl shadow-inner">
+            📱
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-2xl font-black text-amber-400 tracking-tight">YABEDE BINGO</h1>
+            <p className="text-sm font-bold text-slate-200">Please Open from Telegram Mini App</p>
+            <p className="text-xs text-slate-400 leading-relaxed pt-1">
+              To guarantee real account security, Telegram identity verification, and instant payouts, Yabede Bingo must be accessed directly through our official Telegram Bot.
+            </p>
+          </div>
+
+          <div className="space-y-3 pt-2">
+            <a
+              href="https://t.me/yabede_bingo_bot"
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all transform hover:scale-[1.02]"
+            >
+              <span>🎮 Open Telegram Bot (@yabede_bingo_bot)</span>
+            </a>
+
+            <button
+              onClick={() => setActiveTab('admin')}
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-300 transition-colors"
+            >
+              🔑 Administrator Access
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (tgAuthStatus === 'auth_error' && activeTab !== 'admin') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 relative overflow-hidden">
+        <div className="max-w-md w-full bg-slate-900/90 border border-red-500/30 rounded-3xl p-6 md:p-8 text-center shadow-2xl backdrop-blur-xl relative z-10 space-y-6">
+          <div className="w-16 h-16 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto text-3xl">
+            ⚠️
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-xl font-black text-red-400">Telegram Authentication Failed</h2>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {tgAuthErrorMessage || 'Could not verify your Telegram signature. Please re-open the application from Telegram.'}
+            </p>
+          </div>
+
+          <div className="space-y-3 pt-2">
+            <a
+              href="https://t.me/yabede_bingo_bot"
+              target="_blank"
+              rel="noreferrer"
+              className="w-full py-3 px-6 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-2 transition"
+            >
+              <span>🔄 Re-open from Telegram Bot</span>
+            </a>
+
+            <button
+              onClick={() => setActiveTab('admin')}
+              className="w-full py-2 px-4 rounded-xl bg-slate-800 text-xs text-slate-400 hover:text-white transition"
+            >
+              Administrator Panel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

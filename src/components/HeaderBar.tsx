@@ -236,9 +236,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </div>
 
             <div className="hidden md:block">
-              <div className="text-xs font-bold text-slate-200">{isLoggedIn ? user.firstName : 'none'}</div>
+              <div className="text-xs font-bold text-slate-200">{isLoggedIn ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}` : 'Guest'}</div>
               <div className="text-[10px] text-amber-400 font-medium">
-                {isLoggedIn ? (user.phone ? 'Phone Verified' : `@${user.username}`) : 'none'}
+                {isLoggedIn ? (user.username ? `@${user.username}` : (user.phone ? user.phone : `ID: ${user.telegramId || user.id}`)) : 'Not Authenticated'}
               </div>
             </div>
           </div>

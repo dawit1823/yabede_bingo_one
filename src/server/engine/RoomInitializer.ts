@@ -1,6 +1,7 @@
 import { BingoRoom } from '../../types.js';
 import { generateGameReferenceId } from '../db.js';
 import { firestoreRepository } from './FirestoreRepository.js';
+import { adminService } from '../adminService.js';
 
 export interface OfficialRoomConfig {
   id: string;
@@ -49,9 +50,14 @@ export class RoomInitializer {
   public async initializeOfficialRooms(memoryRooms: Map<string, BingoRoom>): Promise<BingoRoom[]> {
     console.log('🏛️ [RoomInitializer] Checking & initializing official Bingo rooms...');
 
+    const settings = adminService.getSystemSettings();
+    const countdownSec = settings.countdownDurationSeconds || 45;
+    const maxP = settings.maxPlayers || 400;
+    const minP = settings.minPlayers || 1;
+
     const nowMs = Date.now();
     const startTime = new Date(nowMs).toISOString();
-    const endTime = new Date(nowMs + 45000).toISOString();
+    const endTime = new Date(nowMs + countdownSec * 1000).toISOString();
 
     const initializedRooms: BingoRoom[] = [];
 
@@ -67,15 +73,15 @@ export class RoomInitializer {
           description: config.description,
           icon: config.icon,
           ticketPrice: config.ticketPrice,
-          minPlayers: 1,
-          maxPlayers: 400,
+          minPlayers: minP,
+          maxPlayers: maxP,
           status: 'WAITING',
           currentBall: null,
           drawnBalls: [],
           winningPatterns: ['ONE_LINE', 'TWO_LINES', 'FOUR_CORNERS', 'FULL_HOUSE'],
           prizePool: 0,
           platformFee: 0,
-          countdownSeconds: 45,
+          countdownSeconds: countdownSec,
           activePlayersCount: 0,
           ticketsSold: 0,
           createdAt: new Date().toISOString(),

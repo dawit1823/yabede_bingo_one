@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   AuditLog,
   DepositRequest,
@@ -107,13 +107,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // System Settings State
   const [platformSettings, setPlatformSettings] = useState<any>({
     ticketPrices: [10, 50, 100, 200],
-    platformFeePercent: 10,
+    platformFeePercent: 20,
+    prizePercentage: 80,
     countdownDurationSeconds: 45,
+    ballDrawIntervalSeconds: 3,
+    resultScreenDurationSeconds: 15,
+    maxCardsPerPlayer: 50,
+    maxPlayers: 400,
+    minPlayers: 1,
+    cardReservationTimeoutSeconds: 60,
+    autoRestartGame: true,
+    autoResetCards: true,
+    allowSpectators: true,
     referralRewardBirr: 25,
     welcomeBonusBirr: 100,
     minDepositBirr: 50,
     minWithdrawalBirr: 100,
   });
+  const [isSettingsDirty, setIsSettingsDirty] = useState<boolean>(false);
+  const isSettingsDirtyRef = useRef<boolean>(false);
+
+  const markSettingsDirty = () => {
+    isSettingsDirtyRef.current = true;
+    setIsSettingsDirty(true);
+  };
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string>('');
+  const [isSavingSettings, setIsSavingSettings] = useState<boolean>(false);
 
   // Announcement / Broadcaster State
   const [announcementTitle, setAnnouncementTitle] = useState('');
@@ -364,7 +383,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setDashboardMetrics(data.metrics);
         setAuditLogs(data.auditLogs || []);
         setPaymentMethods(data.paymentMethods || []);
-        if (data.settings) setPlatformSettings(data.settings);
+        if (data.settings && !isSettingsDirtyRef.current) setPlatformSettings(data.settings);
         if (data.adminProfile) setAdminProfileData(data.adminProfile);
       }
 
@@ -472,7 +491,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const setRes = await fetch('/api/admin/settings');
       if (setRes.ok) {
         const setData = await setRes.json();
-        if (setData.settings) setPlatformSettings(setData.settings);
+        if (setData.settings && !isSettingsDirtyRef.current) setPlatformSettings(setData.settings);
         if (setData.history) setSettingsHistoryList(setData.history || []);
       }
     } catch {
@@ -761,23 +780,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleExecuteSaveSettings = async () => {
+    setIsSavingSettings(true);
+    setSaveSuccessMessage('');
     try {
       const res = await fetch('/api/admin/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(platformSettings),
       });
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Settings save failed');
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Settings save failed');
       }
+      if (data.settings) {
+        setPlatformSettings(data.settings);
+      }
+      isSettingsDirtyRef.current = false;
+      setIsSettingsDirty(false);
+      setSaveSuccessMessage('⚙️ System settings successfully updated, saved to Firestore, and live across all game engine loops!');
+      setTimeout(() => setSaveSuccessMessage(''), 6000);
       triggerNotificationHaptic('success');
-      alert('⚙️ System configuration validated, saved to Firestore, and live across all game rooms!');
       setShowSettingsConfirmModal(false);
       fetchAdminData();
     } catch (err: any) {
       triggerNotificationHaptic('error');
       alert(err.message || 'Failed to save settings');
+    } finally {
+      setIsSavingSettings(false);
     }
   };
 
@@ -2717,6 +2746,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
             </div>
 
+            {/* Success banner if saved */}
+            {saveSuccessMessage && (
+              <div className="bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-2xl p-4 text-xs font-bold flex items-center justify-between gap-2 shadow-lg animate-fade-in">
+                <span>{saveSuccessMessage}</span>
+                <button onClick={() => setSaveSuccessMessage('')} className="text-emerald-400 hover:text-white font-extrabold text-sm">✕</button>
+              </div>
+            )}
+
             {/* Editable Settings Form */}
             <form onSubmit={handlePromptSaveSettings} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl">
               {/* CATEGORY 1: GAME SETTINGS */}
@@ -2732,8 +2769,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Countdown Duration (seconds):</label>
                       <input
                         type="number"
-                        value={platformSettings.countdownDurationSeconds || 45}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, countdownDurationSeconds: Number(e.target.value) })}
+                        min="5"
+                        value={platformSettings.countdownDurationSeconds ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, countdownDurationSeconds: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                       <p className="text-[10px] text-slate-500 mt-1">Lobby countdown timer before game starts.</p>
@@ -2743,8 +2785,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Ball Draw Interval (seconds):</label>
                       <input
                         type="number"
-                        value={platformSettings.ballDrawIntervalSeconds || 3}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, ballDrawIntervalSeconds: Number(e.target.value) })}
+                        min="1"
+                        value={platformSettings.ballDrawIntervalSeconds ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, ballDrawIntervalSeconds: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                       <p className="text-[10px] text-slate-500 mt-1">Time between consecutive random ball calls.</p>
@@ -2754,8 +2801,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Result Screen Duration (seconds):</label>
                       <input
                         type="number"
-                        value={platformSettings.resultScreenDurationSeconds || 15}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, resultScreenDurationSeconds: Number(e.target.value) })}
+                        min="1"
+                        value={platformSettings.resultScreenDurationSeconds ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, resultScreenDurationSeconds: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                       <p className="text-[10px] text-slate-500 mt-1">Celebration overlay delay before room resets.</p>
@@ -2765,8 +2817,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Max Cards Per Player:</label>
                       <input
                         type="number"
-                        value={platformSettings.maxCardsPerPlayer || 50}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, maxCardsPerPlayer: Number(e.target.value) })}
+                        min="1"
+                        value={platformSettings.maxCardsPerPlayer ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, maxCardsPerPlayer: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                     </div>
@@ -2775,8 +2832,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Max Players Per Room:</label>
                       <input
                         type="number"
-                        value={platformSettings.maxPlayers || 400}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, maxPlayers: Number(e.target.value) })}
+                        min="1"
+                        value={platformSettings.maxPlayers ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, maxPlayers: val }));
+                          markSettingsDirty();
+                        }}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-slate-400 font-bold block mb-1">Min Players To Start:</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={platformSettings.minPlayers ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, minPlayers: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                     </div>
@@ -2785,8 +2862,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Card Reservation Timeout (sec):</label>
                       <input
                         type="number"
-                        value={platformSettings.cardReservationTimeoutSeconds || 60}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, cardReservationTimeoutSeconds: Number(e.target.value) })}
+                        min="5"
+                        value={platformSettings.cardReservationTimeoutSeconds ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, cardReservationTimeoutSeconds: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                     </div>
@@ -2795,8 +2877,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Platform Rake Fee (%):</label>
                       <input
                         type="number"
-                        value={platformSettings.platformFeePercent || 20}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, platformFeePercent: Number(e.target.value) })}
+                        min="0"
+                        max="100"
+                        value={platformSettings.platformFeePercent ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Math.min(100, Math.max(0, Number(e.target.value)));
+                          const prize = val === '' ? '' : 100 - Number(val);
+                          setPlatformSettings((prev: any) => ({
+                            ...prev,
+                            platformFeePercent: val,
+                            prizePercentage: prize,
+                          }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                       <p className="text-[10px] text-slate-500 mt-1">House commission percentage from ticket sales.</p>
@@ -2806,20 +2899,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Winner Prize Share (%):</label>
                       <input
                         type="number"
-                        value={platformSettings.prizePercentage || 80}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, prizePercentage: Number(e.target.value) })}
+                        min="0"
+                        max="100"
+                        value={platformSettings.prizePercentage ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Math.min(100, Math.max(0, Number(e.target.value)));
+                          const fee = val === '' ? '' : 100 - Number(val);
+                          setPlatformSettings((prev: any) => ({
+                            ...prev,
+                            prizePercentage: val,
+                            platformFeePercent: fee,
+                          }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                       <p className="text-[10px] text-slate-500 mt-1">Direct payout allocation for round winner(s).</p>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-6 pt-2">
+                  <div className="flex flex-wrap items-center gap-6 pt-2">
                     <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-200">
                       <input
                         type="checkbox"
                         checked={platformSettings.autoRestartGame ?? true}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, autoRestartGame: e.target.checked })}
+                        onChange={(e) => {
+                          setPlatformSettings((prev: any) => ({ ...prev, autoRestartGame: e.target.checked }));
+                          markSettingsDirty();
+                        }}
                         className="w-4 h-4 rounded text-amber-500 bg-slate-950 border-slate-800"
                       />
                       <span>Auto Restart Games When Round Finishes</span>
@@ -2829,7 +2936,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <input
                         type="checkbox"
                         checked={platformSettings.autoResetCards ?? true}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, autoResetCards: e.target.checked })}
+                        onChange={(e) => {
+                          setPlatformSettings((prev: any) => ({ ...prev, autoResetCards: e.target.checked }));
+                          markSettingsDirty();
+                        }}
                         className="w-4 h-4 rounded text-amber-500 bg-slate-950 border-slate-800"
                       />
                       <span>Clear Transient Reservations on Reset</span>
@@ -2839,7 +2949,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <input
                         type="checkbox"
                         checked={platformSettings.allowSpectators ?? true}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, allowSpectators: e.target.checked })}
+                        onChange={(e) => {
+                          setPlatformSettings((prev: any) => ({ ...prev, allowSpectators: e.target.checked }));
+                          markSettingsDirty();
+                        }}
                         className="w-4 h-4 rounded text-amber-500 bg-slate-950 border-slate-800"
                       />
                       <span>Allow Non-Playing Spectators</span>
@@ -2861,8 +2974,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Minimum Deposit (Birr):</label>
                       <input
                         type="number"
-                        value={platformSettings.minDepositBirr || 50}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, minDepositBirr: Number(e.target.value) })}
+                        value={platformSettings.minDepositBirr ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, minDepositBirr: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                     </div>
@@ -2871,8 +2988,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Maximum Deposit (Birr):</label>
                       <input
                         type="number"
-                        value={platformSettings.maxDepositBirr || 100000}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, maxDepositBirr: Number(e.target.value) })}
+                        value={platformSettings.maxDepositBirr ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, maxDepositBirr: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                     </div>
@@ -2881,8 +3002,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Minimum Withdrawal (Birr):</label>
                       <input
                         type="number"
-                        value={platformSettings.minWithdrawalBirr || 100}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, minWithdrawalBirr: Number(e.target.value) })}
+                        value={platformSettings.minWithdrawalBirr ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, minWithdrawalBirr: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                     </div>
@@ -2891,8 +3016,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Maximum Withdrawal (Birr):</label>
                       <input
                         type="number"
-                        value={platformSettings.maxWithdrawalBirr || 50000}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, maxWithdrawalBirr: Number(e.target.value) })}
+                        value={platformSettings.maxWithdrawalBirr ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, maxWithdrawalBirr: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                     </div>
@@ -2903,7 +3032,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <input
                         type="checkbox"
                         checked={platformSettings.autoApproveDeposits ?? false}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, autoApproveDeposits: e.target.checked })}
+                        onChange={(e) => {
+                          setPlatformSettings((prev: any) => ({ ...prev, autoApproveDeposits: e.target.checked }));
+                          markSettingsDirty();
+                        }}
                         className="w-4 h-4 rounded text-amber-500 bg-slate-950 border-slate-800"
                       />
                       <span>Auto Approve Valid Deposits</span>
@@ -2913,7 +3045,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <input
                         type="checkbox"
                         checked={platformSettings.autoApproveWithdrawals ?? false}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, autoApproveWithdrawals: e.target.checked })}
+                        onChange={(e) => {
+                          setPlatformSettings((prev: any) => ({ ...prev, autoApproveWithdrawals: e.target.checked }));
+                          markSettingsDirty();
+                        }}
                         className="w-4 h-4 rounded text-amber-500 bg-slate-950 border-slate-800"
                       />
                       <span>Auto Approve Small Withdrawals</span>
@@ -2935,8 +3070,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Referral Reward (Birr):</label>
                       <input
                         type="number"
-                        value={platformSettings.referralRewardBirr || 25}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, referralRewardBirr: Number(e.target.value) })}
+                        value={platformSettings.referralRewardBirr ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, referralRewardBirr: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                     </div>
@@ -2945,8 +3084,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">New Player Welcome Gift (Birr):</label>
                       <input
                         type="number"
-                        value={platformSettings.welcomeBonusBirr || 100}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, welcomeBonusBirr: Number(e.target.value) })}
+                        value={platformSettings.welcomeBonusBirr ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, welcomeBonusBirr: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                     </div>
@@ -2955,8 +3098,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <label className="text-slate-400 font-bold block mb-1">Max Referral Bonus Limit (Birr):</label>
                       <input
                         type="number"
-                        value={platformSettings.maxReferralBonusBirr || 5000}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, maxReferralBonusBirr: Number(e.target.value) })}
+                        value={platformSettings.maxReferralBonusBirr ?? ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          setPlatformSettings((prev: any) => ({ ...prev, maxReferralBonusBirr: val }));
+                          markSettingsDirty();
+                        }}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold"
                       />
                     </div>
@@ -2986,7 +3133,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <input
                         type="checkbox"
                         checked={platformSettings.maintenanceMode ?? false}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, maintenanceMode: e.target.checked })}
+                        onChange={(e) => {
+                          setPlatformSettings((prev: any) => ({ ...prev, maintenanceMode: e.target.checked }));
+                          markSettingsDirty();
+                        }}
                         className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-800"
                       />
                       <div>
@@ -2999,7 +3149,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <input
                         type="checkbox"
                         checked={platformSettings.enableRegistration ?? true}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, enableRegistration: e.target.checked })}
+                        onChange={(e) => {
+                          setPlatformSettings((prev: any) => ({ ...prev, enableRegistration: e.target.checked }));
+                          markSettingsDirty();
+                        }}
                         className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-800"
                       />
                       <div>
@@ -3012,7 +3165,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <input
                         type="checkbox"
                         checked={platformSettings.enableDeposits ?? true}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, enableDeposits: e.target.checked })}
+                        onChange={(e) => {
+                          setPlatformSettings((prev: any) => ({ ...prev, enableDeposits: e.target.checked }));
+                          markSettingsDirty();
+                        }}
                         className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-800"
                       />
                       <div>
@@ -3025,7 +3181,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <input
                         type="checkbox"
                         checked={platformSettings.enableWithdrawals ?? true}
-                        onChange={(e) => setPlatformSettings({ ...platformSettings, enableWithdrawals: e.target.checked })}
+                        onChange={(e) => {
+                          setPlatformSettings((prev: any) => ({ ...prev, enableWithdrawals: e.target.checked }));
+                          markSettingsDirty();
+                        }}
                         className="w-4 h-4 rounded text-amber-500 bg-slate-900 border-slate-800"
                       />
                       <div>

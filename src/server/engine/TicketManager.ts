@@ -2,6 +2,7 @@ import { BingoTicket, BingoRoom, UserProfile, WalletTransaction } from '../../ty
 import { db } from '../db.js';
 import { adminDb } from '../firebaseAdmin.js';
 import { generateCardMatrixByNumber } from '../../lib/bingoUtils.js';
+import { adminService } from '../adminService.js';
 
 export interface CardReservation {
   id: string;
@@ -131,8 +132,11 @@ export class TicketManager {
 
       room.ticketsSold = Math.max(0, (room.ticketsSold || 1) - 1);
       const totalSales = room.ticketsSold * room.ticketPrice;
-      room.prizePool = Math.round(totalSales * 0.80);
-      room.platformFee = Math.round(totalSales * 0.20);
+      const settings = adminService.getSystemSettings();
+      const platformFeePct = settings.platformFeePercent ?? 20;
+      const prizePct = settings.prizePercentage ?? 80;
+      room.prizePool = Math.round(totalSales * (prizePct / 100));
+      room.platformFee = Math.round(totalSales * (platformFeePct / 100));
 
       // Delete reservation document from Firestore
       adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`).delete().catch(console.warn);
@@ -181,8 +185,11 @@ export class TicketManager {
 
     room.ticketsSold = (room.ticketsSold || 0) + 1;
     const totalSales = room.ticketsSold * room.ticketPrice;
-    room.prizePool = Math.round(totalSales * 0.80);
-    room.platformFee = Math.round(totalSales * 0.20);
+    const settings = adminService.getSystemSettings();
+    const platformFeePct = settings.platformFeePercent ?? 20;
+    const prizePct = settings.prizePercentage ?? 80;
+    room.prizePool = Math.round(totalSales * (prizePct / 100));
+    room.platformFee = Math.round(totalSales * (platformFeePct / 100));
 
     // Save ticket and reservation to Firestore asynchronously
     adminDb.collection('tickets').doc(ticketId).set(newTicket).catch(console.warn);

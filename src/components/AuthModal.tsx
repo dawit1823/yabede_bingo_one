@@ -588,7 +588,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         {currentUser.role || 'USER'}
                       </span>
                     </div>
-                    <div className="text-xs text-slate-400">@{currentUser.username}</div>
+                    <div className="text-xs text-slate-400">
+                      {currentUser.username ? `@${currentUser.username}` : `Telegram ID: ${currentUser.telegramId || currentUser.id}`}
+                    </div>
                     <div className="text-[11px] text-emerald-400 font-mono mt-0.5">
                       Phone: {currentUser.phone || 'Telegram Session'}
                     </div>

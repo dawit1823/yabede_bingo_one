@@ -5,9 +5,13 @@
 
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { db } from './db.js';
 import { adminDb } from './firebaseAdmin.js';
+import { userRepository } from './repositories/UserRepository.js';
 import { gameEngine } from './engine/GameEngine.js';
+
+const JWT_SECRET = 'yabede_bingo_super_secret_jwt_key_2026';
 import { generateCardMatrixByNumber } from '../lib/bingoUtils.js';
 import { clearAndResetAllBingoGames } from './bingoEngine.js';
 import { paymentRegistry } from './paymentProviders.js';
@@ -244,55 +248,89 @@ apiRouter.get('/online-users', (req: Request, res: Response) => {
   res.json({ count: Math.max(1, users.filter(u => u.status === 'ACTIVE').length || 1) });
 });
 
-apiRouter.post('/auth/telegram-login', async (req: Request, res: Response) => {
+// --- REAL TELEGRAM MINI APP AUTHENTICATION ENDPOINTS ---
+const handleTelegramAuth = async (req: Request, res: Response) => {
   try {
-    const { initData, mockUser } = req.body;
+    const { initData } = req.body;
 
-    let tgUser = mockUser;
-    if (initData) {
-      const verified = telegramBot.verifyInitData(initData);
-      if (verified.valid && verified.user) {
-        tgUser = verified.user;
+    if (!initData || typeof initData !== 'string') {
+      res.status(400).json({
+        success: false,
+        error: 'MISSING_INIT_DATA',
+        message: 'Telegram initData string is required for real Telegram Mini App authentication',
+      });
+      return;
+    }
+
+    // Perform real Telegram HMAC-SHA256 signature and auth_date validation
+    const verification = telegramBot.verifyInitData(initData);
+    if (!verification.valid || !verification.user) {
+      res.status(401).json({
+        success: false,
+        error: verification.error || 'UNAUTHORIZED',
+        message: verification.message || 'Telegram WebApp authentication signature verification failed',
+      });
+      return;
+    }
+
+    const tgUser = verification.user;
+    const telegramId = Number(tgUser.id);
+
+    // Look up existing Telegram user or auto-register in Firestore & memory
+    let user = db.getUserByTelegramId(telegramId);
+
+    if (!user) {
+      // Query Firestore as fallback if not in memory cache
+      const firestoreUser = await userRepository.getUserByTelegramId(telegramId);
+      if (firestoreUser) {
+        user = firestoreUser;
+        db.saveUser(user);
       }
     }
 
-    if (!tgUser || !tgUser.id) {
-      res.status(400).json({
-        success: false,
-        error: 'INVALID_TELEGRAM_USER',
-        message: 'Telegram User ID missing from session',
+    if (!user) {
+      // Auto-register new Telegram user in Firestore & memory
+      user = db.findOrCreateTelegramUser({
+        id: telegramId,
+        first_name: tgUser.first_name,
+        last_name: tgUser.last_name,
+        username: tgUser.username,
+        language_code: tgUser.language_code,
+        photo_url: tgUser.photo_url,
       });
-      return;
+
+      await userRepository.saveUser(user);
+    } else {
+      // Update profile details for existing user
+      user.firstName = tgUser.first_name || user.firstName;
+      if (tgUser.last_name !== undefined) user.lastName = tgUser.last_name;
+      if (tgUser.username !== undefined) user.username = tgUser.username;
+      if (tgUser.photo_url) user.photoUrl = tgUser.photo_url;
+      user.lastLogin = new Date().toISOString();
+      db.saveUser(user);
+      await userRepository.saveUser(user);
     }
 
-    // Check if user is registered in Firestore / DB
-    const existingUser = db.getUserByTelegramId(Number(tgUser.id));
-
-    if (!existingUser) {
-      res.status(403).json({
-        success: false,
-        registered: false,
-        error: 'USER_NOT_REGISTERED',
-        message: 'All new users must register through the Telegram Bot first before accessing the Mini App.',
-        botUrl: `https://t.me/yabede_bingo_bot`,
-      });
-      return;
-    }
-
-    // Update last login
-    existingUser.lastLogin = new Date().toISOString();
-    db.saveUser(existingUser);
+    // Issue JWT token signed with JWT_SECRET
+    const token = jwt.sign(
+      { userId: user.id, telegramId: user.telegramId, role: user.role || 'USER' },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     res.json({
       success: true,
       registered: true,
-      token: `jwt_token_${existingUser.id}_${Date.now()}`,
-      user: existingUser,
+      token,
+      user,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Telegram auth failed' });
+    res.status(500).json({ success: false, error: err.message || 'Telegram auth failed' });
   }
-});
+};
+
+apiRouter.post('/auth/telegram', handleTelegramAuth);
+apiRouter.post('/auth/telegram-login', handleTelegramAuth);
 
 // --- TELEGRAM BOT WEBHOOK & SIMULATOR ENDPOINTS ---
 apiRouter.post('/telegram/webhook', async (req: Request, res: Response) => {
@@ -1338,15 +1376,7 @@ apiRouter.get('/system/settings', (req: Request, res: Response) => {
   const settings = adminService.getSystemSettings();
   res.json({
     success: true,
-    maintenanceMode: settings.maintenanceMode || false,
-    countdownDurationSeconds: settings.countdownDurationSeconds,
-    ballDrawIntervalSeconds: settings.ballDrawIntervalSeconds,
-    enableRegistration: settings.enableRegistration ?? true,
-    enableLogin: settings.enableLogin ?? true,
-    enableDeposits: settings.enableDeposits ?? true,
-    enableWithdrawals: settings.enableWithdrawals ?? true,
-    welcomeBonusBirr: settings.welcomeBonusBirr || 100,
-    referralRewardBirr: settings.referralRewardBirr || 25,
+    ...settings,
   });
 });
 
@@ -2478,11 +2508,14 @@ apiRouter.post('/bingo/buy-card', async (req: Request, res: Response) => {
         }
       }
 
-      // Calculate 80% prize pool formula (20% platform rake)
+      // Calculate prize pool formula based on system settings
+      const sysSettings = adminService.getSystemSettings();
+      const platformFeePct = sysSettings.platformFeePercent ?? 20;
+      const prizePct = sysSettings.prizePercentage ?? 80;
       const currentTicketsSold = ((room as any).ticketsSold || 0) + 1;
       const totalTicketSales = currentTicketsSold * room.ticketPrice;
-      const newPrizePool = Math.round(totalTicketSales * 0.80);
-      const newPlatformFee = Math.round(totalTicketSales * 0.20);
+      const newPrizePool = Math.round(totalTicketSales * (prizePct / 100));
+      const newPlatformFee = Math.round(totalTicketSales * (platformFeePct / 100));
       const newBalance = user.walletBalance - room.ticketPrice;
 
       // Deterministic matrix generation
@@ -2686,8 +2719,11 @@ apiRouter.post('/bingo/toggle-card', async (req: Request, res: Response) => {
         // --- DESELECT / RELEASE CARD (REFUND) ---
         const currentTicketsSold = Math.max(0, ((room as any).ticketsSold || 0) - 1);
         const totalTicketSales = currentTicketsSold * room.ticketPrice;
-        const newPrizePool = Math.round(totalTicketSales * 0.80);
-        const newPlatformFee = Math.round(totalTicketSales * 0.20);
+        const sysSettings = adminService.getSystemSettings();
+        const platformFeePct = sysSettings.platformFeePercent ?? 20;
+        const prizePct = sysSettings.prizePercentage ?? 80;
+        const newPrizePool = Math.round(totalTicketSales * (prizePct / 100));
+        const newPlatformFee = Math.round(totalTicketSales * (platformFeePct / 100));
         const newBalance = user.walletBalance + room.ticketPrice;
 
         const ticketQuery = await adminDb.collection('tickets')
@@ -2779,18 +2815,22 @@ apiRouter.post('/bingo/toggle-card', async (req: Request, res: Response) => {
           .where('status', '==', 'ACTIVE')
           .get();
 
-        if (myActiveTicketsSnap.docs.length >= 50) {
-          throw new Error('Maximum limit of 50 cards per player reached for this round.');
+        const sysSettings = adminService.getSystemSettings();
+        const maxCards = sysSettings.maxCardsPerPlayer || 50;
+        if (myActiveTicketsSnap.docs.length >= maxCards) {
+          throw new Error(`Maximum limit of ${maxCards} cards per player reached for this round.`);
         }
 
         if (user.walletBalance < room.ticketPrice) {
           throw new Error(`Insufficient wallet balance (${user.walletBalance} Birr available, ${room.ticketPrice} Birr required)`);
         }
 
+        const platformFeePct = sysSettings.platformFeePercent ?? 20;
+        const prizePct = sysSettings.prizePercentage ?? 80;
         const currentTicketsSold = ((room as any).ticketsSold || 0) + 1;
         const totalTicketSales = currentTicketsSold * room.ticketPrice;
-        const newPrizePool = Math.round(totalTicketSales * 0.80);
-        const newPlatformFee = Math.round(totalTicketSales * 0.20);
+        const newPrizePool = Math.round(totalTicketSales * (prizePct / 100));
+        const newPlatformFee = Math.round(totalTicketSales * (platformFeePct / 100));
         const newBalance = user.walletBalance - room.ticketPrice;
 
         const matrix = generateCardMatrixByNumber(cardNum);

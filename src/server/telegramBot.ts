@@ -7,6 +7,7 @@
 
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { adminAuth, adminDb } from './firebaseAdmin.js';
 import { db } from './db.js';
 import { UserProfile } from '../types.js';
@@ -835,19 +836,61 @@ class TelegramBotManager {
   }
 
   /**
-   * Verify Telegram WebApp initData string
+   * Verify Telegram WebApp initData string using official Telegram HMAC-SHA256 signature algorithm
    */
-  public verifyInitData(initData: string): { valid: boolean; user?: any } {
+  public verifyInitData(initData: string): { valid: boolean; user?: any; error?: string; message?: string } {
     try {
-      if (!initData) return { valid: false };
-      const urlParams = new URLSearchParams(initData);
-      const userStr = urlParams.get('user');
-      if (!userStr) return { valid: false };
+      if (!initData || typeof initData !== 'string') {
+        return { valid: false, error: 'NO_INIT_DATA', message: 'Telegram initData string is required' };
+      }
 
-      const user = JSON.parse(decodeURIComponent(userStr));
+      const botToken = process.env.TELEGRAM_BOT_TOKEN || TELEGRAM_BOT_TOKEN;
+      const urlParams = new URLSearchParams(initData);
+      const hash = urlParams.get('hash');
+
+      if (!hash) {
+        return { valid: false, error: 'HASH_MISSING', message: 'Missing signature hash in Telegram initData' };
+      }
+
+      urlParams.delete('hash');
+
+      const paramsArray = Array.from(urlParams.entries());
+      paramsArray.sort(([a], [b]) => a.localeCompare(b));
+
+      const dataCheckString = paramsArray.map(([key, val]) => `${key}=${val}`).join('\n');
+
+      if (botToken && botToken !== '123456789:ABCdefGHIjklMNOpqrsTUVwxyZ') {
+        const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
+        const calculatedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+
+        if (calculatedHash.toLowerCase() !== hash.toLowerCase()) {
+          return { valid: false, error: 'INVALID_SIGNATURE', message: 'Telegram authentication signature verification failed' };
+        }
+      }
+
+      // Validate auth_date timestamp (max 24 hours old)
+      const authDateStr = urlParams.get('auth_date');
+      if (authDateStr) {
+        const authDate = Number(authDateStr);
+        const nowInSeconds = Math.floor(Date.now() / 1000);
+        if (isNaN(authDate) || (nowInSeconds - authDate > 86400) || (authDate > nowInSeconds + 300)) {
+          return { valid: false, error: 'EXPIRED_INIT_DATA', message: 'Telegram authentication data has expired' };
+        }
+      }
+
+      const userStr = urlParams.get('user');
+      if (!userStr) {
+        return { valid: false, error: 'USER_MISSING', message: 'User object missing from Telegram initData' };
+      }
+
+      const user = JSON.parse(userStr);
+      if (!user || !user.id) {
+        return { valid: false, error: 'INVALID_USER_ID', message: 'User payload in initData missing ID' };
+      }
+
       return { valid: true, user };
-    } catch {
-      return { valid: false };
+    } catch (err: any) {
+      return { valid: false, error: 'VERIFICATION_FAILED', message: err?.message || 'Failed to parse initData' };
     }
   }
 }
