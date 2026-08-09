@@ -34,7 +34,7 @@ apiRouter.get('/admin/auth/status', (req: Request, res: Response) => {
   });
 });
 
-apiRouter.post('/admin/auth/login-step1', async (req: Request, res: Response) => {
+const handleAdminLogin = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
     const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
@@ -45,7 +45,10 @@ apiRouter.post('/admin/auth/login-step1', async (req: Request, res: Response) =>
   } catch (err: any) {
     res.status(401).json({ error: err.message || 'Administrator authentication failed' });
   }
-});
+};
+
+apiRouter.post('/admin/auth/login', handleAdminLogin);
+apiRouter.post('/admin/auth/login-step1', handleAdminLogin);
 
 apiRouter.post('/admin/auth/login-step2', async (req: Request, res: Response) => {
   try {

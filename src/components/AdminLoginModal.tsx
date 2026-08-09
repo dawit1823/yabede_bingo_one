@@ -23,7 +23,7 @@ interface AdminLoginModalProps {
   language: 'en' | 'am';
 }
 
-type AdminAuthView = 'password_step' | '2fa_step' | 'forgot_request' | 'forgot_reset';
+type AdminAuthView = 'password_step' | 'forgot_request' | 'forgot_reset';
 
 export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   isOpen,
@@ -38,8 +38,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
   // Form inputs
   const [password, setPassword] = useState('');
-  const [step2Token, setStep2Token] = useState('');
-  const [otpCode, setOtpCode] = useState('');
 
   // Password Reset state
   const [resetCode, setResetCode] = useState('');
@@ -59,7 +57,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setLoading(false);
   };
 
-  // Handle Password Submit (Step 1)
+  // Handle Password Submit (Direct Login)
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     resetFormState();
@@ -79,53 +77,17 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       });
 
       const data = await res.json();
-      if (!res.ok || !data.requires2FA) {
+      if (!res.ok || !data.token) {
         throw new Error(data.error || 'Authentication failed');
       }
 
       triggerHaptic('heavy');
-      setStep2Token(data.step2Token);
       setSuccessMsg(
         language === 'am'
-          ? `የማረጋገጫ ኮድ ወደ ${FIXED_EMAIL} ተልኳል!`
-          : `Verification code sent to ${FIXED_EMAIL}!`
+          ? '🎉 እንኳን ደህና መጡ! ወደ ዳሽቦርድ በመግባት ላይ...'
+          : '🎉 SuperAdmin Authenticated! Launching Dashboard...'
       );
-      setView('2fa_step');
-    } catch (err: any) {
-      triggerHaptic('light');
-      setErrorMsg(err.message || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  // Handle 2FA OTP Code Submit (Step 2)
-  const handle2FASubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    resetFormState();
-
-    if (!otpCode || otpCode.trim().length < 6) {
-      setErrorMsg(language === 'am' ? 'እባክዎን ባለ 6 አሃዝ ኮድ ያስገቡ' : 'Please enter valid 6-digit verification code.');
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const res = await fetch('/api/admin/auth/login-step2', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step2Token, otpCode }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.token) {
-        throw new Error(data.error || '2-Step Verification failed');
-      }
-
-      triggerHaptic('heavy');
-      setSuccessMsg(language === 'am' ? '🎉 እንኳን ደህና መጡ! ወደ ዳሽቦርድ በመግባት ላይ...' : '🎉 SuperAdmin Authenticated! Launching Dashboard...');
-      
       sessionStorage.setItem('ahun_admin_token', data.token);
 
       setTimeout(() => {
@@ -134,7 +96,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       }, 1000);
     } catch (err: any) {
       triggerHaptic('light');
-      setErrorMsg(err.message || 'Verification failed');
+      setErrorMsg(err.message || 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -346,80 +308,15 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 </>
               ) : (
                 <>
-                  <span>{language === 'am' ? 'ቀጥል (2-ደረጃ ማረጋገጫ)' : 'Proceed to 2-Step Verification'}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
-        )}
-
-        {/* VIEW 2: TWO-STEP VERIFICATION OTP CODE */}
-        {view === '2fa_step' && (
-          <form onSubmit={handle2FASubmit} className="space-y-4">
-            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center space-y-1">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-amber-400">
-                {language === 'am' ? 'የኢሜይል ማረጋገጫ ተልኳል' : 'Email Verification Code Sent'}
-              </span>
-              <p className="text-xs text-slate-200">
-                {language === 'am'
-                  ? `ባለ 6 አሃዝ ማረጋገጫ ኮድ ወደ ${FIXED_EMAIL} ተልኳል።`
-                  : `Enter the 6-digit verification code sent to ${FIXED_EMAIL}.`}
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider text-center block">
-                {language === 'am' ? 'የ6 አሃዝ ማረጋገጫ ኮድ' : '6-Digit 2FA Verification Code'}
-              </label>
-              <div className="relative">
-                <KeyRound className="absolute left-3.5 top-3 w-4 h-4 text-emerald-400" />
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="e.g. 739201"
-                  required
-                  className="w-full bg-slate-950 border border-emerald-500/50 focus:border-emerald-400 rounded-2xl py-3 pl-10 pr-4 text-center text-lg font-mono font-bold tracking-widest text-emerald-300 placeholder-slate-600 outline-none transition"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition disabled:opacity-50"
-            >
-              {loading ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>{language === 'am' ? 'ማረጋገጫ በመፈተሽ ላይ...' : 'Validating 2FA Code...'}</span>
-                </>
-              ) : (
-                <>
                   <ShieldCheck className="w-4 h-4" />
-                  <span>{language === 'am' ? 'የአድሚን ዳሽቦርድ ክፈት' : 'Access SuperAdmin Dashboard'}</span>
+                  <span>{language === 'am' ? 'ወደ አድሚን ዳሽቦርድ ግባ' : 'Access SuperAdmin Dashboard'}</span>
                 </>
               )}
             </button>
-
-            <div className="text-center pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setErrorMsg(null);
-                  setView('password_step');
-                }}
-                className="text-[11px] text-slate-400 hover:text-white underline"
-              >
-                ← {language === 'am' ? 'ወደ የይለፍ ቃል ተመለስ' : 'Back to Password Entry'}
-              </button>
-            </div>
           </form>
         )}
 
-        {/* VIEW 3: FORGOT PASSWORD REQUEST */}
+        {/* VIEW 2: FORGOT PASSWORD REQUEST */}
         {view === 'forgot_request' && (
           <form onSubmit={handleForgotRequest} className="space-y-4">
             <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 text-slate-300 text-xs leading-relaxed">

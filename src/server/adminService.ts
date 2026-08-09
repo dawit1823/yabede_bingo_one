@@ -392,7 +392,7 @@ export class AdminService {
   }
 
   /**
-   * Step 1: Admin Password Authentication & 2FA Dispatch
+   * Admin Password Authentication & Direct Login (2FA removed)
    */
   public async loginStep1(
     email: string,
@@ -400,7 +400,7 @@ export class AdminService {
     ipAddress?: string,
     deviceInfo?: string,
     browser?: string
-  ): Promise<{ requires2FA: boolean; step2Token: string; message: string }> {
+  ): Promise<{ token: string; admin: AdminProfile }> {
     // 1. Strictly enforce fixed single email
     if (email.trim().toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
       await this.logAction('LOGIN_ATTEMPT', 'FAILED', `Unauthorized email attempted login: ${email}`, ipAddress, deviceInfo, browser);
@@ -447,25 +447,32 @@ export class AdminService {
     this.failedLoginAttempts = 0;
     this.lockedUntil = null;
 
-    // 4. Generate 6-Digit 2FA OTP Code
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const step2Token = `step2_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-    const expires = Date.now() + 10 * 60 * 1000; // 10 minutes
+    // Issue SuperAdmin Token directly
+    const adminToken = `admin_jwt_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+    this.activeAdminTokens.add(adminToken);
 
-    this.pending2FASessions.set(step2Token, {
-      code: otpCode,
-      expires,
-      ipAddress,
-      deviceInfo,
-    });
+    const now = new Date().toISOString();
+    if (this.adminProfile) {
+      this.adminProfile.lastLogin = now;
+      this.adminProfile.lastLoginIp = ipAddress || '127.0.0.1';
+      this.adminProfile.lastDevice = deviceInfo || 'Web Browser';
 
-    // Send email notification with OTP
-    await emailService.sendLoginVerificationCode(otpCode, ipAddress, deviceInfo);
+      // Update Firestore profile
+      await adminDb.collection('admins').doc(AdminService.FIXED_ADMIN_EMAIL).set(
+        {
+          lastLogin: now,
+          lastLoginIp: ipAddress,
+          lastDevice: deviceInfo,
+        },
+        { merge: true }
+      );
+    }
+
+    await this.logAction('ADMIN_LOGIN', 'SUCCESS', 'Administrator successfully logged in', ipAddress, deviceInfo, browser);
 
     return {
-      requires2FA: true,
-      step2Token,
-      message: `2-Step Verification code dispatched to ${AdminService.FIXED_ADMIN_EMAIL}`,
+      token: adminToken,
+      admin: this.adminProfile!,
     };
   }
 
