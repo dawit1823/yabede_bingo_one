@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BingoRoom, UserProfile, PrivateGroup, GroupInvitation } from '../types';
 import { getRemainingSeconds } from '../lib/bingoUtils';
 import { triggerHaptic } from '../lib/telegramSDK';
+import { apiUrl } from '../lib/apiConfig';
 import {
   Play,
   Users,
@@ -64,7 +65,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const fetchPrivateGroups = async () => {
     try {
-      const res = await fetch(`/api/private-groups/my-groups?userId=${user.id}`);
+      const res = await fetch(apiUrl(`/api/private-groups/my-groups?userId=${user.id}`));
       const data = await res.json();
       if (res.ok) {
         setMyPrivateGroups(data.groups || []);
@@ -83,7 +84,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const handleRespondInvite = async (invitationId: string, action: 'ACCEPT' | 'DECLINE') => {
     try {
-      const res = await fetch('/api/private-groups/respond-invite', {
+      const res = await fetch(apiUrl('/api/private-groups/respond-invite'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

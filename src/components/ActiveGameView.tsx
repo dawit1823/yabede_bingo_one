@@ -5,6 +5,7 @@ import { BingoRoom, BingoTicket, ChatMessage, UserProfile, WinningPattern, RoomS
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
 import { audioEngine, getAmharicNumberText } from '../lib/audioEngine';
 import { formatCardNumber, getRemainingSeconds } from '../lib/bingoUtils';
+import { apiUrl } from '../lib/apiConfig';
 import confetti from 'canvas-confetti';
 import { MessageSquare, Send, Sparkles, Trophy, Volume2, CheckCircle2, AlertCircle, History, RefreshCw } from 'lucide-react';
 
@@ -117,7 +118,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
       setIsRefreshing(true);
       triggerHaptic('light');
 
-      const res = await fetch(`/api/bingo/room-status/${room.id}?userId=${user.id}`);
+      const res = await fetch(apiUrl(`/api/bingo/room-status/${room.id}?userId=${user.id}`));
       if (res.ok) {
         const data = await res.json();
         if (data && data.success) {
@@ -162,7 +163,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
     if (!room?.id || !user?.id) return;
     let isMounted = true;
 
-    fetch(`/api/bingo/room-status/${room.id}?userId=${user.id}`)
+    fetch(apiUrl(`/api/bingo/room-status/${room.id}?userId=${user.id}`))
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (isMounted && data && data.success && Array.isArray(data.myTickets) && data.myTickets.length > 0) {

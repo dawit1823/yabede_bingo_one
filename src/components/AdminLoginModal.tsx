@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { triggerHaptic } from '../lib/telegramSDK';
+import { apiUrl } from '../lib/apiConfig';
 import {
   ShieldCheck,
   Lock,
@@ -70,7 +71,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch('/api/admin/auth/login-step1', {
+      const res = await fetch(apiUrl('/api/admin/auth/login-step1'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: FIXED_EMAIL, password }),
@@ -118,7 +119,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       }
 
       // 2. Dispatch Backend API password reset request
-      const res = await fetch('/api/admin/auth/forgot-password/request', {
+      const res = await fetch(apiUrl('/api/admin/auth/forgot-password/request'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -159,7 +160,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch('/api/admin/auth/forgot-password/confirm', {
+      const res = await fetch(apiUrl('/api/admin/auth/forgot-password/confirm'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resetCode, newPassword }),

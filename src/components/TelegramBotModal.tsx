@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { apiUrl } from '../lib/apiConfig';
 import { Bot, Send, Smartphone, ShieldCheck, Check, Key, User, HelpCircle, X, RefreshCw } from 'lucide-react';
 import { triggerHaptic } from '../lib/telegramSDK';
 import { UserProfile } from '../types';
@@ -73,7 +74,7 @@ export const TelegramBotModal: React.FC<TelegramBotModalProps> = ({
     }
 
     try {
-      const res = await fetch('/api/telegram/simulator', {
+      const res = await fetch(apiUrl('/api/telegram/simulator'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -115,7 +116,7 @@ export const TelegramBotModal: React.FC<TelegramBotModalProps> = ({
 
         // If registration completed or user logged in, check user profile
         if (botResp.text && (botResp.text.includes('Registration Completed') || botResp.text.includes('Login Successful'))) {
-          const profileRes = await fetch(`/api/user/profile?userId=usr_tg_${targetChatId}`);
+          const profileRes = await fetch(apiUrl(`/api/user/profile?userId=usr_tg_${targetChatId}`));
           if (profileRes.ok) {
             const pData = await profileRes.json();
             if (pData.user && onAuthSuccess) {

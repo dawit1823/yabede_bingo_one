@@ -3,6 +3,7 @@ import { UserProfile, PrivateGroup, GroupMember, GroupMessage, BingoRoom } from 
 import { CardSelectionView } from './CardSelectionView';
 import { formatCardNumber } from '../lib/bingoUtils';
 import { triggerHaptic } from '../lib/telegramSDK';
+import { apiUrl } from '../lib/apiConfig';
 import {
   Users,
   Copy,
@@ -59,7 +60,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
   // Fetch initial details
   const fetchGroupDetails = async () => {
     try {
-      const res = await fetch(`/api/private-groups/details/${groupId}`);
+      const res = await fetch(apiUrl(`/api/private-groups/details/${groupId}`));
       const data = await res.json();
       if (res.ok && data.group) {
         setGroup(data.group);
@@ -67,7 +68,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
         setMessages(data.messages || []);
 
         // Fetch user tickets for this private group
-        const tktRes = await fetch(`/api/bingo/room-status/${groupId}?userId=${user.id}`);
+        const tktRes = await fetch(apiUrl(`/api/bingo/room-status/${groupId}?userId=${user.id}`));
         const tktData = await tktRes.json();
         if (tktData && tktData.myTickets) {
           setUserTickets(tktData.myTickets);
@@ -181,7 +182,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
     setActionError(null);
 
     try {
-      const res = await fetch('/api/private-groups/buy-tickets', {
+      const res = await fetch(apiUrl('/api/private-groups/buy-tickets'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -210,7 +211,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
   const handleToggleReady = async () => {
     setActionError(null);
     try {
-      const res = await fetch('/api/private-groups/toggle-ready', {
+      const res = await fetch(apiUrl('/api/private-groups/toggle-ready'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -234,7 +235,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
   const handleStartGame = async () => {
     setActionError(null);
     try {
-      const res = await fetch('/api/private-groups/start', {
+      const res = await fetch(apiUrl('/api/private-groups/start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -262,7 +263,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
 
     setActionError(null);
     try {
-      const res = await fetch('/api/private-groups/cancel', {
+      const res = await fetch(apiUrl('/api/private-groups/cancel'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -289,7 +290,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
     setActionError(null);
 
     try {
-      const res = await fetch('/api/private-groups/invite', {
+      const res = await fetch(apiUrl('/api/private-groups/invite'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -317,7 +318,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
     if (!confirm('Remove member and refund their tickets?')) return;
 
     try {
-      const res = await fetch('/api/private-groups/remove-member', {
+      const res = await fetch(apiUrl('/api/private-groups/remove-member'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

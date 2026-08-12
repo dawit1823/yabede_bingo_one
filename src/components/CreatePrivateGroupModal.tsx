@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { UserProfile, WinningPattern, PrizeDistributionRule } from '../types';
 import { triggerHaptic } from '../lib/telegramSDK';
+import { apiUrl } from '../lib/apiConfig';
 import { Users, Coins, Trophy, ShieldCheck, Sparkles, X } from 'lucide-react';
 
 interface CreatePrivateGroupModalProps {
@@ -36,7 +37,7 @@ export const CreatePrivateGroupModal: React.FC<CreatePrivateGroupModalProps> = (
     setError(null);
 
     try {
-      const res = await fetch('/api/private-groups/create', {
+      const res = await fetch(apiUrl('/api/private-groups/create'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

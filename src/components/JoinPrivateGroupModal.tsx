@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
 import { triggerHaptic } from '../lib/telegramSDK';
+import { apiUrl } from '../lib/apiConfig';
 import { KeyRound, ArrowRight, X, Link as LinkIcon } from 'lucide-react';
 
 interface JoinPrivateGroupModalProps {
@@ -37,7 +38,7 @@ export const JoinPrivateGroupModal: React.FC<JoinPrivateGroupModalProps> = ({
         cleanCode = cleanCode.split('group_')[1];
       }
 
-      const res = await fetch('/api/private-groups/join-code', {
+      const res = await fetch(apiUrl('/api/private-groups/join-code'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

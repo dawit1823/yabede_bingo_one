@@ -36,12 +36,12 @@ console.error = (...args: any[]) => {
 };
 
 const firebaseConfig = {
-  apiKey: config.apiKey,
-  authDomain: config.authDomain,
-  projectId: config.projectId,
-  storageBucket: config.storageBucket,
-  messagingSenderId: config.messagingSenderId,
-  appId: config.appId,
+  apiKey: process.env.FIREBASE_API_KEY || config.apiKey,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN || config.authDomain,
+  projectId: process.env.FIREBASE_PROJECT_ID || config.projectId,
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET || config.storageBucket,
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || config.messagingSenderId,
+  appId: process.env.FIREBASE_APP_ID || config.appId,
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -51,8 +51,10 @@ const firestoreSettings = {
   experimentalAutoDetectLongPolling: true,
 };
 
-const rawDb = config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)'
-  ? initializeFirestore(app, firestoreSettings, config.firestoreDatabaseId)
+const firestoreDatabaseId = process.env.FIREBASE_FIRESTORE_DATABASE_ID || config.firestoreDatabaseId;
+
+const rawDb = firestoreDatabaseId && firestoreDatabaseId !== '(default)'
+  ? initializeFirestore(app, firestoreSettings, firestoreDatabaseId)
   : initializeFirestore(app, firestoreSettings);
 
 // Helper to remove undefined properties before writing to Firestore

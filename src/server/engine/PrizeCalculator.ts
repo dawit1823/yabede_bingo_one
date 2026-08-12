@@ -28,6 +28,8 @@ export class PrizeCalculator {
     const calculatedWinners: GameWinner[] = [];
     const transactions: WalletTransaction[] = [];
 
+    const batch = adminDb.batch();
+
     for (const winner of winners) {
       const winnerWithPrize: GameWinner = {
         ...winner,
@@ -65,16 +67,19 @@ export class PrizeCalculator {
       };
       transactions.push(tx);
 
-      // 4. Async update user wallet in Firestore
-      adminDb.collection('users').doc(winner.userId).set(
-        {
-          walletBalance: newBalance,
-          updatedAt: nowIso,
-        },
+      // 4. Batch update user wallet, wallet doc, transaction, and winner record in Firestore
+      batch.set(
+        adminDb.collection('users').doc(winner.userId),
+        { walletBalance: newBalance, totalWins: (user?.totalWins || 1), updatedAt: nowIso },
         { merge: true }
-      ).catch((err) => {
-        console.warn(`⚠️ [PrizeCalculator] Firestore user balance sync error for ${winner.userId}:`, err.message);
-      });
+      );
+      batch.set(
+        adminDb.collection('wallets').doc(winner.userId),
+        { userId: winner.userId, balance: newBalance, updatedAt: nowIso },
+        { merge: true }
+      );
+      batch.set(adminDb.collection('transactions').doc(tx.id), tx);
+      batch.set(adminDb.collection('winners').doc(`win_${room.id}_${winner.userId}_${Date.now()}`), winnerWithPrize);
     }
 
     // Update room object in memory
@@ -83,6 +88,16 @@ export class PrizeCalculator {
     room.prizePool = finalPrizePool;
     room.platformFee = Math.round(totalTicketSales * (platformFeePct / 100));
     room.lastWinners = calculatedWinners;
+
+    // Batch update room document in Firestore
+    batch.set(adminDb.collection('rooms').doc(room.id), room, { merge: true });
+
+    try {
+      await batch.commit();
+      console.log(`✅ [PrizeCalculator] Atomically committed ${calculatedWinners.length} winner payouts and transactions to Firestore.`);
+    } catch (err: any) {
+      console.error(`🔥 [PrizeCalculator] Firestore batch error on prize distribution for ${room.id}:`, err.message);
+    }
 
     return { calculatedWinners, transactions };
   }

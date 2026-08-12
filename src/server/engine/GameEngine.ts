@@ -7,6 +7,7 @@ import { ballDrawer, BallDrawer } from './BallDrawer.ts';
 import { countdownManager, CountdownManager } from './CountdownManager.ts';
 import { firestoreRepository, FirestoreRepository } from './FirestoreRepository.ts';
 import { webSocketGateway, WebSocketGateway } from './WebSocketGateway.ts';
+import { db } from '../db.js';
 import { BingoRoom } from '../../types.js';
 
 export class GameEngine {
@@ -42,6 +43,21 @@ export class GameEngine {
 
     // 2. Start server countdown ticker
     this.countdown.startTicker();
+
+    // 3. Crash recovery: resume ball drawing for official rooms and private groups in PLAYING status
+    for (const room of this.rooms.getAllRooms()) {
+      if (room.status === 'PLAYING') {
+        console.log(`🔄 [GameEngine] Room ${room.id} was PLAYING on restart. Resuming ball drawer cycle...`);
+        this.ballDrawer.startBallDrawCycle(room.id);
+      }
+    }
+
+    for (const group of db.getAllPrivateGroups()) {
+      if (group.status === 'PLAYING') {
+        console.log(`🔄 [GameEngine] Private group ${group.id} was PLAYING on restart. Resuming ball drawer cycle...`);
+        this.ballDrawer.startBallDrawCycle(group.id);
+      }
+    }
 
     this.isStarted = true;
     console.log('✅ [GameEngine] Bingo Game Engine is running smoothly.');

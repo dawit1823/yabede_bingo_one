@@ -11,16 +11,25 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const FRONTEND_URL = process.env.FRONTEND_URL || '';
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // CORS headers for Telegram WebApp iframe
+  // CORS headers for Telegram WebApp iframe & Netlify frontend
   app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const requestOrigin = req.headers.origin;
+    if (requestOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+    } else if (FRONTEND_URL) {
+      res.setHeader('Access-Control-Allow-Origin', FRONTEND_URL);
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     if (req.method === 'OPTIONS') {
       res.sendStatus(200);
       return;

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { UserProfile, GameHistoryRecord, WinningPattern } from '../types';
 import { triggerHaptic } from '../lib/telegramSDK';
+import { apiUrl } from '../lib/apiConfig';
 import {
   History,
   Trophy,
@@ -42,7 +43,7 @@ export const GameHistoryView: React.FC<GameHistoryViewProps> = ({ user, language
     setError(null);
 
     try {
-      const response = await fetch(`/api/bingo/history/${user.id}`);
+      const response = await fetch(apiUrl(`/api/bingo/history/${user.id}`));
       if (!response.ok) {
         throw new Error(`HTTP Error ${response.status}`);
       }

@@ -13,6 +13,7 @@ import {
 } from '../types';
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
 import { generateCardMatrixByNumber, formatCardNumber } from '../lib/bingoUtils';
+import { apiUrl } from '../lib/apiConfig';
 import {
   ShieldCheck,
   Users,
@@ -246,7 +247,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleCancelTicket = async (ticketId: string) => {
     if (!window.confirm('Are you sure you want to cancel this ticket and refund the user?')) return;
     try {
-      const res = await fetch('/api/admin/tickets/cancel', {
+      const res = await fetch(apiUrl('/api/admin/tickets/cancel'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticketId, reason: 'Admin Manual Cancellation' }),
@@ -269,7 +270,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleSaveBonusPrograms = async () => {
     try {
-      const res = await fetch('/api/admin/bonuses', {
+      const res = await fetch(apiUrl('/api/admin/bonuses'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ programs: bonusPrograms }),
@@ -300,7 +301,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!window.confirm(confirmMsg)) return;
 
     try {
-      const res = await fetch('/api/admin/private-groups/action', {
+      const res = await fetch(apiUrl('/api/admin/private-groups/action'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ groupId, action }),
@@ -324,7 +325,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
 
     try {
-      const res = await fetch(`/api/admin/game-history/${historyId}`, {
+      const res = await fetch(apiUrl(`/api/admin/game-history/${historyId}`), {
         method: 'DELETE',
       });
       const data = await res.json();
@@ -377,7 +378,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setLoading(true);
     try {
       // 1. Metrics & Core Settings
-      const res = await fetch('/api/admin/metrics');
+      const res = await fetch(apiUrl('/api/admin/metrics'));
       if (res.ok) {
         const data = await res.json();
         setDashboardMetrics(data.metrics);
@@ -389,7 +390,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       // 2. Deposits
       const depRes = await fetch(
-        `/api/admin/deposits?status=${depositStatusFilter}&methodId=${depositMethodFilter}&search=${encodeURIComponent(depositSearchQuery)}`
+        apiUrl(`/api/admin/deposits?status=${depositStatusFilter}&methodId=${depositMethodFilter}&search=${encodeURIComponent(depositSearchQuery)}`)
       );
       if (depRes.ok) {
         const depData = await depRes.json();
@@ -397,21 +398,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
 
       // 3. Withdrawals
-      const wdRes = await fetch(`/api/admin/withdrawals?status=${withdrawalStatusFilter}&search=${encodeURIComponent(withdrawalSearchQuery)}`);
+      const wdRes = await fetch(apiUrl(`/api/admin/withdrawals?status=${withdrawalStatusFilter}&search=${encodeURIComponent(withdrawalSearchQuery)}`));
       if (wdRes.ok) {
         const wdData = await wdRes.json();
         setWithdrawals(wdData.withdrawals || []);
       }
 
       // 4. Users
-      const uRes = await fetch(`/api/admin/users?q=${encodeURIComponent(userSearchQuery)}`);
+      const uRes = await fetch(apiUrl(`/api/admin/users?q=${encodeURIComponent(userSearchQuery)}`));
       if (uRes.ok) {
         const uData = await uRes.json();
         setAllUsersList(uData.users || []);
       }
 
       // 5. Bingo Games & Private Groups
-      const gamesRes = await fetch('/api/admin/games');
+      const gamesRes = await fetch(apiUrl('/api/admin/games'));
       if (gamesRes.ok) {
         const gData = await gamesRes.json();
         setStandardRooms(gData.standardRooms || []);
@@ -420,11 +421,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       // 6. Tickets
       const tktRes = await fetch(
-        `/api/admin/tickets?roomId=${ticketRoomFilter}&status=${ticketStatusFilter}&gameReferenceId=${encodeURIComponent(
+        apiUrl(`/api/admin/tickets?roomId=${ticketRoomFilter}&status=${ticketStatusFilter}&gameReferenceId=${encodeURIComponent(
           ticketGameRefFilter
         )}&username=${encodeURIComponent(ticketUsernameFilter)}&cardNumber=${encodeURIComponent(
           ticketCardNumFilter
-        )}&startDate=${ticketStartDate}&endDate=${ticketEndDate}&search=${encodeURIComponent(ticketSearchQuery)}`
+        )}&startDate=${ticketStartDate}&endDate=${ticketEndDate}&search=${encodeURIComponent(ticketSearchQuery)}`)
       );
       if (tktRes.ok) {
         const tData = await tktRes.json();
@@ -433,9 +434,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       // 7. Winners
       const winRes = await fetch(
-        `/api/admin/winners?roomId=${winnerRoomFilter}&search=${encodeURIComponent(
+        apiUrl(`/api/admin/winners?roomId=${winnerRoomFilter}&search=${encodeURIComponent(
           winnerSearchQuery
-        )}&startDate=${winnerStartDate}&endDate=${winnerEndDate}`
+        )}&startDate=${winnerStartDate}&endDate=${winnerEndDate}`)
       );
       if (winRes.ok) {
         const winData = await winRes.json();
@@ -445,9 +446,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       // 8. Transactions
       const txRes = await fetch(
-        `/api/admin/transactions?type=${transactionTypeFilter}&search=${encodeURIComponent(
+        apiUrl(`/api/admin/transactions?type=${transactionTypeFilter}&search=${encodeURIComponent(
           transactionSearchQuery
-        )}&startDate=${transactionStartDate}&endDate=${transactionEndDate}`
+        )}&startDate=${transactionStartDate}&endDate=${transactionEndDate}`)
       );
       if (txRes.ok) {
         const txData = await txRes.json();
@@ -456,21 +457,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
 
       // 9. Bonuses
-      const bonusRes = await fetch('/api/admin/bonuses');
+      const bonusRes = await fetch(apiUrl('/api/admin/bonuses'));
       if (bonusRes.ok) {
         const bData = await bonusRes.json();
         setBonusPrograms(bData.bonusPrograms || []);
       }
 
       // 10. Referrals
-      const refRes = await fetch('/api/admin/referrals');
+      const refRes = await fetch(apiUrl('/api/admin/referrals'));
       if (refRes.ok) {
         const rData = await refRes.json();
         setReferralStats(rData.referralStats || []);
       }
 
       // 10b. Private Groups
-      const pgRes = await fetch('/api/admin/private-groups');
+      const pgRes = await fetch(apiUrl('/api/admin/private-groups'));
       if (pgRes.ok) {
         const pgData = await pgRes.json();
         setAdminPrivateGroups(pgData.groups || []);
@@ -478,9 +479,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       // 11. Reports
       const repRes = await fetch(
-        `/api/admin/reports?startDate=${reportStartDate}&endDate=${reportEndDate}&roomId=${reportRoomId}&gameReferenceId=${encodeURIComponent(
+        apiUrl(`/api/admin/reports?startDate=${reportStartDate}&endDate=${reportEndDate}&roomId=${reportRoomId}&gameReferenceId=${encodeURIComponent(
           reportGameRefId
-        )}&username=${encodeURIComponent(reportUsername)}`
+        )}&username=${encodeURIComponent(reportUsername)}`)
       );
       if (repRes.ok) {
         const rData = await repRes.json();
@@ -488,7 +489,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       }
 
       // 12. Settings & History
-      const setRes = await fetch('/api/admin/settings');
+      const setRes = await fetch(apiUrl('/api/admin/settings'));
       if (setRes.ok) {
         const setData = await setRes.json();
         if (setData.settings && !isSettingsDirtyRef.current) setPlatformSettings(setData.settings);
@@ -537,7 +538,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // View User Full Details Modal
   const handleOpenUserDetailModal = async (userId: string) => {
     try {
-      const res = await fetch(`/api/admin/users/${userId}`);
+      const res = await fetch(apiUrl(`/api/admin/users/${userId}`));
       if (res.ok) {
         const data = await res.json();
         setSelectedUserDetail(data);
@@ -553,7 +554,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!confirm('🚨 CRITICAL ACTION: Are you sure you want to remove and reset ALL existing bingo games, tickets, and card reservations?')) return;
     try {
       setLoading(true);
-      const res = await fetch('/api/bingo/reset-all', {
+      const res = await fetch(apiUrl('/api/bingo/reset-all'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -571,7 +572,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleApproveDeposit = async (depositId: string) => {
     try {
-      const res = await fetch('/api/admin/deposits/verify', {
+      const res = await fetch(apiUrl('/api/admin/deposits/verify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ depositId, action: 'APPROVE', adminId: 'usr_admin' }),
@@ -590,7 +591,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleConfirmRejectDeposit = async () => {
     if (!rejectingDeposit) return;
     try {
-      const res = await fetch('/api/admin/deposits/verify', {
+      const res = await fetch(apiUrl('/api/admin/deposits/verify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -614,7 +615,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleConfirmApproveWithdrawal = async () => {
     if (!approvingWithdrawal) return;
     try {
-      const res = await fetch('/api/admin/withdrawals/process', {
+      const res = await fetch(apiUrl('/api/admin/withdrawals/process'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -638,7 +639,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleConfirmRejectWithdrawal = async () => {
     if (!rejectingWithdrawal) return;
     try {
-      const res = await fetch('/api/admin/withdrawals/process', {
+      const res = await fetch(apiUrl('/api/admin/withdrawals/process'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -661,7 +662,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleUserStatusChange = async (userId: string, newStatus: 'ACTIVE' | 'SUSPENDED' | 'BANNED') => {
     if (!confirm(`Are you sure you want to set user status to ${newStatus}?`)) return;
     try {
-      const res = await fetch('/api/admin/users/status', {
+      const res = await fetch(apiUrl('/api/admin/users/status'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, status: newStatus }),
@@ -697,7 +698,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     e.preventDefault();
     if (!userResetPasswordModal || !resetUserPasswordInput) return;
     try {
-      const res = await fetch('/api/admin/users/reset-password', {
+      const res = await fetch(apiUrl('/api/admin/users/reset-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: userResetPasswordModal.id, newPassword: resetUserPasswordInput }),
@@ -716,7 +717,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     e.preventDefault();
     if (!editingPaymentMethod || !editingPaymentMethod.name) return;
     try {
-      const res = await fetch('/api/admin/payment-methods', {
+      const res = await fetch(apiUrl('/api/admin/payment-methods'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentMethod: editingPaymentMethod }),
@@ -734,7 +735,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/admin/rooms/create', {
+      const res = await fetch(apiUrl('/api/admin/rooms/create'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(roomFormData),
@@ -755,7 +756,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!announcementTitle || !announcementMessage) return;
     setAnnouncementSending(true);
     try {
-      const res = await fetch('/api/admin/announcements', {
+      const res = await fetch(apiUrl('/api/admin/announcements'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: announcementTitle, message: announcementMessage }),
@@ -783,7 +784,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsSavingSettings(true);
     setSaveSuccessMessage('');
     try {
-      const res = await fetch('/api/admin/settings', {
+      const res = await fetch(apiUrl('/api/admin/settings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(platformSettings),
@@ -906,7 +907,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     e.preventDefault();
     if (!newPasswordInput) return;
     try {
-      const res = await fetch('/api/admin/profile/password', {
+      const res = await fetch(apiUrl('/api/admin/profile/password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ newPassword: newPasswordInput }),

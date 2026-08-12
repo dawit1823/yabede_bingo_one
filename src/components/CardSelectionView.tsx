@@ -7,6 +7,7 @@ import { BingoRoom, UserProfile, CardReservation, BingoTicket } from '../types';
 import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds } from '../lib/bingoUtils';
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
 import { audioEngine } from '../lib/audioEngine';
+import { apiUrl } from '../lib/apiConfig';
 import {
   ArrowLeft,
   Search,
@@ -599,7 +600,7 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
       setIsRefreshing(true);
       triggerHaptic('light');
 
-      const response = await fetch(`/api/bingo/room-status/${room.id}?userId=${user.id}`);
+      const response = await fetch(apiUrl(`/api/bingo/room-status/${room.id}?userId=${user.id}`));
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -789,7 +790,7 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
       try {
         setTogglingCard(num);
 
-        const response = await fetch('/api/bingo/toggle-card', {
+        const response = await fetch(apiUrl('/api/bingo/toggle-card'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

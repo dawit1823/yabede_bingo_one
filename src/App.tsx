@@ -40,6 +40,7 @@ import { TelegramBotModal } from './components/TelegramBotModal';
 import { RegistrationGateModal } from './components/RegistrationGateModal';
 import { Wrench } from 'lucide-react';
 import { getRemainingSeconds } from './lib/bingoUtils';
+import { apiUrl, VITE_SOCKET_URL } from './lib/apiConfig';
 
 // Demo Users for Simulator
 const DEMO_USERS: UserProfile[] = [
@@ -167,7 +168,7 @@ export default function App() {
 
   // Check Maintenance Mode & System Settings
   useEffect(() => {
-    fetch('/api/system/settings')
+    fetch(apiUrl('/api/system/settings'))
       .then((res) => res.json())
       .then((data) => {
         if (data && data.maintenanceMode !== undefined) {
@@ -186,7 +187,7 @@ export default function App() {
 
     if (initData) {
       // Send real Telegram initData to backend for HMAC verification & auto-registration
-      fetch('/api/auth/telegram', {
+      fetch(apiUrl('/api/auth/telegram'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ initData }),
@@ -221,7 +222,7 @@ export default function App() {
       const param = window.Telegram.WebApp.initDataUnsafe.start_param;
       if (param.startsWith('group_')) {
         const code = param.replace('group_', '').toUpperCase();
-        fetch('/api/private-groups/join-code', {
+        fetch(apiUrl('/api/private-groups/join-code'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code, userId: currentUser.id }),
@@ -239,7 +240,7 @@ export default function App() {
 
   // Connect Socket.IO
   useEffect(() => {
-    const newSocket = io(window.location.origin, {
+    const newSocket = io(VITE_SOCKET_URL, {
       transports: ['websocket', 'polling'],
     });
 
@@ -528,7 +529,7 @@ export default function App() {
   const fetchData = async () => {
     try {
       // Fetch Official Bingo Rooms from server engine
-      const roomsRes = await fetch('/api/bingo/rooms');
+      const roomsRes = await fetch(apiUrl('/api/bingo/rooms'));
       if (roomsRes.ok) {
         const rData = await roomsRes.json();
         if (rData.rooms && Array.isArray(rData.rooms) && rData.rooms.length > 0) {
@@ -537,7 +538,7 @@ export default function App() {
       }
 
       // Profile & Referral
-      const profileRes = await fetch(`/api/user/profile?userId=${currentUser.id}`);
+      const profileRes = await fetch(apiUrl(`/api/user/profile?userId=${currentUser.id}`));
       if (profileRes.ok) {
         const pData = await profileRes.json();
         setCurrentUser(pData.user);
@@ -545,7 +546,7 @@ export default function App() {
       }
 
       // Online Users
-      const onlineRes = await fetch('/api/online-users');
+      const onlineRes = await fetch(apiUrl('/api/online-users'));
       if (onlineRes.ok) {
         const oData = await onlineRes.json();
         if (typeof oData.count === 'number') {
@@ -554,14 +555,14 @@ export default function App() {
       }
 
       // Ledger
-      const txRes = await fetch(`/api/wallet/transactions?userId=${currentUser.id}`);
+      const txRes = await fetch(apiUrl(`/api/wallet/transactions?userId=${currentUser.id}`));
       if (txRes.ok) {
         const tData = await txRes.json();
         setTransactions(tData.transactions);
       }
 
       // Leaderboard
-      const lbRes = await fetch('/api/leaderboard');
+      const lbRes = await fetch(apiUrl('/api/leaderboard'));
       if (lbRes.ok) {
         const lData = await lbRes.json();
         setLeaderboard(lData.leaderboard);
@@ -569,7 +570,7 @@ export default function App() {
 
       // Admin Metrics
       if (currentUser.id === 'usr_admin') {
-        const admRes = await fetch('/api/admin/metrics');
+        const admRes = await fetch(apiUrl('/api/admin/metrics'));
         if (admRes.ok) {
           const aData = await admRes.json();
           setAdminMetrics(aData.metrics);
@@ -590,7 +591,7 @@ export default function App() {
       collection(firestoreDb, 'rooms'),
       (snapshot) => {
         if (snapshot.empty) {
-          fetch('/api/bingo/rooms')
+          fetch(apiUrl('/api/bingo/rooms'))
             .then((res) => res.json())
             .then((data) => {
               if (data && data.rooms && Array.isArray(data.rooms) && data.rooms.length > 0) {
@@ -689,7 +690,7 @@ export default function App() {
     screenshotUrl?: string;
     note?: string;
   }) => {
-    const res = await fetch('/api/wallet/deposit', {
+    const res = await fetch(apiUrl('/api/wallet/deposit'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -719,7 +720,7 @@ export default function App() {
     accountName: string;
     note?: string;
   }) => {
-    const res = await fetch('/api/wallet/withdraw', {
+    const res = await fetch(apiUrl('/api/wallet/withdraw'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -742,7 +743,7 @@ export default function App() {
   };
 
   const handleSpinWheel = async (): Promise<number> => {
-    const res = await fetch('/api/bonuses/lucky-spin', {
+    const res = await fetch(apiUrl('/api/bonuses/lucky-spin'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: currentUser.id }),
@@ -773,7 +774,7 @@ export default function App() {
   // Admin Actions
   const handleProcessWithdrawal = async (withdrawalId: string, approve: boolean) => {
     try {
-      await fetch('/api/admin/withdrawals/process', {
+      await fetch(apiUrl('/api/admin/withdrawals/process'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ withdrawalId, approve, adminId: currentUser.id }),
@@ -786,7 +787,7 @@ export default function App() {
 
   const handleSearchUsers = async (query: string): Promise<UserProfile[]> => {
     try {
-      const res = await fetch(`/api/admin/users?q=${encodeURIComponent(query)}`);
+      const res = await fetch(apiUrl(`/api/admin/users?q=${encodeURIComponent(query)}`));
       if (!res.ok) return [];
       const data = await res.json();
       return data.users || [];
@@ -798,7 +799,7 @@ export default function App() {
 
   const handleAdjustBalance = async (userId: string, amount: number, reason: string) => {
     try {
-      await fetch('/api/admin/users/adjust-balance', {
+      await fetch(apiUrl('/api/admin/users/adjust-balance'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, amount, reason, adminId: currentUser.id }),
@@ -1035,7 +1036,7 @@ export default function App() {
                 }}
                 onPlayAgain={async () => {
                   if (activeRoom.id.startsWith('grp_')) {
-                    await fetch('/api/private-groups/play-again', {
+                    await fetch(apiUrl('/api/private-groups/play-again'), {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ groupId: activeRoom.id, hostUserId: currentUser.id }),
@@ -1044,7 +1045,7 @@ export default function App() {
                 }}
                 onCloseGroup={async () => {
                   if (activeRoom.id.startsWith('grp_')) {
-                    await fetch('/api/private-groups/close-group', {
+                    await fetch(apiUrl('/api/private-groups/close-group'), {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ groupId: activeRoom.id, hostUserId: currentUser.id }),

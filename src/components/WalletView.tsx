@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { UserProfile, WalletTransaction, DepositRequest, WithdrawalRequest, PaymentMethodConfig } from '../types';
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
+import { apiUrl } from '../lib/apiConfig';
 import {
   Wallet,
   ArrowDownLeft,
@@ -84,7 +85,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
   // Load Payment Methods & Deposit History
   const fetchPaymentMethods = async () => {
     try {
-      const res = await fetch('/api/payment/methods');
+      const res = await fetch(apiUrl('/api/payment/methods'));
       if (res.ok) {
         const data = await res.json();
         setPaymentMethods(data.methods || []);
@@ -100,7 +101,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
   const fetchUserDeposits = async () => {
     setLoadingHistory(true);
     try {
-      const res = await fetch(`/api/user/deposits?userId=${user.id}`);
+      const res = await fetch(apiUrl(`/api/user/deposits?userId=${user.id}`));
       if (res.ok) {
         const data = await res.json();
         setUserDeposits(data.deposits || []);

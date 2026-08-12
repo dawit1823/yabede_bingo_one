@@ -138,9 +138,17 @@ export class TicketManager {
       room.prizePool = Math.round(totalSales * (prizePct / 100));
       room.platformFee = Math.round(totalSales * (platformFeePct / 100));
 
-      // Delete reservation document from Firestore
-      adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`).delete().catch(console.warn);
-      adminDb.collection('tickets').doc(existingTicket.id).delete().catch(console.warn);
+      // Atomically delete reservation & ticket from Firestore and sync user wallet
+      const batch = adminDb.batch();
+      batch.delete(adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`));
+      batch.delete(adminDb.collection('tickets').doc(existingTicket.id));
+      batch.set(adminDb.collection('users').doc(userId), { walletBalance: newBalance }, { merge: true });
+      batch.set(
+        adminDb.collection('wallets').doc(userId),
+        { userId, balance: newBalance, updatedAt: new Date().toISOString() },
+        { merge: true }
+      );
+      await batch.commit();
 
       return { action: 'DESELECTED', newBalance };
     }
@@ -191,19 +199,7 @@ export class TicketManager {
     room.prizePool = Math.round(totalSales * (prizePct / 100));
     room.platformFee = Math.round(totalSales * (platformFeePct / 100));
 
-    // Save ticket and reservation to Firestore asynchronously
-    adminDb.collection('tickets').doc(ticketId).set(newTicket).catch(console.warn);
-    adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`).set({
-      id: `${roomId}_${cardNum}`,
-      roomId,
-      cardNumber: cardNum,
-      userId,
-      username: user.username,
-      status: 'SOLD',
-      purchasedAt: new Date().toISOString(),
-    }).catch(console.warn);
-
-    // Persist wallet transaction to Firestore
+    // Save ticket, card reservation, transaction, and wallet update atomically to Firestore
     const walletTx: WalletTransaction = {
       id: `tx_buy_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       userId,
@@ -216,8 +212,26 @@ export class TicketManager {
       gameReferenceId: room.gameReferenceId,
       createdAt: new Date().toISOString(),
     };
-    adminDb.collection('transactions').doc(walletTx.id).set(walletTx).catch(console.warn);
-    adminDb.collection('users').doc(userId).set({ walletBalance: newBalance }, { merge: true }).catch(console.warn);
+
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection('tickets').doc(ticketId), newTicket);
+    batch.set(adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`), {
+      id: `${roomId}_${cardNum}`,
+      roomId,
+      cardNumber: cardNum,
+      userId,
+      username: user.username,
+      status: 'SOLD',
+      purchasedAt: new Date().toISOString(),
+    });
+    batch.set(adminDb.collection('transactions').doc(walletTx.id), walletTx);
+    batch.set(adminDb.collection('users').doc(userId), { walletBalance: newBalance }, { merge: true });
+    batch.set(
+      adminDb.collection('wallets').doc(userId),
+      { userId, balance: newBalance, updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+    await batch.commit();
 
     return { action: 'PURCHASED', ticket: newTicket, newBalance };
   }

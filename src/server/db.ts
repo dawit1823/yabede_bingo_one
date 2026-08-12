@@ -296,6 +296,19 @@ class FirestoreDatabaseStore {
         if (g.code) this.privateGroupCodeIndex.set(g.code, g.id);
       });
 
+      // 4b. Load Private Group Members
+      const membersSnap = await adminDb.collection('groupMembers').get();
+      membersSnap.forEach((doc) => {
+        const m = doc.data() as GroupMember;
+        if (m && m.groupId) {
+          const list = this.groupMembers.get(m.groupId) || [];
+          if (!list.some((existing) => existing.userId === m.userId)) {
+            list.push(m);
+          }
+          this.groupMembers.set(m.groupId, list);
+        }
+      });
+
       // 5. Load Deposits & Withdrawals
       const depSnap = await adminDb.collection('payments').orderBy('createdAt', 'desc').get();
       this.deposits = depSnap.docs.map((d) => d.data() as DepositRequest);
@@ -327,6 +340,31 @@ class FirestoreDatabaseStore {
       // 10. Load Winners
       const winnersSnap = await adminDb.collection('winners').orderBy('wonAt', 'desc').get();
       this.winners = winnersSnap.docs.map((d) => d.data() as GameWinner);
+
+      // 11. Reconstruct sequence numbers from all loaded records to avoid reference ID collisions on restart
+      this.gameHistoryRecords.forEach((gh) => {
+        if (gh.roomId && gh.gameReferenceId) {
+          syncRoomSequenceFromRef(gh.roomId, gh.gameReferenceId);
+        }
+      });
+      this.tickets.forEach((tkt) => {
+        if (tkt.roomId && tkt.gameReferenceId) {
+          syncRoomSequenceFromRef(tkt.roomId, tkt.gameReferenceId);
+        }
+      });
+      this.transactions.forEach((tx) => {
+        if (tx.gameReferenceId) {
+          const parts = tx.gameReferenceId.split('-');
+          if (parts.length >= 4) {
+            let roomKey = 'room_10';
+            const tag = parts[2];
+            if (tag === '50B') roomKey = 'room_50';
+            else if (tag === '100B') roomKey = 'room_100';
+            else if (tag === '200B') roomKey = 'room_200';
+            syncRoomSequenceFromRef(roomKey, tx.gameReferenceId);
+          }
+        }
+      });
 
       console.log(`✅ [Firestore] Loaded ${this.users.size} users, ${this.rooms.size} rooms, ${this.privateGroups.size} private groups, ${this.tickets.size} tickets, ${this.deposits.length} deposits.`);
     } catch (err) {
@@ -1244,6 +1282,9 @@ class FirestoreDatabaseStore {
 
     adminDb.collection('groupGames').doc(groupId).set(group).catch((err) => {
       console.error(`🔥 [Firestore] Error saving group ${groupId}:`, err);
+    });
+    adminDb.collection('groupMembers').doc(`${groupId}_${host.id}`).set(initialMember).catch((err) => {
+      console.error(`🔥 [Firestore] Error saving initial group member ${groupId}_${host.id}:`, err);
     });
 
     return group;
