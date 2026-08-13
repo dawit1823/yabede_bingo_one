@@ -2,6 +2,7 @@ import { BingoRoom, GameWinner, WalletTransaction } from '../../types.js';
 import { db } from '../db.js';
 import { adminDb } from '../firebaseAdmin.js';
 import { adminService } from '../adminService.js';
+import { logger } from '../logger.js';
 
 export class PrizeCalculator {
   /**
@@ -94,9 +95,9 @@ export class PrizeCalculator {
 
     try {
       await batch.commit();
-      console.log(`✅ [PrizeCalculator] Atomically committed ${calculatedWinners.length} winner payouts and transactions to Firestore.`);
+      logger.info(`[GAME] Payouts committed room=${room.id} winners=${calculatedWinners.length}`);
     } catch (err: any) {
-      console.error(`🔥 [PrizeCalculator] Firestore batch error on prize distribution for ${room.id}:`, err.message);
+      logger.error(`[PrizeCalculator] Firestore batch error on prize distribution for ${room.id}:`, err.message);
     }
 
     return { calculatedWinners, transactions };

@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { db, OFFICIAL_ROOMS, generateGameReferenceId } from './db.js';
 import { adminDb } from './firebaseAdmin.js';
 import { adminService } from './adminService.js';
+import { logger } from './logger.js';
 import { BingoRoom, BingoTicket, GameWinner, WinningPattern, WalletTransaction } from '../types.js';
 import { generateCardMatrixByNumber } from '../lib/bingoUtils.js';
 
@@ -385,7 +386,7 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
  * while strictly PRESERVING all historical ticket records and winners.
  */
 export async function clearAndResetAllBingoGames(): Promise<BingoRoom[]> {
-  console.log('🧹 [BingoEngine] Resetting active Bingo game rounds (preserving ticket & winner history)...');
+  logger.info('[BingoEngine] Resetting active Bingo game rounds...');
 
   try {
     // 1. Delete active card reservations only (clears seat selections for current round)
@@ -421,7 +422,7 @@ export async function clearAndResetAllBingoGames(): Promise<BingoRoom[]> {
     adminDb.collection('gameRooms').doc(room.id).set(room).catch(console.warn);
   }
 
-  console.log('✅ [BingoEngine] All active Bingo game rounds reset successfully (Ticket history preserved).');
+  logger.info('[BingoEngine] Active Bingo game rounds reset successfully.');
   return resetRooms;
 }
 

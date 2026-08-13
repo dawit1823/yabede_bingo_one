@@ -8,6 +8,7 @@ import { countdownManager, CountdownManager } from './CountdownManager.ts';
 import { firestoreRepository, FirestoreRepository } from './FirestoreRepository.ts';
 import { webSocketGateway, WebSocketGateway } from './WebSocketGateway.ts';
 import { db } from '../db.js';
+import { logger } from '../logger.js';
 import { BingoRoom } from '../../types.js';
 
 export class GameEngine {
@@ -32,11 +33,10 @@ export class GameEngine {
     }
 
     if (this.isStarted) {
-      console.log('⚡ [GameEngine] Already started.');
       return;
     }
 
-    console.log('🚀 [GameEngine] Booting Yabede Bingo Production Game Engine...');
+    logger.info('[GameEngine] Booting Bingo Game Engine...');
 
     // 1. Restore state & auto-initialize official rooms
     await this.rooms.restoreStateFromFirestore();
@@ -47,20 +47,20 @@ export class GameEngine {
     // 3. Crash recovery: resume ball drawing for official rooms and private groups in PLAYING status
     for (const room of this.rooms.getAllRooms()) {
       if (room.status === 'PLAYING') {
-        console.log(`🔄 [GameEngine] Room ${room.id} was PLAYING on restart. Resuming ball drawer cycle...`);
+        logger.info(`[GameEngine] Room ${room.id} was PLAYING on restart. Resuming ball drawer cycle...`);
         this.ballDrawer.startBallDrawCycle(room.id);
       }
     }
 
     for (const group of db.getAllPrivateGroups()) {
       if (group.status === 'PLAYING') {
-        console.log(`🔄 [GameEngine] Private group ${group.id} was PLAYING on restart. Resuming ball drawer cycle...`);
+        logger.info(`[GameEngine] Private group ${group.id} was PLAYING on restart. Resuming ball drawer cycle...`);
         this.ballDrawer.startBallDrawCycle(group.id);
       }
     }
 
     this.isStarted = true;
-    console.log('✅ [GameEngine] Bingo Game Engine is running smoothly.');
+    logger.info('[GameEngine] Bingo Game Engine is running.');
   }
 
   /**
@@ -73,7 +73,7 @@ export class GameEngine {
       this.ballDrawer.stopBallDrawCycle(room.id);
     }
     this.isStarted = false;
-    console.log('⏹️ [GameEngine] Bingo Game Engine stopped.');
+    logger.info('[GameEngine] Bingo Game Engine stopped.');
   }
 
   /**

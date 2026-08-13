@@ -2,6 +2,7 @@ import { BingoRoom } from '../../types.js';
 import { generateGameReferenceId } from '../db.js';
 import { firestoreRepository } from './FirestoreRepository.js';
 import { adminService } from '../adminService.js';
+import { logger } from '../logger.js';
 
 export interface OfficialRoomConfig {
   id: string;
@@ -48,7 +49,7 @@ export class RoomInitializer {
    * If any official room is missing from memory or Firestore, creates it automatically.
    */
   public async initializeOfficialRooms(memoryRooms: Map<string, BingoRoom>): Promise<BingoRoom[]> {
-    console.log('🏛️ [RoomInitializer] Checking & initializing official Bingo rooms...');
+    logger.info('[RoomInitializer] Initializing official Bingo rooms...');
 
     const settings = adminService.getSystemSettings();
     const countdownSec = settings.countdownDurationSeconds || 45;
@@ -94,10 +95,10 @@ export class RoomInitializer {
 
         // Immediately write snapshot to Firestore so collections are recreated if deleted
         firestoreRepository.saveRoomSnapshot(newRoom).catch((err) => {
-          console.warn(`⚠️ [RoomInitializer] Snapshot write error for ${config.id}:`, err.message);
+          logger.warn(`[RoomInitializer] Snapshot write error for ${config.id}:`, err.message);
         });
 
-        console.log(`✨ [RoomInitializer] Auto-initialized official room: ${config.name} (${config.id})`);
+        logger.debug(`[RoomInitializer] Auto-initialized room: ${config.name} (${config.id})`);
       } else {
         // Ensure endsAt, startedAt, and gameReferenceId are set
         if (!existing.gameReferenceId) {

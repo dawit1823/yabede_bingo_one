@@ -6,6 +6,7 @@ import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
 import { audioEngine, getAmharicNumberText } from '../lib/audioEngine';
 import { formatCardNumber, getRemainingSeconds } from '../lib/bingoUtils';
 import { apiUrl } from '../lib/apiConfig';
+import { logger } from '../lib/logger';
 import confetti from 'canvas-confetti';
 import { MessageSquare, Send, Sparkles, Trophy, Volume2, CheckCircle2, AlertCircle, History, RefreshCw } from 'lucide-react';
 
@@ -140,7 +141,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
         }
       }
     } catch (err) {
-      console.warn('⚡ [ActiveGameView] Manual game refresh note:', err);
+      logger.debug('Manual game refresh note:', err);
     } finally {
       setIsRefreshing(false);
     }
@@ -175,7 +176,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
           });
         }
       })
-      .catch((err) => console.warn('⚡ [ActiveGameView] Initial status fetch notice:', err));
+      .catch((err) => logger.debug('Initial status fetch notice:', err));
 
     return () => {
       isMounted = false;
@@ -209,7 +210,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
         }
       },
       (err) => {
-        console.warn('🔥 [Firestore] Live tickets snapshot note:', err.message);
+        logger.debug('Live tickets snapshot note:', err.message);
       }
     );
 
@@ -236,7 +237,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
         }
       },
       (err) => {
-        console.warn('🔥 [Firestore] roomStats sub-collection snapshot note:', err.message);
+        logger.debug('roomStats sub-collection snapshot note:', err.message);
       }
     );
 

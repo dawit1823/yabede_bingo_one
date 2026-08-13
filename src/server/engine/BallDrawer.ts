@@ -7,6 +7,7 @@ import { firestoreRepository } from './FirestoreRepository.js';
 import { ticketManager } from './TicketManager.js';
 import { webSocketGateway } from './WebSocketGateway.js';
 import { adminService } from '../adminService.js';
+import { logger } from '../logger.js';
 import { BingoRoom } from '../../types.js';
 
 export class BallDrawer {
@@ -22,7 +23,7 @@ export class BallDrawer {
       return; // Already running
     }
 
-    console.log(`🎰 [BallDrawer] Starting live ball draw cycle for room ${roomId}`);
+    logger.info(`[GAME] Ball draw cycle started room=${roomId}`);
 
     const settings = adminService.getSystemSettings();
     const drawIntervalMs = (settings.ballDrawIntervalSeconds || 3) * 1000;
@@ -36,7 +37,7 @@ export class BallDrawer {
       }
 
       if (room.drawnBalls.length >= 75) {
-        console.log(`🏁 [BallDrawer] All 75 balls drawn for ${roomId}. Ending game.`);
+        logger.info(`[GAME] Finished room=${roomId} (All 75 balls drawn)`);
         this.stopBallDrawCycle(roomId);
         await this.handleGameCompletion(room, []);
         return false;
@@ -51,7 +52,7 @@ export class BallDrawer {
       room.drawnBalls.push(nextBall);
       room.currentBall = nextBall;
 
-      console.log(`🎱 [BallDrawer] Room ${roomId}: Drawn Ball #${nextBall} (Total drawn: ${room.drawnBalls.length}/75)`);
+      logger.debug(`[GAME] Ball drawn room=${roomId} ball=${nextBall} count=${room.drawnBalls.length}`);
 
       // Broadcast ball draw to all clients
       webSocketGateway.broadcastBallDrawn(roomId, nextBall, room.drawnBalls);
@@ -60,7 +61,7 @@ export class BallDrawer {
       const { winners } = winnerValidator.autoCheckRoomWinners(roomId);
 
       if (winners.length > 0) {
-        console.log(`🎉 [BallDrawer] Bingo winners detected in ${roomId}! Count: ${winners.length}`);
+        logger.info(`[GAME] Winners detected room=${roomId} count=${winners.length}`);
         this.stopBallDrawCycle(roomId);
         await this.handleGameCompletion(room, winners);
         return false;
@@ -103,7 +104,7 @@ export class BallDrawer {
       this.activeIntervals.delete(roomId);
     }
 
-    console.log(`⏹️ [BallDrawer] Stopped ball draw cycle for room ${roomId}`);
+    logger.debug(`[GAME] Stopped ball draw cycle room=${roomId}`);
   }
 
   /**
@@ -145,7 +146,7 @@ export class BallDrawer {
    * Resets room data and automatically creates the next game round.
    */
   public async resetAndCreateNextGame(room: BingoRoom): Promise<void> {
-    console.log(`🔄 [BallDrawer] Creating next game round for room ${room.id}...`);
+    logger.debug(`[GAME] Resetting game round room=${room.id}`);
 
     const settings = adminService.getSystemSettings();
     const countdownSec = settings.countdownDurationSeconds || 45;
@@ -176,7 +177,7 @@ export class BallDrawer {
     webSocketGateway.broadcastGameReset(room.id, room);
     webSocketGateway.broadcastRoomUpdate(room);
 
-    console.log(`✅ [BallDrawer] Next game round initialized: ${newGameRef} for ${room.id}`);
+    logger.info(`[GAME] Next game round initialized room=${room.id} gameRef=${newGameRef}`);
   }
 }
 

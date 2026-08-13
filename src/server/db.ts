@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import { adminDb } from './firebaseAdmin.js';
 import { adminService } from './adminService.js';
+import { logger } from './logger.js';
 import {
   UserProfile,
   WalletTransaction,
@@ -175,15 +176,30 @@ class FirestoreDatabaseStore {
   private isInitialized = false;
 
   constructor() {
+    // Immediately seed official rooms in memory
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const endsIso = new Date(nowMs + 45000).toISOString();
+    for (const officialRoom of OFFICIAL_ROOMS) {
+      if (!this.rooms.has(officialRoom.id)) {
+        this.rooms.set(officialRoom.id, {
+          ...officialRoom,
+          startedAt: nowIso,
+          endsAt: endsIso,
+          countdownSeconds: 45,
+        });
+      }
+    }
+
     this.initFirestoreSync().catch((err) => {
-      console.error('🔥 [Firestore] Error initializing store sync:', err);
+      logger.debug('Firestore store sync note:', err.message || err);
     });
   }
 
   public async initFirestoreSync() {
     if (this.isInitialized) return;
     this.isInitialized = true;
-    console.log('🔥 [Firestore] Synchronizing memory store with Cloud Firestore...');
+    logger.info('[Firestore] Synchronizing memory store with Cloud Firestore...');
 
     try {
       // 1. Sync Payment Methods
@@ -366,7 +382,7 @@ class FirestoreDatabaseStore {
         }
       });
 
-      console.log(`✅ [Firestore] Loaded ${this.users.size} users, ${this.rooms.size} rooms, ${this.privateGroups.size} private groups, ${this.tickets.size} tickets, ${this.deposits.length} deposits.`);
+      logger.info(`[Firestore] Loaded ${this.users.size} users, ${this.rooms.size} rooms, ${this.privateGroups.size} private groups, ${this.tickets.size} tickets, ${this.deposits.length} deposits.`);
     } catch (err) {
       console.error('⚠️ [Firestore] Initial sync error (collections will be populated dynamically):', err);
     }

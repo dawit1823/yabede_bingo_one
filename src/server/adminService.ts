@@ -401,6 +401,13 @@ export class AdminService {
     deviceInfo?: string,
     browser?: string
   ): Promise<{ token: string; admin: AdminProfile }> {
+    if (!email || !password) {
+      throw new Error('Email and password are required.');
+    }
+
+    if (!this.adminProfile || !this.passwordHash) {
+      await this.initializeSuperAdmin();
+    }
     // 1. Strictly enforce fixed single email
     if (email.trim().toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
       await this.logAction('LOGIN_ATTEMPT', 'FAILED', `Unauthorized email attempted login: ${email}`, ipAddress, deviceInfo, browser);

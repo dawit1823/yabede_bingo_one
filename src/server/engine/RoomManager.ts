@@ -2,6 +2,7 @@ import { BingoRoom } from '../../types.js';
 import { db } from '../db.js';
 import { roomInitializer, OFFICIAL_ROOM_CONFIGS } from './RoomInitializer.js';
 import { firestoreRepository } from './FirestoreRepository.js';
+import { logger } from '../logger.js';
 
 export class RoomManager {
   /**
@@ -63,10 +64,10 @@ export class RoomManager {
         for (const room of dbRooms) {
           db.rooms.set(room.id, room);
         }
-        console.log(`✅ [RoomManager] Restored ${dbRooms.length} rooms from Firestore into memory.`);
+        logger.info(`[RoomManager] Restored ${dbRooms.length} rooms from Firestore.`);
       }
     } catch (err: any) {
-      console.warn('⚠️ [RoomManager] Firestore restore warning:', err.message);
+      logger.warn('[RoomManager] Firestore restore warning:', err.message);
     }
 
     // Always ensure the 4 official rooms are present

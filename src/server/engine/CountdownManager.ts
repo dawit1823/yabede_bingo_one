@@ -5,6 +5,7 @@ import { webSocketGateway } from './WebSocketGateway.js';
 import { db } from '../db.js';
 import { adminDb } from '../firebaseAdmin.js';
 import { adminService } from '../adminService.js';
+import { logger } from '../logger.js';
 
 export class CountdownManager {
   private tickerInterval: NodeJS.Timeout | null = null;
@@ -15,7 +16,7 @@ export class CountdownManager {
   public startTicker(): void {
     if (this.tickerInterval) return;
 
-    console.log('⏱️ [CountdownManager] Starting 1-second server-side countdown ticker...');
+    logger.info('[CountdownManager] Starting countdown ticker...');
 
     this.tickerInterval = setInterval(async () => {
       const rooms = roomManager.getAllRooms();
@@ -34,13 +35,10 @@ export class CountdownManager {
 
         room.countdownSeconds = remainingSeconds;
 
-        if (remainingSeconds % 10 === 0 || remainingSeconds <= 5) {
-          console.log(`[COUNTDOWN] ${remainingSeconds}s | [ROOM STATUS] ${room.status} | [ROOM ID] ${room.id} | [CURRENT GAME ID] ${room.gameReferenceId || (room as any).currentGameId || 'N/A'}`);
-        }
+        logger.debug(`[COUNTDOWN] room=${room.id} seconds=${remainingSeconds} status=${room.status}`);
 
         if (remainingSeconds <= 0) {
-          console.log(`\n[COUNTDOWN END] Countdown reached zero for room ${room.id} (${room.name})`);
-          console.log(`[START GAME CALLED] Room ID: ${room.id} | [CURRENT GAME ID] ${room.gameReferenceId || (room as any).currentGameId || 'N/A'}`);
+          logger.debug(`[COUNTDOWN END] room=${room.id}`);
 
           // 1. Verify confirmed ticket purchases (ACTIVE or BINGO_CLAIMED) in memory
           const memoryTickets = Array.from(db.tickets.values()).filter(
@@ -64,7 +62,7 @@ export class CountdownManager {
                 confirmedTickets = fsTickets;
               }
             } catch (err: any) {
-              console.warn(`⚠️ [CountdownManager] Firestore tickets query error for ${room.id}:`, err.message);
+              logger.warn(`[CountdownManager] Firestore tickets query error for ${room.id}:`, err.message);
             }
           }
 
@@ -75,14 +73,8 @@ export class CountdownManager {
           room.ticketsSold = confirmedCount;
           room.activePlayersCount = uniqueActivePlayers;
 
-          console.log(`[ROOM STATUS] ${room.status}`);
-          console.log(`[CONFIRMED TICKETS] ${confirmedCount}`);
-          console.log(`[ACTIVE PLAYERS] ${uniqueActivePlayers}`);
-          console.log(`[MIN PLAYERS] ${requiredMinPlayers}`);
-
           if (confirmedCount >= requiredMinPlayers) {
-            console.log(`[ACTIVE GAME] YES - Starting Live Game for room ${room.id}`);
-            console.log(`🚀 [CountdownManager] Transitioning room ${room.id} to PLAYING status`);
+            logger.info(`[GAME] Started room=${room.id} gameRef=${room.gameReferenceId || room.id} tickets=${confirmedCount} players=${uniqueActivePlayers}`);
             room.status = 'PLAYING';
             room.countdownSeconds = 0;
             room.startedAt = new Date().toISOString();
@@ -101,10 +93,9 @@ export class CountdownManager {
             );
 
             // Start ball drawing cycle
-            console.log(`[BALL DRAW START] Triggering ball drawer for room ${room.id}`);
             ballDrawer.startBallDrawCycle(room.id);
           } else {
-            console.log(`[START GAME EXIT] Insufficient confirmed tickets (${confirmedCount} < ${requiredMinPlayers}). Resetting countdown...`);
+            logger.info(`[GAME] Reset countdown room=${room.id} tickets=${confirmedCount} minRequired=${requiredMinPlayers}`);
             const startTime = new Date(now).toISOString();
             const endTime = new Date(now + defaultDurationMs).toISOString();
 
@@ -113,7 +104,7 @@ export class CountdownManager {
             room.startedAt = startTime;
             room.endsAt = endTime;
 
-            firestoreRepository.saveRoomSnapshot(room).catch(console.warn);
+            firestoreRepository.saveRoomSnapshot(room).catch((err) => logger.warn('[Firestore] Room snapshot save error:', err.message));
             webSocketGateway.broadcastRoomUpdate(room);
             webSocketGateway.broadcastCountdown(
               room.id,
@@ -125,11 +116,6 @@ export class CountdownManager {
           }
         } else {
           room.status = 'COUNTDOWN';
-
-          // Log countdown progress at key milestones
-          if (remainingSeconds % 15 === 0 || remainingSeconds <= 5) {
-            console.log(`⏱️ [CountdownManager] Room ${room.id} (${room.name}): ${remainingSeconds}s remaining [Status: ${room.status}, Tickets sold: ${room.ticketsSold || 0}]`);
-          }
 
           // Broadcast ticker to clients
           webSocketGateway.broadcastCountdown(
@@ -151,7 +137,7 @@ export class CountdownManager {
     if (this.tickerInterval) {
       clearInterval(this.tickerInterval);
       this.tickerInterval = null;
-      console.log('⏹️ [CountdownManager] Stopped countdown ticker.');
+      logger.info('[CountdownManager] Stopped countdown ticker.');
     }
   }
 }

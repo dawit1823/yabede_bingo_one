@@ -53,15 +53,28 @@ export function broadcastCardUpdate(
 }
 
 export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
-  const allowedOrigins = process.env.FRONTEND_URL
-    ? process.env.FRONTEND_URL.split(',').map((url) => url.trim().replace(/\/+$/, ''))
-    : [];
+  const envFrontend = process.env.FRONTEND_URL || '';
+  const allowedOrigins = [
+    'https://melodic-ganache-8bad94.netlify.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+  ];
+
+  if (envFrontend) {
+    envFrontend.split(',').forEach((url) => {
+      const clean = url.trim().replace(/\/+$/, '');
+      if (clean && !allowedOrigins.includes(clean)) {
+        allowedOrigins.push(clean);
+      }
+    });
+  }
 
   const io = new SocketIOServer(httpServer, {
     cors: {
       origin: (origin, callback) => {
         if (!origin) return callback(null, true);
-        if (allowedOrigins.length === 0) return callback(null, true);
         if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
           return callback(null, true);
         }
@@ -97,6 +110,7 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
   };
 
   io.on('connection', (socket: Socket) => {
+    console.log('[Socket.IO] client connected:', socket.id);
     let currentUserId: string | null = null;
     broadcastOnlineCount();
 
@@ -331,7 +345,8 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
       io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:message', msg);
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason) => {
+      console.log('[Socket.IO] client disconnected:', socket.id, 'reason:', reason);
       broadcastOnlineCount();
     });
   });

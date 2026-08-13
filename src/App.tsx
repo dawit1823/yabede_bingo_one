@@ -4,6 +4,7 @@ import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { db as firestoreDb } from './lib/firebase';
 import { initTelegramApp, triggerHaptic } from './lib/telegramSDK';
 import { audioEngine } from './lib/audioEngine';
+import { logger } from './lib/logger';
 import {
   AuditLog,
   BingoRoom,
@@ -242,10 +243,25 @@ export default function App() {
   useEffect(() => {
     const newSocket = io(VITE_SOCKET_URL, {
       transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
     });
 
     newSocket.on('connect', () => {
+      logger.debug('[Socket.IO] Client connected to backend:', newSocket.id);
       newSocket.emit('auth:identify', { userId: currentUser.id });
+    });
+
+    newSocket.on('reconnect', (attempt) => {
+      logger.debug('[Socket.IO] Client reconnected (attempt ' + attempt + ')');
+      newSocket.emit('auth:identify', { userId: currentUser.id });
+    });
+
+    newSocket.on('connect_error', (err) => {
+      logger.debug('[Socket.IO] Client connection error:', err.message);
     });
 
     newSocket.on('settings:updated', (data: any) => {
@@ -472,7 +488,7 @@ export default function App() {
         });
       },
       (err) => {
-        console.warn('⚡ [Firestore Room Sync] Snapshot listener notice:', err.message);
+        logger.debug('Firestore room sync snapshot notice:', err.message);
       }
     );
 
@@ -484,7 +500,7 @@ export default function App() {
         }
       },
       (err) => {
-        console.warn('⚡ [Firestore Settings Sync] Snapshot notice:', err.message);
+        logger.debug('Firestore settings sync snapshot notice:', err.message);
       }
     );
 
@@ -630,7 +646,7 @@ export default function App() {
           }
         }
       },
-      (err) => console.warn('🔥 [Firestore] Rooms snapshot listener note:', err.message)
+      (err) => logger.debug('Rooms snapshot listener note:', err.message)
     );
 
     const unsubscribeUser = onSnapshot(
@@ -640,7 +656,7 @@ export default function App() {
           setCurrentUser({ id: docSnap.id, ...(docSnap.data() as UserProfile) });
         }
       },
-      (err) => console.warn('🔥 [Firestore] User snapshot listener note:', err.message)
+      (err) => logger.debug('User snapshot listener note:', err.message)
     );
 
     const qTx = query(collection(firestoreDb, 'transactions'), where('userId', '==', currentUser.id));
@@ -650,7 +666,7 @@ export default function App() {
         const txList: WalletTransaction[] = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as WalletTransaction) }));
         setTransactions(txList);
       },
-      (err) => console.warn('🔥 [Firestore] Transactions snapshot listener note:', err.message)
+      (err) => logger.debug('Transactions snapshot listener note:', err.message)
     );
 
     const qTickets = query(collection(firestoreDb, 'tickets'), where('userId', '==', currentUser.id));
@@ -660,7 +676,7 @@ export default function App() {
         const ticketList: BingoTicket[] = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as BingoTicket) }));
         setUserTickets(ticketList);
       },
-      (err) => console.warn('🔥 [Firestore] Tickets snapshot listener note:', err.message)
+      (err) => logger.debug('Tickets snapshot listener note:', err.message)
     );
 
     return () => {

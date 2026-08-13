@@ -3,6 +3,8 @@
  * Supports real Redis connection if REDIS_URL exists, or high-performance in-memory fallback.
  */
 
+import { logger } from './logger.js';
+
 class RedisClientAdapter {
   private memoryStore: Map<string, string> = new Map();
   private redisConnected: boolean = false;
@@ -10,10 +12,10 @@ class RedisClientAdapter {
   constructor() {
     // Check if REDIS_URL environment variable is provided
     if (process.env.REDIS_URL) {
-      console.log('🔌 Redis URL detected. Connecting to Redis server...');
+      logger.info('Redis URL detected. Connecting to Redis server...');
       this.redisConnected = true;
     } else {
-      console.log('ℹ️ Redis URL not set. Using in-memory Redis cluster emulation.');
+      logger.info('Redis URL not set. Using in-memory Redis cluster emulation.');
     }
   }
 

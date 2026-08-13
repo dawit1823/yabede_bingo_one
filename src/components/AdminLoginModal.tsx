@@ -3,6 +3,7 @@ import { sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { triggerHaptic } from '../lib/telegramSDK';
 import { apiUrl } from '../lib/apiConfig';
+import { logger } from '../lib/logger';
 import {
   ShieldCheck,
   Lock,
@@ -113,9 +114,9 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       // 1. Dispatch Firebase Auth Password Reset Email directly via Firebase SDK
       try {
         await sendPasswordResetEmail(auth, FIXED_EMAIL);
-        console.log('✅ [Client Firebase Auth] Password reset email sent to:', FIXED_EMAIL);
+        logger.info('Password reset email dispatched to admin');
       } catch (fbErr: any) {
-        console.warn('⚠️ [Client Firebase Auth] Password reset dispatch note:', fbErr.message);
+        logger.warn('Password reset dispatch notice:', fbErr.message);
       }
 
       // 2. Dispatch Backend API password reset request

@@ -4,12 +4,13 @@
  */
 
 import { gameManager } from './engine/GameManager.js';
+import { logger } from './logger.js';
 
 export class RoomLifecycleCronService {
   public initScheduler(io: any) {
-    console.log('🚀 [RoomScheduler] Starting Real-Time Bingo Lifecycle Engine...');
+    logger.info('[RoomScheduler] Starting Bingo Lifecycle Engine...');
     gameManager.initEngine(io).catch((err) => {
-      console.error('🔥 [RoomScheduler] Failed to initialize GameManager:', err);
+      logger.error('[RoomScheduler] Failed to initialize GameManager:', err);
     });
   }
 }

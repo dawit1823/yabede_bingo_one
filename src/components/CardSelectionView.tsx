@@ -8,6 +8,7 @@ import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds } fro
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
 import { audioEngine } from '../lib/audioEngine';
 import { apiUrl } from '../lib/apiConfig';
+import { logger } from '../lib/logger';
 import {
   ArrowLeft,
   Search,
@@ -548,7 +549,7 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
         }
       },
       (err) => {
-        console.warn('🔥 [Firestore] Live room listener note:', err.message);
+        logger.debug('Live room listener note:', err.message);
         setIsSyncing(true);
       }
     );
@@ -585,7 +586,7 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
         setIsSyncing(false);
       },
       (err) => {
-        console.warn('🔥 [Firestore] Card reservations listener note:', err.message);
+        logger.debug('Card reservations listener note:', err.message);
         setIsSyncing(true);
       }
     );
@@ -625,7 +626,7 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
         }
       }
     } catch (err) {
-      console.warn('⚡ [Refresh] Manual refresh note:', err);
+      logger.debug('Manual refresh note:', err);
       setIsSyncing(true);
     } finally {
       setIsRefreshing(false);
