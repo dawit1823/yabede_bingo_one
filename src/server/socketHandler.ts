@@ -162,9 +162,15 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
         socket.join(`private_grp_${roomId}`);
       }
 
-      // Send initial room snapshot
+      // Send initial room snapshot (scoped strictly to current round's gameReferenceId and ACTIVE status)
       const existingTickets = currentUserId
-        ? Array.from(db.tickets.values()).filter((t) => t.roomId === roomId && t.userId === currentUserId)
+        ? Array.from(db.tickets.values()).filter(
+            (t) =>
+              t.roomId === roomId &&
+              t.userId === currentUserId &&
+              t.status === 'ACTIVE' &&
+              (!room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId)
+          )
         : [];
 
       // Fetch active card reservations for room
@@ -179,6 +185,9 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
         cardResSnap.docs.forEach((docSnap) => {
           const resData = docSnap.data();
           if (resData.status === 'RESERVED' && resData.expiresAt && resData.expiresAt < now) {
+            return;
+          }
+          if (room.gameReferenceId && resData.gameReferenceId && resData.gameReferenceId !== room.gameReferenceId) {
             return;
           }
           if (resData.cardNumber) {

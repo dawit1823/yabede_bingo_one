@@ -164,6 +164,7 @@ export default function App() {
   const [isBotOpen, setIsBotOpen] = useState(false);
   const [isGateOpen, setIsGateOpen] = useState(false);
   const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
+  const [registrationBonusCredit, setRegistrationBonusCredit] = useState<number>(50);
   const [tgAuthStatus, setTgAuthStatus] = useState<'checking' | 'authenticated' | 'outside_telegram' | 'auth_error'>('checking');
   const [tgAuthErrorMessage, setTgAuthErrorMessage] = useState<string>('');
 
@@ -174,6 +175,15 @@ export default function App() {
       .then((data) => {
         if (data && data.maintenanceMode !== undefined) {
           setIsMaintenanceMode(Boolean(data.maintenanceMode));
+        }
+        if (data && typeof data.registrationBonusCredit === 'number') {
+          setRegistrationBonusCredit(data.registrationBonusCredit);
+          setCurrentUser((prev) => {
+            if (prev.id.startsWith('usr_abebe') || prev.id.startsWith('demo_') || !prev.telegramId) {
+              return { ...prev, bonusBalance: data.registrationBonusCredit };
+            }
+            return prev;
+          });
         }
       })
       .catch(() => null);
@@ -268,6 +278,21 @@ export default function App() {
     newSocket.on('settings:updated', (data: any) => {
       if (data?.settings?.maintenanceMode !== undefined) {
         setIsMaintenanceMode(Boolean(data.settings.maintenanceMode));
+      }
+      const newBonus = typeof data?.registrationBonusCredit === 'number'
+        ? data.registrationBonusCredit
+        : typeof data?.settings?.welcomeBonusBirr === 'number'
+        ? data.settings.welcomeBonusBirr
+        : null;
+
+      if (newBonus !== null) {
+        setRegistrationBonusCredit(newBonus);
+        setCurrentUser((prev) => {
+          if (prev.id.startsWith('usr_abebe') || prev.id.startsWith('demo_') || !prev.telegramId) {
+            return { ...prev, bonusBalance: newBonus };
+          }
+          return prev;
+        });
       }
     });
 
@@ -935,6 +960,7 @@ export default function App() {
       <HeaderBar
         user={currentUser}
         isLoggedIn={isLoggedIn}
+        registrationBonusCredit={registrationBonusCredit}
         onOpenDeposit={() => setActiveTab('wallet')}
         onOpenAdmin={() => setActiveTab('admin')}
         onOpenAuth={() => setIsAuthOpen(true)}
@@ -965,26 +991,6 @@ export default function App() {
           </div>
         ) : (
           <>
-            {/* Sticky Return-to-Active-Game Banner */}
-            {activeRoom && activeTab !== 'active_game' && !selectedCardRoom && (
-              <div
-                onClick={() => setActiveTab('active_game')}
-                className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white px-4 py-3 rounded-2xl mb-4 flex items-center justify-between shadow-xl animate-pulse cursor-pointer border border-emerald-400/40 hover:brightness-110 transition"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-red-400 animate-ping" />
-                  <span className="text-xs font-black tracking-wide">
-                    {language === 'am'
-                      ? `ቀጥታ ጨዋታ ውስጥ ነዎት (${activeRoom.name}) — ለማየት እዚህ ይጫኑ`
-                      : `ACTIVE GAME IN ${activeRoom.name.toUpperCase()} — TAP TO OPEN GAME BOARD`}
-                  </span>
-                </div>
-                <span className="bg-slate-950 text-amber-300 px-3 py-1 rounded-xl text-[10px] font-black border border-amber-400/30">
-                  PLAY NOW →
-                </span>
-              </div>
-            )}
-
             {selectedCardRoom ? (
           <CardSelectionView
             room={selectedCardRoom}
@@ -1037,7 +1043,12 @@ export default function App() {
             {activeTab === 'active_game' && activeRoom && (
               <ActiveGameView
                 room={activeRoom}
-                tickets={userTickets.filter((t) => t.roomId === activeRoom.id)}
+                tickets={userTickets.filter(
+                  (t) =>
+                    t.roomId === activeRoom.id &&
+                    (!activeRoom.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === activeRoom.gameReferenceId) &&
+                    t.status === 'ACTIVE'
+                )}
                 user={currentUser}
                 messages={chatMessages}
                 onSendMessage={handleSendMessage}
@@ -1047,7 +1058,8 @@ export default function App() {
                     setActivePrivateGroupId(activeRoom.id);
                     setActiveRoom(null);
                   } else {
-                    setSelectedCardRoom(activeRoom);
+                    const roomToSelect = rooms.find((r) => r.id === activeRoom.id) || activeRoom;
+                    setSelectedCardRoom(roomToSelect);
                     setActiveRoom(null);
                   }
                 }}

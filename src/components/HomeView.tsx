@@ -109,67 +109,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <div className="space-y-6 pb-24">
-      {/* Hero Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-900 via-slate-900 to-amber-950 border border-emerald-500/30 p-5 shadow-2xl">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-400/10 border border-amber-400/30 text-amber-300 text-xs font-bold">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-              {language === 'am' ? 'የኢትዮጵያ ቁጥር 1 ኦንላይን ቢንጎ' : 'Ethiopia\'s #1 Real-Time Bingo App'}
-            </div>
-            <p className="text-xs text-slate-300 max-w-md">
-              {language === 'am'
-                ? 'በቴሌብር (Telebirr)፣ CBE Birr እና ቻፓ (Chapa) ክፍያዎችን በቀላሉ ፈጣን ገቢና ወጪ ያድርጉ።'
-                : 'Instant Deposits & Payouts via Telebirr, CBE Birr, Chapa & SantimPay.'}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
-            <button
-              onClick={() => {
-                onNavigateTab('bonuses');
-                triggerHaptic('medium');
-              }}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/25 hover:brightness-110 active:scale-95 transition"
-            >
-              <Gift className="w-4 h-4" />
-              <span>{language === 'am' ? 'ዕለታዊ ቦነስ ይውሰዱ' : 'Daily Rewards & Invites'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Live Stats Ticker */}
-        <div className="grid grid-cols-3 gap-2 mt-5 pt-4 border-t border-slate-800 text-center">
-          <div>
-            <div className="text-[10px] text-slate-400 font-medium">
-              {language === 'am' ? 'ተጫዋቾች' : 'Live Players'}
-            </div>
-            <div className="text-sm font-extrabold text-emerald-400 flex items-center justify-center gap-1">
-              <Users className="w-3.5 h-3.5" /> {onlineUsersCount}
-            </div>
-          </div>
-
-          <div>
-            <div className="text-[10px] text-slate-400 font-medium">
-              {language === 'am' ? 'የዛሬ ሽልማት' : 'Total Paid Out'}
-            </div>
-            <div className="text-sm font-extrabold text-amber-400 flex items-center justify-center gap-1">
-              <Trophy className="w-3.5 h-3.5" /> 45,800 Birr
-            </div>
-          </div>
-
-          <div>
-            <div className="text-[10px] text-slate-400 font-medium">
-              {language === 'am' ? 'ክፍያ' : 'Payment Gateways'}
-            </div>
-            <div className="text-xs font-bold text-slate-200">
-              Telebirr / CBE
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Mode Switcher: Public Rooms vs Private Group Bingo */}
       <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-2xl">
         <button

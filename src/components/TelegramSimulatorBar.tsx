@@ -1,7 +1,7 @@
 import React from 'react';
 import { UserProfile } from '../types';
 import { triggerHaptic } from '../lib/telegramSDK';
-import { ShieldCheck, UserCheck, Moon, Sun, Smartphone, Copy, Check, Bot } from 'lucide-react';
+import { Moon, Sun, Smartphone, Bot } from 'lucide-react';
 
 interface TelegramSimulatorBarProps {
   currentUser: UserProfile;
@@ -15,28 +15,15 @@ interface TelegramSimulatorBarProps {
 }
 
 export const TelegramSimulatorBar: React.FC<TelegramSimulatorBarProps> = ({
-  currentUser,
-  allDemoUsers,
-  onSwitchUser,
+  currentUser: _currentUser,
+  allDemoUsers: _allDemoUsers,
+  onSwitchUser: _onSwitchUser,
   isDarkMode,
   onToggleTheme,
   language,
   onToggleLanguage,
   onOpenBot,
 }) => {
-  const [copied, setCopied] = React.useState(false);
-
-  const mockInitData = `user=%7B%22id%22%3A${currentUser.telegramId}%2C%22first_name%22%3A%22${encodeURIComponent(
-    currentUser.firstName
-  )}%22%2C%22username%22%3A%22${currentUser.username}%22%7D&auth_date=1721888000&hash=8f8d8c...`;
-
-  const handleCopyInitData = () => {
-    navigator.clipboard.writeText(mockInitData);
-    setCopied(true);
-    triggerHaptic('light');
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
     <div className="bg-slate-900 border-b border-slate-800 text-slate-200 text-xs py-2 px-3 flex flex-wrap items-center justify-between gap-2 shadow-inner">
       <div className="flex items-center gap-2">
@@ -69,16 +56,6 @@ export const TelegramSimulatorBar: React.FC<TelegramSimulatorBarProps> = ({
           title="Toggle Telegram Theme"
         >
           {isDarkMode ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-indigo-400" />}
-        </button>
-
-        {/* Copy InitData */}
-        <button
-          onClick={handleCopyInitData}
-          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition"
-          title="Copy Mock Telegram InitData string for auth testing"
-        >
-          {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-          <span className="hidden md:inline">{copied ? 'InitData Copied!' : 'Copy InitData'}</span>
         </button>
 
         {/* Telegram Registration Bot Button */}

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { db, generateGameReferenceId } from '../db.js';
+import { adminDb } from '../firebaseAdmin.js';
 import { roomManager } from './RoomManager.js';
 import { winnerValidator } from './WinnerValidator.js';
 import { prizeCalculator } from './PrizeCalculator.js';
@@ -173,9 +174,40 @@ export class BallDrawer {
     // Persist updated room state to Firestore
     await firestoreRepository.saveRoomSnapshot(room);
 
-    // Notify clients of game reset
+    // Reset roomStats in Firestore
+    const resetStats = {
+      roomId: room.id,
+      gameReferenceId: newGameRef,
+      prizePool: 0,
+      platformFee: 0,
+      ticketsSold: 0,
+      totalSales: 0,
+      activePlayersCount: 0,
+      updatedAt: new Date().toISOString(),
+    };
+    adminDb.collection(`rooms/${room.id}/roomStats`).doc('current').set(resetStats, { merge: true }).catch(console.warn);
+    adminDb.collection(`gameRooms/${room.id}/roomStats`).doc('current').set(resetStats, { merge: true }).catch(console.warn);
+
+    // Notify clients of game reset & card availability
     webSocketGateway.broadcastGameReset(room.id, room);
     webSocketGateway.broadcastRoomUpdate(room);
+    webSocketGateway.broadcastCountdown(room.id, countdownSec, 'WAITING', room.startedAt, room.endsAt);
+
+    const io = webSocketGateway.getIO();
+    if (io) {
+      io.to(room.id).emit('room:snapshot', {
+        room,
+        tickets: [],
+        reservations: {},
+        messages: db.chatMessages.get(room.id) || [],
+      });
+      io.to(room.id).emit('card:updated', {
+        roomId: room.id,
+        action: 'RESET_ALL',
+        reservations: {},
+        room,
+      });
+    }
 
     logger.info(`[GAME] Next game round initialized room=${room.id} gameRef=${newGameRef}`);
   }

@@ -758,6 +758,16 @@ export class AdminService {
       }
     }
 
+    if (parsedSettings.welcomeBonusBirr !== undefined) {
+      const regProg = this.bonusPrograms.find(
+        (p) => p.id === 'registration_bonus' || p.type === 'REGISTRATION' || p.name === 'Registration Bonus Credit'
+      );
+      if (regProg) {
+        regProg.amountBirr = Number(parsedSettings.welcomeBonusBirr);
+        adminDb.collection('settings').doc('bonusConfigs').set({ programs: this.bonusPrograms }).catch(console.warn);
+      }
+    }
+
     this.systemSettings = combined;
 
     // Record history
@@ -782,6 +792,19 @@ export class AdminService {
     return this.bonusPrograms;
   }
 
+  public getRegistrationBonusAmount(): number {
+    const regProg = this.bonusPrograms.find(
+      (p) => p.id === 'registration_bonus' || p.type === 'REGISTRATION' || p.name === 'Registration Bonus Credit'
+    );
+    if (regProg && regProg.enabled !== false && typeof regProg.amountBirr === 'number') {
+      return regProg.amountBirr;
+    }
+    if (typeof this.systemSettings.welcomeBonusBirr === 'number') {
+      return this.systemSettings.welcomeBonusBirr;
+    }
+    return 50;
+  }
+
   public async updateBonusPrograms(
     programs: BonusProgram[],
     updatedBy: string = AdminService.FIXED_ADMIN_EMAIL,
@@ -801,6 +824,15 @@ export class AdminService {
     }
 
     this.bonusPrograms = programs;
+
+    const regProg = programs.find(
+      (p) => p.id === 'registration_bonus' || p.type === 'REGISTRATION' || p.name === 'Registration Bonus Credit'
+    );
+    if (regProg && typeof regProg.amountBirr === 'number') {
+      this.systemSettings.welcomeBonusBirr = regProg.amountBirr;
+      adminDb.collection('settings').doc('platformConfig').set(this.systemSettings, { merge: true }).catch(console.warn);
+    }
+
     await adminDb.collection('settings').doc('bonusConfigs').set({ programs: this.bonusPrograms });
     await this.logAction('BONUS_SETTINGS_CHANGE', 'SUCCESS', `Updated ${programs.length} bonus program configurations`, ipAddress);
 

@@ -432,6 +432,14 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
     setLiveRoom(room);
   }, [room]);
 
+  // Reset all local selections and reservations whenever gameReferenceId or roomId changes
+  useEffect(() => {
+    setReservations({});
+    setOptimisticSelections(new Set());
+    setSelectionTimes({});
+    setErrorMessage(null);
+  }, [room.id, liveRoom.gameReferenceId]);
+
   // Socket.IO Real-Time Listener for Zero-Latency Card & Room Updates
   useEffect(() => {
     if (!socket) return;
@@ -440,32 +448,45 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
 
     const handleCardUpdated = (data: {
       roomId: string;
-      cardNumber: number;
-      reservation: CardReservation | null;
+      cardNumber?: number;
+      reservation?: CardReservation | null;
+      reservations?: Record<number, CardReservation>;
       action?: string;
       room?: BingoRoom;
     }) => {
       if (data.roomId !== room.id) return;
 
-      setReservations((prev) => {
-        const next = { ...prev };
-        if (!data.reservation || data.action === 'DESELECTED' || data.action === 'CANCELLED' || data.action === 'EXPIRED') {
-          delete next[data.cardNumber];
-        } else {
-          next[data.cardNumber] = data.reservation;
+      if (data.action === 'RESET_ALL') {
+        setReservations({});
+        setOptimisticSelections(new Set());
+        setSelectionTimes({});
+        if (data.room) {
+          setLiveRoom(data.room);
         }
-        return next;
-      });
+        return;
+      }
 
-      // Clear optimistic selection if server synced it
-      setOptimisticSelections((prev) => {
-        if (prev.has(data.cardNumber)) {
-          const next = new Set(prev);
-          next.delete(data.cardNumber);
+      if (data.cardNumber !== undefined) {
+        setReservations((prev) => {
+          const next = { ...prev };
+          if (!data.reservation || data.action === 'DESELECTED' || data.action === 'CANCELLED' || data.action === 'EXPIRED') {
+            delete next[data.cardNumber!];
+          } else {
+            next[data.cardNumber!] = data.reservation;
+          }
           return next;
-        }
-        return prev;
-      });
+        });
+
+        // Clear optimistic selection if server synced it
+        setOptimisticSelections((prev) => {
+          if (prev.has(data.cardNumber!)) {
+            const next = new Set(prev);
+            next.delete(data.cardNumber!);
+            return next;
+          }
+          return prev;
+        });
+      }
 
       if (data.room) {
         setLiveRoom(data.room);
@@ -570,19 +591,17 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
         snapshot.docs.forEach((docSnap) => {
           const res = docSnap.data() as CardReservation;
           if (res && res.cardNumber) {
-            resMap[res.cardNumber] = res;
+            // Filter by gameReferenceId to ensure no previous round cards appear
+            if (
+              !liveRoom.gameReferenceId ||
+              !res.gameReferenceId ||
+              res.gameReferenceId === liveRoom.gameReferenceId
+            ) {
+              resMap[res.cardNumber] = res;
+            }
           }
         });
-        setReservations((prev) => {
-          const merged = { ...resMap };
-          // Preserve current user's active selections to prevent transient disappearing
-          (Object.values(prev) as CardReservation[]).forEach((r) => {
-            if (r && r.userId === user.id && (r.status === 'SOLD' || r.status === 'RESERVED')) {
-              merged[r.cardNumber] = r;
-            }
-          });
-          return merged;
-        });
+        setReservations(resMap);
         setIsSyncing(false);
       },
       (err) => {
@@ -592,7 +611,7 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
     );
 
     return () => unsubscribeCards();
-  }, [room.id, user.id]);
+  }, [room.id, liveRoom.gameReferenceId]);
 
   // Manual Refresh Handler
   const handleManualRefresh = useCallback(async () => {
@@ -606,21 +625,17 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
         const data = await response.json();
         if (data.success) {
           if (data.reservations) {
-            setReservations((prev) => {
-              const merged = { ...data.reservations };
-              (Object.values(prev) as CardReservation[]).forEach((r) => {
-                if (r && r.userId === user.id && (r.status === 'SOLD' || r.status === 'RESERVED')) {
-                  merged[r.cardNumber] = r;
-                }
-              });
-              return merged;
-            });
+            setReservations(data.reservations);
           }
           if (data.room) {
             setLiveRoom(data.room);
           }
           if (data.myTickets && Array.isArray(data.myTickets)) {
-            data.myTickets.forEach((t: BingoTicket) => onCardPurchased(t));
+            data.myTickets.forEach((t: BingoTicket) => {
+              if (!liveRoom.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === liveRoom.gameReferenceId) {
+                onCardPurchased(t);
+              }
+            });
           }
           setIsSyncing(false);
         }
@@ -631,7 +646,7 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
     } finally {
       setIsRefreshing(false);
     }
-  }, [room.id, user.id, isRefreshing, onCardPurchased]);
+  }, [room.id, user.id, isRefreshing, onCardPurchased, liveRoom.gameReferenceId]);
 
   // Initial fetch of room status on mount
   useEffect(() => {

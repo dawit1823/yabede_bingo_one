@@ -235,11 +235,15 @@ export interface GroupMessage {
 export interface CardReservation {
   id: string;          // e.g. "room_10_187"
   roomId: string;      // e.g. "room_10"
+  gameReferenceId?: string; // e.g. "GM-10-10-854721"
   cardNumber: number;  // 1 to 400
   userId: string;
   username: string;
   status: 'RESERVED' | 'SOLD';
-  purchasedAt: string;
+  purchasedAt?: string;
+  reservedAt?: string;
+  createdAt?: string;
+  expiresAt?: number;
 }
 
 export interface BingoRoom {

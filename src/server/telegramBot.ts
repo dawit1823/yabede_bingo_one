@@ -10,6 +10,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { adminAuth, adminDb } from './firebaseAdmin.js';
 import { db } from './db.js';
+import { adminService } from './adminService.js';
 import { UserProfile } from '../types.js';
 
 const JWT_SECRET = 'yabede_bingo_super_secret_jwt_key_2026';
@@ -448,7 +449,7 @@ class TelegramBotManager {
         language: (data.languageCode === 'am' ? 'am' : 'en'),
         referralCode,
         walletBalance: 100, // 100 Birr Welcome Credit
-        bonusBalance: 50,  // 50 Birr Bonus Credit
+        bonusBalance: adminService.getRegistrationBonusAmount(), // Dynamic Registration Bonus Credit from Admin
         vipLevel: 1,
         status: 'ACTIVE',
         createdAt: new Date().toISOString(),
@@ -474,6 +475,7 @@ class TelegramBotManager {
 
       // 4. Safely attempt Cloud Firestore persistent sync (non-blocking)
       try {
+        const dynamicBonus = adminService.getRegistrationBonusAmount();
         await Promise.all([
           adminDb.collection('users').doc(uid).set({
             uid,
@@ -485,7 +487,7 @@ class TelegramBotManager {
             passwordHash,
             photoURL: userProfile.photoUrl,
             walletBalance: 100,
-            bonusBalance: 50,
+            bonusBalance: dynamicBonus,
             referralCode,
             status: 'ACTIVE',
             createdAt: userProfile.createdAt,
@@ -495,7 +497,7 @@ class TelegramBotManager {
           adminDb.collection('wallets').doc(uid).set({
             userId: uid,
             balance: 100,
-            bonusBalance: 50,
+            bonusBalance: dynamicBonus,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           }, { merge: true }),

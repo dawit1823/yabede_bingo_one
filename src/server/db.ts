@@ -437,6 +437,8 @@ class FirestoreDatabaseStore {
       }
     }
 
+    const regBonus = adminService.getRegistrationBonusAmount();
+
     const user: UserProfile = {
       id: userId,
       telegramId: 0,
@@ -450,7 +452,7 @@ class FirestoreDatabaseStore {
       referralCode: userReferralCode,
       referredBy: referredByUserId || undefined,
       walletBalance: 100, // 100 Birr Welcome Credit
-      bonusBalance: 50,  // 50 Birr Bonus Credit
+      bonusBalance: regBonus, // Dynamic Registration Bonus Credit from Admin
       vipLevel: 1,
       status: 'ACTIVE',
       createdAt: new Date().toISOString(),
@@ -691,6 +693,7 @@ class FirestoreDatabaseStore {
 
     const newUserId = `usr_${tgUser.id}`;
     const referralCode = `REF${Math.floor(100000 + Math.random() * 900000)}`;
+    const regBonus = adminService.getRegistrationBonusAmount();
 
     const newUser: UserProfile = {
       id: newUserId,
@@ -702,7 +705,7 @@ class FirestoreDatabaseStore {
       language: tgUser.language_code === 'am' ? 'am' : 'en',
       referralCode,
       walletBalance: 100, // 100 Birr Welcome Gift
-      bonusBalance: 50,  // 50 Birr Bonus Gift
+      bonusBalance: regBonus, // Dynamic Registration Bonus Gift from Admin
       vipLevel: 1,
       status: 'ACTIVE',
       createdAt: new Date().toISOString(),

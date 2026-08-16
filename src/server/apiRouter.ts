@@ -1377,17 +1377,23 @@ apiRouter.get('/admin/winners', async (req: Request, res: Response) => {
 // --- PUBLIC SYSTEM SETTINGS ---
 apiRouter.get('/system/settings', (req: Request, res: Response) => {
   const settings = adminService.getSystemSettings();
+  const bonusPrograms = adminService.getBonusPrograms();
+  const registrationBonusCredit = adminService.getRegistrationBonusAmount();
   res.json({
     success: true,
     ...settings,
+    bonusPrograms,
+    registrationBonusCredit,
   });
 });
 
 // --- ADMIN SYSTEM SETTINGS ---
 apiRouter.get('/admin/settings', (req: Request, res: Response) => {
   const settings = adminService.getSystemSettings();
+  const bonusPrograms = adminService.getBonusPrograms();
+  const registrationBonusCredit = adminService.getRegistrationBonusAmount();
   const history = adminService.getSettingsHistory();
-  res.json({ settings, history });
+  res.json({ settings, bonusPrograms, registrationBonusCredit, history });
 });
 
 apiRouter.post('/admin/settings', async (req: Request, res: Response) => {
@@ -1400,15 +1406,24 @@ apiRouter.post('/admin/settings', async (req: Request, res: Response) => {
     return;
   }
 
+  const bonusPrograms = adminService.getBonusPrograms();
+  const registrationBonusCredit = adminService.getRegistrationBonusAmount();
+
   const io = getIO();
   if (io) {
-    io.emit('settings:updated', { settings: result.settings });
+    io.emit('settings:updated', {
+      settings: result.settings,
+      bonusPrograms,
+      registrationBonusCredit,
+    });
   }
 
   res.json({
     success: true,
     message: 'System settings updated successfully and saved to Firestore.',
     settings: result.settings,
+    bonusPrograms,
+    registrationBonusCredit,
     history: adminService.getSettingsHistory(),
   });
 });
@@ -1460,7 +1475,13 @@ apiRouter.post('/admin/bonuses', async (req: Request, res: Response) => {
 
     const io = getIO();
     if (io) {
-      io.emit('settings:updated', { bonusPrograms: result.bonusPrograms });
+      const registrationBonusCredit = adminService.getRegistrationBonusAmount();
+      const settings = adminService.getSystemSettings();
+      io.emit('settings:updated', {
+        bonusPrograms: result.bonusPrograms,
+        registrationBonusCredit,
+        settings,
+      });
     }
 
     res.json({
@@ -2282,6 +2303,10 @@ apiRouter.get('/bingo/room-status/:roomId', async (req: Request, res: Response) 
       if (data.status === 'RESERVED' && data.expiresAt && data.expiresAt < now) {
         return;
       }
+      // Ensure reservation belongs to current gameReferenceId if present
+      if (room.gameReferenceId && data.gameReferenceId && data.gameReferenceId !== room.gameReferenceId) {
+        return;
+      }
       if (data.cardNumber) {
         reservations[data.cardNumber] = data;
       }
@@ -2289,11 +2314,16 @@ apiRouter.get('/bingo/room-status/:roomId', async (req: Request, res: Response) 
 
     // Merge in-memory active tickets as SOLD reservations to ensure 0ms delay
     Array.from(db.tickets.values()).forEach((tkt) => {
-      if (tkt.roomId === roomId && (tkt.status === 'ACTIVE' || tkt.status === 'BINGO_CLAIMED')) {
+      if (
+        tkt.roomId === roomId &&
+        (tkt.status === 'ACTIVE' || tkt.status === 'BINGO_CLAIMED') &&
+        (!room.gameReferenceId || !tkt.gameReferenceId || tkt.gameReferenceId === room.gameReferenceId)
+      ) {
         if (tkt.cardNumber) {
           reservations[tkt.cardNumber] = {
             id: `${roomId}_${tkt.cardNumber}`,
             roomId,
+            gameReferenceId: room.gameReferenceId || tkt.gameReferenceId,
             cardNumber: tkt.cardNumber,
             userId: tkt.userId,
             username: tkt.username,
@@ -2308,16 +2338,23 @@ apiRouter.get('/bingo/room-status/:roomId', async (req: Request, res: Response) 
     if (userId) {
       const userIdStr = String(userId);
       const memoryTickets = Array.from(db.tickets.values()).filter(
-        (t) => t.roomId === roomId && t.userId === userIdStr
+        (t) =>
+          t.roomId === roomId &&
+          t.userId === userIdStr &&
+          t.status === 'ACTIVE' &&
+          (!room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId)
       );
 
       const ticketsSnap = await adminDb
         .collection('tickets')
         .where('roomId', '==', roomId)
         .where('userId', '==', userIdStr)
+        .where('status', '==', 'ACTIVE')
         .get();
 
-      const fsTickets = ticketsSnap.docs.map((d) => d.data() as BingoTicket);
+      const fsTickets = ticketsSnap.docs
+        .map((d) => d.data() as BingoTicket)
+        .filter((t) => !room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId);
 
       const ticketMap = new Map<string, BingoTicket>();
       memoryTickets.forEach((t) => ticketMap.set(t.id, t));
@@ -2403,11 +2440,13 @@ apiRouter.post('/bingo/reserve-card', async (req: Request, res: Response) => {
     const reservation = {
       id: `${roomId}_${cardNum}`,
       roomId,
+      gameReferenceId: room?.gameReferenceId,
       cardNumber: cardNum,
       userId,
       username: user.username,
       status: 'RESERVED',
       createdAt: new Date().toISOString(),
+      reservedAt: new Date().toISOString(),
       expiresAt: Date.now() + 30000, // 30s temporary hold
     };
 

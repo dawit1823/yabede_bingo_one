@@ -9,6 +9,7 @@ export type ThemeMode = 'dark' | 'golden' | 'light';
 interface HeaderBarProps {
   user: UserProfile;
   isLoggedIn?: boolean;
+  registrationBonusCredit?: number;
   onOpenDeposit: () => void;
   onOpenAdmin?: () => void;
   onOpenAuth?: () => void;
@@ -20,6 +21,7 @@ interface HeaderBarProps {
 export const HeaderBar: React.FC<HeaderBarProps> = ({
   user,
   isLoggedIn = true,
+  registrationBonusCredit,
   onOpenDeposit,
   onOpenAdmin,
   onOpenAuth,
@@ -94,9 +96,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               <h1 className="text-base font-black tracking-tight text-white font-display">
                 YABEDE <span className="text-amber-400">BINGO</span>
               </h1>
-              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                🇪🇹 75
-              </span>
             </div>
             <p className="text-[11px] text-slate-400 leading-none mt-0.5">
               {language === 'am' ? 'ያበደ ቢንጎ - ተጫወቱ እና ያሸንፉ' : 'Live Multiplayer Bingo'}
@@ -203,9 +202,13 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                   <span>{(user?.walletBalance ?? 0).toLocaleString()}</span>
                   <span className="text-[10px] text-emerald-400 font-extrabold">Birr</span>
                 </div>
-                {(user?.bonusBalance ?? 0) > 0 && (
+                {(user?.bonusBalance !== undefined && user?.bonusBalance !== null
+                  ? user.bonusBalance
+                  : (registrationBonusCredit ?? 50)) > 0 && (
                   <div className="text-[9px] text-amber-400 font-medium leading-none">
-                    +{user.bonusBalance} Bonus
+                    +{(user?.bonusBalance !== undefined && user?.bonusBalance !== null
+                      ? user.bonusBalance
+                      : (registrationBonusCredit ?? 50))} Bonus
                   </div>
                 )}
               </div>
@@ -251,21 +254,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           >
             {soundOn ? <Volume2 className="w-4 h-4 text-amber-400" /> : <VolumeX className="w-4 h-4 text-slate-500" />}
           </button>
-
-          {/* Admin Portal Button */}
-          {onOpenAdmin && (
-            <button
-              onClick={() => {
-                onOpenAdmin();
-                triggerHaptic('medium');
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition shadow-sm"
-              title="SuperAdmin Login & Dashboard"
-            >
-              <Shield className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Admin</span>
-            </button>
-          )}
         </div>
       </div>
     </header>

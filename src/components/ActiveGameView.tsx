@@ -147,17 +147,19 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
     }
   }, [room?.id, user?.id, isRefreshing]);
 
+  // Auto-return to card selection when room resets to WAITING or COUNTDOWN for the next round
+  React.useEffect(() => {
+    if ((room.status === 'WAITING' || room.status === 'COUNTDOWN') && onReturnToCardSelection) {
+      onReturnToCardSelection();
+    }
+  }, [room.status, room.gameReferenceId, onReturnToCardSelection]);
+
   // Sync prop changes without wiping out accumulated tickets
   React.useEffect(() => {
-    if (tickets && tickets.length > 0) {
-      setLiveTickets((prev) => {
-        const ticketMap = new Map<string, BingoTicket>();
-        prev.forEach((t) => ticketMap.set(t.id, t));
-        tickets.forEach((t) => ticketMap.set(t.id, t));
-        return Array.from(ticketMap.values());
-      });
+    if (tickets) {
+      setLiveTickets(tickets.filter((t) => !room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId));
     }
-  }, [tickets]);
+  }, [tickets, room.gameReferenceId]);
 
   // Server-authoritative REST status fetch on mount & reconnect
   React.useEffect(() => {
@@ -167,13 +169,11 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
     fetch(apiUrl(`/api/bingo/room-status/${room.id}?userId=${user.id}`))
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (isMounted && data && data.success && Array.isArray(data.myTickets) && data.myTickets.length > 0) {
-          setLiveTickets((prev) => {
-            const ticketMap = new Map<string, BingoTicket>();
-            prev.forEach((t) => ticketMap.set(t.id, t));
-            data.myTickets.forEach((t: BingoTicket) => ticketMap.set(t.id, t));
-            return Array.from(ticketMap.values());
-          });
+        if (isMounted && data && data.success && Array.isArray(data.myTickets)) {
+          const currentRoundTickets = data.myTickets.filter(
+            (t: BingoTicket) => !room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId
+          );
+          setLiveTickets(currentRoundTickets);
         }
       })
       .catch((err) => logger.debug('Initial status fetch notice:', err));
@@ -181,7 +181,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [room?.id, user?.id]);
+  }, [room?.id, user?.id, room?.gameReferenceId]);
 
   // Real-time Firestore snapshot for tickets belonging to current user in this room
   React.useEffect(() => {
@@ -190,24 +190,21 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
     const q = query(
       collection(firestoreDb, 'tickets'),
       where('roomId', '==', room.id),
-      where('userId', '==', user.id)
+      where('userId', '==', user.id),
+      where('status', '==', 'ACTIVE')
     );
 
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const fetched: BingoTicket[] = snapshot.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as BingoTicket),
-        }));
-        if (fetched.length > 0) {
-          setLiveTickets((prev) => {
-            const ticketMap = new Map<string, BingoTicket>();
-            prev.forEach((t) => ticketMap.set(t.id, t));
-            fetched.forEach((t) => ticketMap.set(t.id, t));
-            return Array.from(ticketMap.values());
-          });
-        }
+        const fetched: BingoTicket[] = snapshot.docs
+          .map((d) => ({
+            id: d.id,
+            ...(d.data() as BingoTicket),
+          }))
+          .filter((t) => !room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId);
+
+        setLiveTickets(fetched);
       },
       (err) => {
         logger.debug('Live tickets snapshot note:', err.message);
@@ -215,7 +212,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
     );
 
     return () => unsubscribe();
-  }, [room?.id, user?.id]);
+  }, [room?.id, user?.id, room?.gameReferenceId]);
 
   // Auto-reset modal state when a new game round starts
   React.useEffect(() => {

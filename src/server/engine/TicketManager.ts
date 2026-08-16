@@ -1,19 +1,8 @@
-import { BingoTicket, BingoRoom, UserProfile, WalletTransaction } from '../../types.js';
+import { BingoTicket, BingoRoom, UserProfile, WalletTransaction, CardReservation } from '../../types.js';
 import { db } from '../db.js';
 import { adminDb } from '../firebaseAdmin.js';
 import { generateCardMatrixByNumber } from '../../lib/bingoUtils.js';
 import { adminService } from '../adminService.js';
-
-export interface CardReservation {
-  id: string;
-  roomId: string;
-  cardNumber: number;
-  userId: string;
-  username: string;
-  status: 'RESERVED' | 'SOLD';
-  createdAt: string;
-  expiresAt: number;
-}
 
 export class TicketManager {
   /**
@@ -42,27 +31,31 @@ export class TicketManager {
 
     if (snap.exists) {
       const existing = snap.data() as CardReservation;
-      if (existing.status === 'SOLD') {
-        throw new Error('This Bingo card has already been selected by another player.');
-      }
-      if (
-        existing.status === 'RESERVED' &&
-        existing.userId !== userId &&
-        existing.expiresAt &&
-        existing.expiresAt > Date.now()
-      ) {
-        throw new Error('This Bingo card is currently being reserved by another player.');
+      if (existing.gameReferenceId === room.gameReferenceId || !existing.gameReferenceId) {
+        if (existing.status === 'SOLD') {
+          throw new Error('This Bingo card has already been selected by another player.');
+        }
+        if (
+          existing.status === 'RESERVED' &&
+          existing.userId !== userId &&
+          existing.expiresAt &&
+          existing.expiresAt > Date.now()
+        ) {
+          throw new Error('This Bingo card is currently being reserved by another player.');
+        }
       }
     }
 
     const reservation: CardReservation = {
       id: resId,
       roomId,
+      gameReferenceId: room.gameReferenceId,
       cardNumber: cardNum,
       userId,
       username,
       status: 'RESERVED',
       createdAt: new Date().toISOString(),
+      reservedAt: new Date().toISOString(),
       expiresAt: Date.now() + 30000,
     };
 
@@ -110,7 +103,12 @@ export class TicketManager {
 
     // Check if user already owns this card in this active round (toggle deselect)
     const existingTicket = Array.from(db.tickets.values()).find(
-      (t) => t.roomId === roomId && t.cardNumber === cardNum && t.userId === userId && t.status === 'ACTIVE'
+      (t) =>
+        t.roomId === roomId &&
+        t.cardNumber === cardNum &&
+        t.userId === userId &&
+        (t.gameReferenceId === room.gameReferenceId || !t.gameReferenceId) &&
+        t.status === 'ACTIVE'
     );
 
     if (existingTicket) {
@@ -142,6 +140,7 @@ export class TicketManager {
       const batch = adminDb.batch();
       batch.delete(adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`));
       batch.delete(adminDb.collection('tickets').doc(existingTicket.id));
+      batch.delete(adminDb.collection('playerParticipation').doc(`part_${userId}_${roomId}_${cardNum}`));
       batch.set(adminDb.collection('users').doc(userId), { walletBalance: newBalance }, { merge: true });
       batch.set(
         adminDb.collection('wallets').doc(userId),
@@ -213,16 +212,30 @@ export class TicketManager {
       createdAt: new Date().toISOString(),
     };
 
-    const batch = adminDb.batch();
-    batch.set(adminDb.collection('tickets').doc(ticketId), newTicket);
-    batch.set(adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`), {
+    const reservationData: CardReservation = {
       id: `${roomId}_${cardNum}`,
       roomId,
+      gameReferenceId: room.gameReferenceId,
       cardNumber: cardNum,
       userId,
       username: user.username,
       status: 'SOLD',
       purchasedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection('tickets').doc(ticketId), newTicket);
+    batch.set(adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`), reservationData);
+    batch.set(adminDb.collection('playerParticipation').doc(`part_${userId}_${roomId}_${cardNum}`), {
+      id: `part_${userId}_${roomId}_${cardNum}`,
+      userId,
+      username: user.username,
+      roomId,
+      gameReferenceId: room.gameReferenceId,
+      cardNumber: cardNum,
+      ticketPrice: room.ticketPrice,
+      joinedAt: new Date().toISOString(),
     });
     batch.set(adminDb.collection('transactions').doc(walletTx.id), walletTx);
     batch.set(adminDb.collection('users').doc(userId), { walletBalance: newBalance }, { merge: true });
@@ -238,20 +251,53 @@ export class TicketManager {
 
   /**
    * Clears tickets and reservations for a room when starting a new game round.
+   * Completely frees all 400 cards and resets participation records for the room.
    */
   public async clearTicketsForRoom(roomId: string): Promise<void> {
+    // 1. Mark in-memory tickets as COMPLETED so they are excluded from the new round
     for (const [id, ticket] of db.tickets.entries()) {
       if (ticket.roomId === roomId && ticket.status === 'ACTIVE') {
         ticket.status = 'COMPLETED';
-        adminDb.collection('tickets').doc(ticket.id).update({ status: 'COMPLETED' }).catch(console.warn);
+        db.tickets.delete(id); // Remove from active memory tickets
       }
     }
 
     try {
-      const snap = await adminDb.collection('cardReservations').where('roomId', '==', roomId).get();
-      if (!snap.empty) {
+      // 2. Mark active tickets in Firestore as COMPLETED
+      const activeTicketsSnap = await adminDb
+        .collection('tickets')
+        .where('roomId', '==', roomId)
+        .where('status', '==', 'ACTIVE')
+        .get();
+
+      if (!activeTicketsSnap.empty) {
         const batch = adminDb.batch();
-        snap.docs.forEach((doc) => batch.delete(adminDb.collection('cardReservations').doc(doc.id)));
+        activeTicketsSnap.docs.forEach((docSnap) => {
+          batch.update(adminDb.collection('tickets').doc(docSnap.id), {
+            status: 'COMPLETED',
+            completedAt: new Date().toISOString(),
+          });
+        });
+        await batch.commit();
+      }
+
+      // 3. Delete all cardReservations for this room so all 400 cards are available
+      const cardResSnap = await adminDb.collection('cardReservations').where('roomId', '==', roomId).get();
+      if (!cardResSnap.empty) {
+        const batch = adminDb.batch();
+        cardResSnap.docs.forEach((docSnap) => {
+          batch.delete(adminDb.collection('cardReservations').doc(docSnap.id));
+        });
+        await batch.commit();
+      }
+
+      // 4. Delete playerParticipation records for this room
+      const partSnap = await adminDb.collection('playerParticipation').where('roomId', '==', roomId).get();
+      if (!partSnap.empty) {
+        const batch = adminDb.batch();
+        partSnap.docs.forEach((docSnap) => {
+          batch.delete(adminDb.collection('playerParticipation').doc(docSnap.id));
+        });
         await batch.commit();
       }
     } catch (err: any) {
