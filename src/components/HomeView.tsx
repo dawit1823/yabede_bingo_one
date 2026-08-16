@@ -66,13 +66,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const fetchPrivateGroups = async () => {
     try {
       const res = await fetch(apiUrl(`/api/private-groups/my-groups?userId=${user.id}`));
-      const data = await res.json();
       if (res.ok) {
+        const data = await res.json();
         setMyPrivateGroups(data.groups || []);
         setPendingInvitations(data.invitations || []);
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Ignore network polling interruptions
     }
   };
 

@@ -41,7 +41,7 @@ import { TelegramBotModal } from './components/TelegramBotModal';
 import { RegistrationGateModal } from './components/RegistrationGateModal';
 import { Wrench } from 'lucide-react';
 import { getRemainingSeconds } from './lib/bingoUtils';
-import { apiUrl, VITE_SOCKET_URL } from './lib/apiConfig';
+import { apiUrl, getSocketUrl } from './lib/apiConfig';
 
 // Demo Users for Simulator
 const DEMO_USERS: UserProfile[] = [
@@ -241,7 +241,8 @@ export default function App() {
 
   // Connect Socket.IO
   useEffect(() => {
-    const newSocket = io(VITE_SOCKET_URL, {
+    const socketUrl = getSocketUrl();
+    const newSocket = io(socketUrl, {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: Infinity,

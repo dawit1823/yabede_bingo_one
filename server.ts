@@ -1,7 +1,6 @@
 import express from 'express';
 import http from 'http';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { apiRouter } from './src/server/apiRouter.js';
 import { setupSocketIO } from './src/server/socketHandler.js';
@@ -9,55 +8,74 @@ import { adminDb } from './src/server/firebaseAdmin.js';
 import { db } from './src/server/db.js';
 import config from './firebase-applet-config.json' with { type: 'json' };
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 async function startServer() {
+  console.log('[Backend] Starting Ahun Bingo backend...');
+
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const FRONTEND_URL = process.env.FRONTEND_URL || 'https://melodic-ganache-8bad94.netlify.app';
   const firebaseProjectId = process.env.FIREBASE_PROJECT_ID || config.projectId || 'exalted-strata-468319-j8';
   const firestoreDatabaseId = process.env.FIREBASE_FIRESTORE_DATABASE_ID || config.firestoreDatabaseId || 'ai-studio-ahunbingotelegra-e5b271a0-ddaa-40da-8f1e-b1ac2490e1df';
 
-  console.log(`🚀 [Startup] Ahun Bingo Backend Starting...`);
-  console.log(`ℹ️ [Startup] Environment: NODE_ENV=${process.env.NODE_ENV || 'development'}, PORT=${PORT}`);
-  console.log(`ℹ️ [Startup] Allowed Frontend Origin: ${FRONTEND_URL}`);
-  console.log(`ℹ️ [Startup] Firebase Project: ${firebaseProjectId}, Firestore DB: ${firestoreDatabaseId}`);
+  // Allowed origins list
+  const allowedOrigins = [
+    'https://melodic-ganache-8bad94.netlify.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+  ];
+  if (process.env.FRONTEND_URL) {
+    process.env.FRONTEND_URL.split(',').forEach((u) => {
+      const trimmed = u.trim().replace(/\/+$/, '');
+      if (trimmed && !allowedOrigins.includes(trimmed)) {
+        allowedOrigins.push(trimmed);
+      }
+    });
+  }
 
-  // Test Firebase Firestore database connection
+  // Check Firebase Firestore connectivity
   try {
-    console.log('🔥 [Startup] Checking Firebase Firestore database connection...');
     const testSnap = await adminDb.collection('settings').doc('platformConfig').get();
-    console.log(`✅ [Startup] Firestore database connected successfully. platformConfig exists: ${testSnap.exists}`);
+    console.log(`[Firestore] Connected to database: ${firestoreDatabaseId} (platformConfig exists: ${testSnap.exists})`);
   } catch (err: any) {
-    console.warn('⚠️ [Startup Notice] Firestore database connection note:', err.message || err);
+    console.warn('[Firestore] Notice during startup connection check:', err.message || err);
   }
 
   // Initialize In-Memory Data Store Synchronization
   try {
-    console.log('🎮 [Startup] Synchronizing memory store with Cloud Firestore...');
     await db.initFirestoreSync();
-    console.log('✅ [Startup] Memory store sync finished.');
+    console.log('[Backend] Memory store synchronized with Firestore');
   } catch (err: any) {
-    console.warn('⚠️ [Startup Notice] In-memory store sync note:', err.message || err);
+    console.warn('[Backend] Notice during memory store sync:', err.message || err);
   }
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // CORS headers for Telegram WebApp iframe & Netlify frontend
+  // CORS headers middleware with safe origin reflection & credentials support
   app.use((req, res, next) => {
-    const requestOrigin = req.headers.origin;
-    if (requestOrigin) {
-      res.setHeader('Access-Control-Allow-Origin', requestOrigin);
-    } else if (FRONTEND_URL) {
-      res.setHeader('Access-Control-Allow-Origin', FRONTEND_URL);
+    const origin = req.headers.origin;
+    if (origin) {
+      if (
+        allowedOrigins.includes(origin) ||
+        origin.endsWith('.netlify.app') ||
+        origin.includes('localhost') ||
+        origin.includes('127.0.0.1') ||
+        origin.includes('run.app')
+      ) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+      } else {
+        res.setHeader('Access-Control-Allow-Origin', allowedOrigins[0] || FRONTEND_URL);
+      }
     } else {
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Origin', allowedOrigins[0] || FRONTEND_URL);
     }
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
+
     if (req.method === 'OPTIONS') {
       res.sendStatus(200);
       return;
@@ -67,10 +85,10 @@ async function startServer() {
 
   // Health Check Endpoints
   app.get('/api/health', (req, res) => {
-    res.json({
+    res.status(200).json({
       status: 'ok',
       app: 'Ahun Bingo Telegram Mini App',
-      environment: process.env.NODE_ENV || 'development',
+      environment: process.env.NODE_ENV || 'production',
       time: new Date().toISOString(),
     });
   });
@@ -78,7 +96,7 @@ async function startServer() {
   app.get('/api/health/firebase', async (req, res) => {
     try {
       const snap = await adminDb.collection('settings').doc('platformConfig').get();
-      res.json({
+      res.status(200).json({
         status: 'ok',
         firebase: 'connected',
         projectId: firebaseProjectId,
@@ -105,6 +123,7 @@ async function startServer() {
   if (!io) {
     throw new Error('Fatal: Socket.IO failed to initialize');
   }
+  console.log('[Socket.IO] Initialized');
 
   // Vite middleware for dev / static for prod
   if (process.env.NODE_ENV !== 'production') {
@@ -114,15 +133,15 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      res.sendFile(path.resolve(distPath, 'index.html'));
     });
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ [Ahun Bingo Server] Running on http://0.0.0.0:${PORT}`);
+    console.log(`[Backend] Listening on port ${PORT}`);
   });
 }
 

@@ -61,21 +61,25 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
   const fetchGroupDetails = async () => {
     try {
       const res = await fetch(apiUrl(`/api/private-groups/details/${groupId}`));
-      const data = await res.json();
-      if (res.ok && data.group) {
-        setGroup(data.group);
-        setMembers(data.members || []);
-        setMessages(data.messages || []);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.group) {
+          setGroup(data.group);
+          setMembers(data.members || []);
+          setMessages(data.messages || []);
 
-        // Fetch user tickets for this private group
-        const tktRes = await fetch(apiUrl(`/api/bingo/room-status/${groupId}?userId=${user.id}`));
-        const tktData = await tktRes.json();
-        if (tktData && tktData.myTickets) {
-          setUserTickets(tktData.myTickets);
+          // Fetch user tickets for this private group
+          const tktRes = await fetch(apiUrl(`/api/bingo/room-status/${groupId}?userId=${user.id}`));
+          if (tktRes.ok) {
+            const tktData = await tktRes.json();
+            if (tktData && tktData.myTickets) {
+              setUserTickets(tktData.myTickets);
+            }
+          }
         }
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Ignore network polling interruptions
     }
   };
 

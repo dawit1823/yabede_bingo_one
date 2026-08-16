@@ -2,7 +2,6 @@ import { initializeApp, getApps, getApp, cert, AppOptions } from 'firebase-admin
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { getAuth, Auth } from 'firebase-admin/auth';
 import config from '../../firebase-applet-config.json' with { type: 'json' };
-import { logger } from './logger.js';
 
 const projectId =
   process.env.FIREBASE_PROJECT_ID ||
@@ -31,15 +30,15 @@ if (getApps().length === 0) {
       clientEmail,
       privateKey,
     });
-    logger.info(`🔥 [FirebaseAdmin] Initialized with Service Account (${clientEmail})`);
+    console.log(`[Firebase] Firebase Admin initialized with Service Account (${clientEmail})`);
   } else {
-    logger.info(`🔥 [FirebaseAdmin] Initialized with Project ID: ${projectId}`);
+    console.log(`[Firebase] Firebase Admin initialized with Project ID: ${projectId}`);
   }
 
   try {
     firebaseApp = initializeApp(options);
   } catch (err: any) {
-    logger.error('🔥 [FirebaseAdmin] Fatal error initializing Firebase Admin App:', err.message);
+    console.error('💥 [Firebase] Fatal error initializing Firebase Admin App:', err.message || err);
     throw err;
   }
 } else {
@@ -57,7 +56,7 @@ export const adminDb: Firestore =
 try {
   adminDb.settings({ ignoreUndefinedProperties: true });
 } catch (err: any) {
-  logger.debug('Firestore settings note:', err.message || err);
+  console.debug('Firestore settings note:', err.message || err);
 }
 
 export const adminAuth: Auth = getAuth(app);
