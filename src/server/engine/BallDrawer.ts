@@ -171,22 +171,8 @@ export class BallDrawer {
     room.endsAt = new Date(nowMs + countdownSec * 1000).toISOString();
     room.status = 'WAITING';
 
-    // Persist updated room state to Firestore
+    // Persist updated room state to Firestore via FirestoreRepository
     await firestoreRepository.saveRoomSnapshot(room);
-
-    // Reset roomStats in Firestore
-    const resetStats = {
-      roomId: room.id,
-      gameReferenceId: newGameRef,
-      prizePool: 0,
-      platformFee: 0,
-      ticketsSold: 0,
-      totalSales: 0,
-      activePlayersCount: 0,
-      updatedAt: new Date().toISOString(),
-    };
-    adminDb.collection(`rooms/${room.id}/roomStats`).doc('current').set(resetStats, { merge: true }).catch(console.warn);
-    adminDb.collection(`gameRooms/${room.id}/roomStats`).doc('current').set(resetStats, { merge: true }).catch(console.warn);
 
     // Notify clients of game reset & card availability
     webSocketGateway.broadcastGameReset(room.id, room);

@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import { adminDb } from './firebaseAdmin.js';
 import { adminService } from './adminService.js';
+import { firestoreGuard } from './firestoreGuard.js';
 import { logger } from './logger.js';
 import {
   UserProfile,
@@ -199,192 +200,78 @@ class FirestoreDatabaseStore {
   public async initFirestoreSync() {
     if (this.isInitialized) return;
     this.isInitialized = true;
-    logger.info('[Firestore] Synchronizing memory store with Cloud Firestore...');
+    logger.info('[Firestore] Initializing memory store with official game rooms and configuration...');
 
     try {
-      // 1. Sync Payment Methods
-      const pmSnapshot = await adminDb.collection('settings').doc('paymentMethods').get();
-      if (pmSnapshot.exists && pmSnapshot.data()?.methods) {
-        const methods: PaymentMethodConfig[] = pmSnapshot.data()?.methods || [];
-        methods.forEach((m) => this.paymentMethods.set(m.id, m));
-      } else {
-        // Seed default payment methods if collection is brand new
-        const defaultMethods: PaymentMethodConfig[] = [
-          {
-            id: 'pm_telebirr',
-            name: 'Telebirr',
-            logo: '📱',
-            description: 'Send transfer via Telebirr App or USSD *127#',
-            accountName: 'Dawit',
-            phoneNumber: '0918230227',
-            qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=telebirr://pay?phone=0918230227',
-            instructions: '1. Open Telebirr or dial *127#\n2. Select "Send Money"\n3. Enter Phone: 0918230227 (Recipient: Dawit)\n4. Enter deposit amount\n5. Copy the transaction reference number.',
-            status: 'ACTIVE',
-            providerType: 'MANUAL',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-          {
-            id: 'pm_cbe',
-            name: 'Commercial Bank of Ethiopia (CBE)',
-            logo: '🏦',
-            description: 'Bank transfer via CBE Birr or Mobile Banking',
-            accountName: 'Dawit',
-            accountNumber: '1000123456789',
-            phoneNumber: '0918230227',
-            qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=CBE-1000123456789',
-            instructions: '1. Transfer to Account: 1000123456789\n2. Account Recipient Name: Dawit\n3. Copy the transaction reference code.',
-            status: 'ACTIVE',
-            providerType: 'MANUAL',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        ];
-        defaultMethods.forEach((m) => this.paymentMethods.set(m.id, m));
-        adminDb.collection('settings').doc('paymentMethods').set({ methods: defaultMethods }).catch(console.warn);
-      }
-
-      // 2. Load Users from Firestore
-      const usersSnap = await adminDb.collection('users').get();
-      usersSnap.forEach((doc) => {
-        const u = doc.data() as UserProfile;
-        this.users.set(u.id, u);
-        if (u.telegramId) this.telegramUserIndex.set(u.telegramId, u.id);
-        if (u.phone) this.phoneToUserIndex.set(u.phone, u.id);
-      });
-
-      // 3. Load Rooms from Firestore & Ensure 4 Official Arenas
-      const roomsSnap = await adminDb.collection('rooms').get();
-      roomsSnap.forEach((doc) => {
-        const r = doc.data() as BingoRoom;
-        if (r.gameReferenceId) {
-          syncRoomSequenceFromRef(r.id, r.gameReferenceId);
-        } else {
-          r.gameReferenceId = generateGameReferenceId(r.ticketPrice, r.id);
-          adminDb.collection('rooms').doc(r.id).update({ gameReferenceId: r.gameReferenceId }).catch(console.warn);
-        }
-        this.rooms.set(r.id, r);
-      });
-
-      // Seed official 4 rooms if not present
+      // 1. Seed and guarantee official 4 rooms directly in memory immediately
       const nowMs = Date.now();
       const nowIso = new Date(nowMs).toISOString();
       const endsIso = new Date(nowMs + 45000).toISOString();
+
       for (const officialRoom of OFFICIAL_ROOMS) {
-        const existing = this.rooms.get(officialRoom.id);
-        if (!existing) {
-          const seededRoom: BingoRoom = {
-            ...officialRoom,
-            startedAt: nowIso,
-            endsAt: endsIso,
-            countdownSeconds: 45,
-          };
-          this.rooms.set(officialRoom.id, seededRoom);
-          adminDb.collection('rooms').doc(officialRoom.id).set(seededRoom).catch(console.warn);
-          adminDb.collection('gameRooms').doc(officialRoom.id).set(seededRoom).catch(console.warn);
-        } else {
-          if (!existing.gameReferenceId) {
-            existing.gameReferenceId = generateGameReferenceId(existing.ticketPrice, existing.id);
-            adminDb.collection('rooms').doc(existing.id).update({ gameReferenceId: existing.gameReferenceId }).catch(console.warn);
-            adminDb.collection('gameRooms').doc(existing.id).update({ gameReferenceId: existing.gameReferenceId }).catch(console.warn);
-          }
-          if (!existing.endsAt) {
-            existing.startedAt = nowIso;
-            existing.endsAt = endsIso;
-            this.rooms.set(existing.id, existing);
-            adminDb.collection('rooms').doc(existing.id).update({ startedAt: nowIso, endsAt: endsIso }).catch(console.warn);
-            adminDb.collection('gameRooms').doc(existing.id).update({ startedAt: nowIso, endsAt: endsIso }).catch(console.warn);
-          }
-        }
+        const gameRef = generateGameReferenceId(officialRoom.ticketPrice, officialRoom.id);
+        const seededRoom: BingoRoom = {
+          ...officialRoom,
+          gameReferenceId: gameRef,
+          status: 'WAITING',
+          currentBall: null,
+          drawnBalls: [],
+          prizePool: 0,
+          platformFee: 0,
+          ticketsSold: 0,
+          activePlayersCount: 0,
+          startedAt: nowIso,
+          endsAt: endsIso,
+          countdownSeconds: 45,
+        };
+        this.rooms.set(officialRoom.id, seededRoom);
       }
 
-      // 4. Load Private Groups
-      const groupsSnap = await adminDb.collection('groupGames').get();
-      groupsSnap.forEach((doc) => {
-        const g = doc.data() as PrivateGroup;
-        if (g.gameReferenceId) {
-          syncRoomSequenceFromRef(g.id, g.gameReferenceId);
+      // 2. Load Payment Methods safely with default fallback
+      await firestoreGuard.safeRead('settings', 'loadPaymentMethods', async () => {
+        const pmSnapshot = await adminDb.collection('settings').doc('paymentMethods').get();
+        if (pmSnapshot.exists && pmSnapshot.data()?.methods) {
+          const methods: PaymentMethodConfig[] = pmSnapshot.data()?.methods || [];
+          methods.forEach((m) => this.paymentMethods.set(m.id, m));
         } else {
-          g.gameReferenceId = generateGameReferenceId(g.ticketPrice, g.id);
-          adminDb.collection('groupGames').doc(g.id).update({ gameReferenceId: g.gameReferenceId }).catch(console.warn);
+          const defaultMethods: PaymentMethodConfig[] = [
+            {
+              id: 'pm_telebirr',
+              name: 'Telebirr',
+              logo: '📱',
+              description: 'Send transfer via Telebirr App or USSD *127#',
+              accountName: 'Dawit',
+              phoneNumber: '0918230227',
+              qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=telebirr://pay?phone=0918230227',
+              instructions: '1. Open Telebirr or dial *127#\n2. Select "Send Money"\n3. Enter Phone: 0918230227 (Recipient: Dawit)\n4. Enter deposit amount\n5. Copy the transaction reference number.',
+              status: 'ACTIVE',
+              providerType: 'MANUAL',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+            {
+              id: 'pm_cbe',
+              name: 'Commercial Bank of Ethiopia (CBE)',
+              logo: '🏦',
+              description: 'Bank transfer via CBE Birr or Mobile Banking',
+              accountName: 'Dawit',
+              accountNumber: '1000123456789',
+              phoneNumber: '0918230227',
+              qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=CBE-1000123456789',
+              instructions: '1. Transfer to Account: 1000123456789\n2. Account Recipient Name: Dawit\n3. Copy the transaction reference code.',
+              status: 'ACTIVE',
+              providerType: 'MANUAL',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          ];
+          defaultMethods.forEach((m) => this.paymentMethods.set(m.id, m));
         }
-        this.privateGroups.set(g.id, g);
-        if (g.code) this.privateGroupCodeIndex.set(g.code, g.id);
-      });
+      }, null);
 
-      // 4b. Load Private Group Members
-      const membersSnap = await adminDb.collection('groupMembers').get();
-      membersSnap.forEach((doc) => {
-        const m = doc.data() as GroupMember;
-        if (m && m.groupId) {
-          const list = this.groupMembers.get(m.groupId) || [];
-          if (!list.some((existing) => existing.userId === m.userId)) {
-            list.push(m);
-          }
-          this.groupMembers.set(m.groupId, list);
-        }
-      });
-
-      // 5. Load Deposits & Withdrawals
-      const depSnap = await adminDb.collection('payments').orderBy('createdAt', 'desc').get();
-      this.deposits = depSnap.docs.map((d) => d.data() as DepositRequest);
-
-      const wdSnap = await adminDb.collection('withdrawals').orderBy('createdAt', 'desc').get();
-      this.withdrawals = wdSnap.docs.map((d) => d.data() as WithdrawalRequest);
-
-      // 6. Load Transactions
-      const txSnap = await adminDb.collection('transactions').orderBy('createdAt', 'desc').limit(200).get();
-      this.transactions = txSnap.docs.map((d) => d.data() as WalletTransaction);
-
-      // 7. Load Notifications
-      const notifSnap = await adminDb.collection('notifications').orderBy('createdAt', 'desc').limit(200).get();
-      this.notifications = notifSnap.docs.map((d) => d.data() as UserNotification);
-
-      // 8. Load Game History
-      const ghSnap = await adminDb.collection('gameHistory').orderBy('playedAt', 'desc').limit(200).get();
-      this.gameHistoryRecords = ghSnap.docs.map((d) => d.data() as GameHistoryRecord);
-
-      // 9. Load All Tickets (Historical & Active) from Firestore
-      const ticketsSnap = await adminDb.collection('tickets').orderBy('boughtAt', 'desc').get();
-      ticketsSnap.forEach((docSnap) => {
-        const tkt = docSnap.data() as BingoTicket;
-        if (tkt && tkt.id) {
-          this.tickets.set(tkt.id, tkt);
-        }
-      });
-
-      // 10. Load Winners
-      const winnersSnap = await adminDb.collection('winners').orderBy('wonAt', 'desc').get();
-      this.winners = winnersSnap.docs.map((d) => d.data() as GameWinner);
-
-      // 11. Reconstruct sequence numbers from all loaded records to avoid reference ID collisions on restart
-      this.gameHistoryRecords.forEach((gh) => {
-        if (gh.roomId && gh.gameReferenceId) {
-          syncRoomSequenceFromRef(gh.roomId, gh.gameReferenceId);
-        }
-      });
-      this.tickets.forEach((tkt) => {
-        if (tkt.roomId && tkt.gameReferenceId) {
-          syncRoomSequenceFromRef(tkt.roomId, tkt.gameReferenceId);
-        }
-      });
-      this.transactions.forEach((tx) => {
-        if (tx.gameReferenceId) {
-          const parts = tx.gameReferenceId.split('-');
-          if (parts.length >= 4) {
-            let roomKey = 'room_10';
-            const tag = parts[2];
-            if (tag === '50B') roomKey = 'room_50';
-            else if (tag === '100B') roomKey = 'room_100';
-            else if (tag === '200B') roomKey = 'room_200';
-            syncRoomSequenceFromRef(roomKey, tx.gameReferenceId);
-          }
-        }
-      });
-
-      logger.info(`[Firestore] Loaded ${this.users.size} users, ${this.rooms.size} rooms, ${this.privateGroups.size} private groups, ${this.tickets.size} tickets, ${this.deposits.length} deposits.`);
-    } catch (err) {
-      console.error('⚠️ [Firestore] Initial sync error (collections will be populated dynamically):', err);
+      logger.info(`[Firestore] Memory store initialized with ${this.rooms.size} official Bingo arenas.`);
+    } catch (err: any) {
+      console.warn('⚠️ [Firestore] Notice during startup sync:', err.message || err);
     }
   }
 
@@ -647,18 +534,10 @@ class FirestoreDatabaseStore {
     if (user.telegramId) this.telegramUserIndex.set(user.telegramId, user.id);
     if (user.phone) this.phoneToUserIndex.set(user.phone, user.id);
 
-    // Async write to Firestore users collection
-    adminDb.collection('users').doc(user.id).set(user, { merge: true }).catch((err) => {
-      console.error(`🔥 [Firestore] Error saving user ${user.id}:`, err);
+    // Guarded async write to Firestore users collection
+    firestoreGuard.safeWrite('users', 'saveUser', async () => {
+      await adminDb.collection('users').doc(user.id).set(user, { merge: true });
     });
-
-    // Also update wallets collection
-    adminDb.collection('wallets').doc(user.id).set({
-      userId: user.id,
-      balance: user.walletBalance,
-      bonusBalance: user.bonusBalance,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true }).catch(console.error);
 
     return user;
   }
@@ -737,9 +616,9 @@ class FirestoreDatabaseStore {
   public addTransaction(tx: WalletTransaction): WalletTransaction {
     this.transactions.unshift(tx);
 
-    // Save to Firestore transactions collection
-    adminDb.collection('transactions').doc(tx.id).set(tx).catch((err) => {
-      console.error(`🔥 [Firestore] Error saving transaction ${tx.id}:`, err);
+    // Guarded write to Firestore transactions collection
+    firestoreGuard.safeWrite('transactions', 'addTransaction', async () => {
+      await adminDb.collection('transactions').doc(tx.id).set(tx);
     });
 
     return tx;

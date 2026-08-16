@@ -8,6 +8,7 @@ import { adminDb, adminAuth } from './firebaseAdmin.js';
 import { emailService } from './emailService.js';
 import { db } from './db.js';
 import { AuditLog, UserProfile, SystemMetrics, BonusProgram } from '../types.js';
+import { firestoreGuard } from './firestoreGuard.js';
 import config from '../../firebase-applet-config.json' with { type: 'json' };
 
 export interface AdminProfile {
@@ -273,104 +274,79 @@ export class AdminService {
    * Initializes the single administrator account on application startup
    */
   public async initializeSuperAdmin(): Promise<AdminProfile> {
-    // 1. Ensure admin account is registered on Firebase Authentication
-    await this.registerAdminInFirebaseAuth();
+    // 1. Establish deterministic in-memory defaults immediately
+    const defaultPasswordHash = this.hashPassword('Admin123456!');
+    this.passwordHash = defaultPasswordHash;
+    this.adminProfile = {
+      adminId: AdminService.FIXED_ADMIN_ID,
+      email: AdminService.FIXED_ADMIN_EMAIL,
+      phone: AdminService.FIXED_ADMIN_PHONE,
+      displayName: 'Super Administrator',
+      role: 'SuperAdmin',
+      createdDate: '2026-01-01T00:00:00.000Z',
+      lastPasswordChange: '2026-01-01T00:00:00.000Z',
+      accountStatus: 'ACTIVE',
+    };
 
-    const docRef = adminDb.collection('admins').doc(AdminService.FIXED_ADMIN_EMAIL);
-    const snap = await docRef.get();
+    // Ensure admin user exists in memory db
+    const adminUserObj: UserProfile = {
+      id: AdminService.FIXED_ADMIN_ID,
+      telegramId: 99999999,
+      phone: '+251918230227',
+      role: 'ADMIN',
+      username: 'yabede_admin',
+      firstName: 'Dawit',
+      lastName: 'Solomon',
+      photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+      language: 'en',
+      referralCode: 'YABEDEVIP',
+      walletBalance: 25000,
+      bonusBalance: 5000,
+      vipLevel: 5,
+      status: 'ACTIVE',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      totalWins: 142,
+      totalGamesPlayed: 320,
+      totalDeposited: 30000,
+      totalWithdrawn: 5000,
+    };
+    db.users.set(AdminService.FIXED_ADMIN_ID, adminUserObj);
 
-    if (snap.exists) {
-      const data = snap.data();
-      this.adminProfile = {
-        adminId: AdminService.FIXED_ADMIN_ID,
-        email: AdminService.FIXED_ADMIN_EMAIL,
-        phone: AdminService.FIXED_ADMIN_PHONE,
-        displayName: data.displayName || 'Super Administrator',
-        role: 'SuperAdmin',
-        createdDate: data.createdDate || new Date().toISOString(),
-        lastLogin: data.lastLogin || undefined,
-        lastPasswordChange: data.lastPasswordChange || new Date().toISOString(),
-        lastLoginIp: data.lastLoginIp || undefined,
-        lastDevice: data.lastDevice || undefined,
-        accountStatus: data.accountStatus || 'ACTIVE',
-      };
-      this.passwordHash = data.passwordHash || this.hashPassword('Admin123456!');
-    } else {
-      // Auto-create administrator account
-      const now = new Date().toISOString();
-      this.passwordHash = this.hashPassword('Admin123456!');
-      this.adminProfile = {
-        adminId: AdminService.FIXED_ADMIN_ID,
-        email: AdminService.FIXED_ADMIN_EMAIL,
-        phone: AdminService.FIXED_ADMIN_PHONE,
-        displayName: 'Super Administrator',
-        role: 'SuperAdmin',
-        createdDate: now,
-        lastPasswordChange: now,
-        accountStatus: 'ACTIVE',
-      };
+    // 2. Fetch or sync admin profile from Firestore via firestoreGuard
+    await firestoreGuard.safeRead('admins', 'initializeSuperAdmin', async () => {
+      const docRef = adminDb.collection('admins').doc(AdminService.FIXED_ADMIN_EMAIL);
+      const snap = await docRef.get();
 
-      await docRef.set({
-        ...this.adminProfile,
-        passwordHash: this.passwordHash,
-      });
-
-      console.log(`✅ [AdminService] Initialized SuperAdmin account for ${AdminService.FIXED_ADMIN_EMAIL}`);
-    }
-
-    // Ensure user profile in Firestore
-    const userDocRef = adminDb.collection('users').doc(AdminService.FIXED_ADMIN_ID);
-    const userSnap = await userDocRef.get();
-
-    if (!userSnap.exists) {
-      const adminUserObj: UserProfile = {
-        id: AdminService.FIXED_ADMIN_ID,
-        telegramId: 99999999,
-        phone: '+251918230227',
-        role: 'ADMIN',
-        username: 'yabede_admin',
-        firstName: 'Dawit',
-        lastName: 'Solomon',
-        photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-        language: 'en',
-        referralCode: 'YABEDEVIP',
-        walletBalance: 25000,
-        bonusBalance: 5000,
-        vipLevel: 5,
-        status: 'ACTIVE',
-        createdAt: new Date().toISOString(),
-        totalWins: 142,
-        totalGamesPlayed: 320,
-        totalDeposited: 30000,
-        totalWithdrawn: 5000,
-      };
-      await userDocRef.set(adminUserObj);
-      db.users.set(AdminService.FIXED_ADMIN_ID, adminUserObj);
-    }
-
-    // Load Settings
-    const settingsSnap = await adminDb.collection('settings').doc('platformConfig').get();
-    if (settingsSnap.exists) {
-      this.systemSettings = { ...this.systemSettings, ...settingsSnap.data() };
-    } else {
-      await adminDb.collection('settings').doc('platformConfig').set(this.systemSettings);
-    }
-
-    // Load Bonus Configurations
-    try {
-      const bonusSnap = await adminDb.collection('settings').doc('bonusConfigs').get();
-      if (bonusSnap.exists && bonusSnap.data()?.programs) {
-        this.bonusPrograms = bonusSnap.data()!.programs;
-      } else {
-        await adminDb.collection('settings').doc('bonusConfigs').set({ programs: this.bonusPrograms });
+      if (snap.exists) {
+        const data = snap.data();
+        if (data) {
+          this.adminProfile = {
+            adminId: AdminService.FIXED_ADMIN_ID,
+            email: AdminService.FIXED_ADMIN_EMAIL,
+            phone: AdminService.FIXED_ADMIN_PHONE,
+            displayName: data.displayName || 'Super Administrator',
+            role: 'SuperAdmin',
+            createdDate: data.createdDate || '2026-01-01T00:00:00.000Z',
+            lastLogin: data.lastLogin || undefined,
+            lastPasswordChange: data.lastPasswordChange || '2026-01-01T00:00:00.000Z',
+            lastLoginIp: data.lastLoginIp || undefined,
+            lastDevice: data.lastDevice || undefined,
+            accountStatus: data.accountStatus || 'ACTIVE',
+          };
+          if (data.passwordHash) {
+            this.passwordHash = data.passwordHash;
+          }
+        }
       }
-    } catch (e) {
-      console.warn('⚠️ [AdminService] Error loading bonusConfigs:', e);
-    }
+    }, null);
 
-    // Load Audit Logs
-    const auditSnap = await adminDb.collection('auditLogs').orderBy('dateTime', 'desc').limit(100).get();
-    this.detailedAuditLogs = auditSnap.docs.map((d) => d.data() as DetailedAuditLog);
+    // 3. Load Settings safely
+    await firestoreGuard.safeRead('settings', 'loadSettings', async () => {
+      const settingsSnap = await adminDb.collection('settings').doc('platformConfig').get();
+      if (settingsSnap.exists) {
+        this.systemSettings = { ...this.systemSettings, ...settingsSnap.data() };
+      }
+    }, null);
 
     return this.adminProfile!;
   }

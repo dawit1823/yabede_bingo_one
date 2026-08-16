@@ -3,8 +3,38 @@ import { db } from '../db.js';
 import { adminDb } from '../firebaseAdmin.js';
 import { generateCardMatrixByNumber } from '../../lib/bingoUtils.js';
 import { adminService } from '../adminService.js';
+import { firestoreGuard } from '../firestoreGuard.js';
+import { logger } from '../logger.js';
 
 export class TicketManager {
+  // Fast in-memory reservation cache for instant checks and quota savings
+  private inMemoryReservations: Map<string, CardReservation> = new Map();
+
+  /**
+   * Retrieves active card reservations for a room (in-memory for maximum speed & 0 Firestore quota).
+   */
+  public getRoomReservations(roomId: string, gameReferenceId?: string): Record<number, CardReservation> {
+    const resMap: Record<number, CardReservation> = {};
+    const now = Date.now();
+
+    for (const [key, res] of this.inMemoryReservations.entries()) {
+      if (res.roomId === roomId) {
+        // Filter by gameReferenceId to isolate rounds logically
+        if (gameReferenceId && res.gameReferenceId && res.gameReferenceId !== gameReferenceId) {
+          continue;
+        }
+        // Check expiration for temporary holds
+        if (res.status === 'RESERVED' && res.expiresAt && res.expiresAt < now) {
+          this.inMemoryReservations.delete(key);
+          continue;
+        }
+        resMap[res.cardNumber] = res;
+      }
+    }
+
+    return resMap;
+  }
+
   /**
    * Temporary hold on a card for a user for 30 seconds.
    */
@@ -25,13 +55,12 @@ export class TicketManager {
       throw new Error('Ticket sales are closed for this round. Please wait for the next game.');
     }
 
-    const resId = `${roomId}_${cardNum}`;
-    const resRef = adminDb.collection('cardReservations').doc(resId);
-    const snap = await resRef.get();
+    const resKey = `${roomId}_${cardNum}`;
+    const now = Date.now();
+    const existing = this.inMemoryReservations.get(resKey);
 
-    if (snap.exists) {
-      const existing = snap.data() as CardReservation;
-      if (existing.gameReferenceId === room.gameReferenceId || !existing.gameReferenceId) {
+    if (existing) {
+      if (!existing.gameReferenceId || existing.gameReferenceId === room.gameReferenceId) {
         if (existing.status === 'SOLD') {
           throw new Error('This Bingo card has already been selected by another player.');
         }
@@ -39,7 +68,7 @@ export class TicketManager {
           existing.status === 'RESERVED' &&
           existing.userId !== userId &&
           existing.expiresAt &&
-          existing.expiresAt > Date.now()
+          existing.expiresAt > now
         ) {
           throw new Error('This Bingo card is currently being reserved by another player.');
         }
@@ -47,7 +76,7 @@ export class TicketManager {
     }
 
     const reservation: CardReservation = {
-      id: resId,
+      id: resKey,
       roomId,
       gameReferenceId: room.gameReferenceId,
       cardNumber: cardNum,
@@ -56,10 +85,17 @@ export class TicketManager {
       status: 'RESERVED',
       createdAt: new Date().toISOString(),
       reservedAt: new Date().toISOString(),
-      expiresAt: Date.now() + 30000,
+      expiresAt: now + 30000,
     };
 
-    await resRef.set(reservation);
+    // Store in memory cache
+    this.inMemoryReservations.set(resKey, reservation);
+
+    // Save to Firestore cardReservations with usage guard
+    firestoreGuard.safeWrite('cardReservations', 'reserveCard', async () => {
+      await adminDb.collection('cardReservations').doc(resKey).set(reservation);
+    });
+
     return reservation;
   }
 
@@ -68,22 +104,22 @@ export class TicketManager {
    */
   public async cancelReservation(roomId: string, cardNumber: number, userId: string): Promise<boolean> {
     const cardNum = Number(cardNumber);
-    const resId = `${roomId}_${cardNum}`;
-    const resRef = adminDb.collection('cardReservations').doc(resId);
-    const snap = await resRef.get();
+    const resKey = `${roomId}_${cardNum}`;
+    const existing = this.inMemoryReservations.get(resKey);
 
-    if (snap.exists) {
-      const data = snap.data() as CardReservation;
-      if (data.status === 'RESERVED' && data.userId === userId) {
-        await resRef.delete();
-        return true;
-      }
+    if (existing && existing.status === 'RESERVED' && existing.userId === userId) {
+      this.inMemoryReservations.delete(resKey);
+
+      firestoreGuard.safeWrite('cardReservations', 'cancelReservation', async () => {
+        await adminDb.collection('cardReservations').doc(resKey).delete();
+      });
+      return true;
     }
     return false;
   }
 
   /**
-   * Buys a ticket atomically (or toggles deselect if owned).
+   * Buys a ticket atomically (or toggles deselect if already owned in current round).
    */
   public async buyTicket(
     roomId: string,
@@ -100,6 +136,8 @@ export class TicketManager {
     if (room.status === 'PLAYING' || room.status === 'FINISHED' || room.status === 'RESETTING') {
       throw new Error('Ticket sales are closed for this round. Please wait for the next game.');
     }
+
+    const resKey = `${roomId}_${cardNum}`;
 
     // Check if user already owns this card in this active round (toggle deselect)
     const existingTicket = Array.from(db.tickets.values()).find(
@@ -127,6 +165,7 @@ export class TicketManager {
       );
 
       db.tickets.delete(existingTicket.id);
+      this.inMemoryReservations.delete(resKey);
 
       room.ticketsSold = Math.max(0, (room.ticketsSold || 1) - 1);
       const totalSales = room.ticketsSold * room.ticketPrice;
@@ -136,23 +175,26 @@ export class TicketManager {
       room.prizePool = Math.round(totalSales * (prizePct / 100));
       room.platformFee = Math.round(totalSales * (platformFeePct / 100));
 
-      // Atomically delete reservation & ticket from Firestore and sync user wallet
-      const batch = adminDb.batch();
-      batch.delete(adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`));
-      batch.delete(adminDb.collection('tickets').doc(existingTicket.id));
-      batch.delete(adminDb.collection('playerParticipation').doc(`part_${userId}_${roomId}_${cardNum}`));
-      batch.set(adminDb.collection('users').doc(userId), { walletBalance: newBalance }, { merge: true });
-      batch.set(
-        adminDb.collection('wallets').doc(userId),
-        { userId, balance: newBalance, updatedAt: new Date().toISOString() },
-        { merge: true }
-      );
-      await batch.commit();
+      // Batch persist deselect to Firestore
+      firestoreGuard.safeWrite('ticketDeselect', 'buyTicket-deselect', async () => {
+        const batch = adminDb.batch();
+        batch.delete(adminDb.collection('cardReservations').doc(resKey));
+        batch.delete(adminDb.collection('tickets').doc(existingTicket.id));
+        batch.set(adminDb.collection('users').doc(userId), { walletBalance: newBalance }, { merge: true });
+        await batch.commit();
+      });
 
       return { action: 'DESELECTED', newBalance };
     }
 
-    // Otherwise, purchase ticket
+    // Check if another player owns or holds this card in current round
+    const existingRes = this.inMemoryReservations.get(resKey);
+    if (existingRes && (!existingRes.gameReferenceId || existingRes.gameReferenceId === room.gameReferenceId)) {
+      if (existingRes.status === 'SOLD' && existingRes.userId !== userId) {
+        throw new Error('This Bingo card has already been selected by another player.');
+      }
+    }
+
     const user = db.getUserById(userId);
     if (!user) throw new Error('User not found');
     if (user.walletBalance < room.ticketPrice) {
@@ -190,6 +232,19 @@ export class TicketManager {
 
     db.tickets.set(newTicket.id, newTicket);
 
+    const reservationData: CardReservation = {
+      id: resKey,
+      roomId,
+      gameReferenceId: room.gameReferenceId,
+      cardNumber: cardNum,
+      userId,
+      username: user.username,
+      status: 'SOLD',
+      purchasedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+    this.inMemoryReservations.set(resKey, reservationData);
+
     room.ticketsSold = (room.ticketsSold || 0) + 1;
     const totalSales = room.ticketsSold * room.ticketPrice;
     const settings = adminService.getSystemSettings();
@@ -198,7 +253,6 @@ export class TicketManager {
     room.prizePool = Math.round(totalSales * (prizePct / 100));
     room.platformFee = Math.round(totalSales * (platformFeePct / 100));
 
-    // Save ticket, card reservation, transaction, and wallet update atomically to Firestore
     const walletTx: WalletTransaction = {
       id: `tx_buy_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       userId,
@@ -212,96 +266,40 @@ export class TicketManager {
       createdAt: new Date().toISOString(),
     };
 
-    const reservationData: CardReservation = {
-      id: `${roomId}_${cardNum}`,
-      roomId,
-      gameReferenceId: room.gameReferenceId,
-      cardNumber: cardNum,
-      userId,
-      username: user.username,
-      status: 'SOLD',
-      purchasedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-    };
-
-    const batch = adminDb.batch();
-    batch.set(adminDb.collection('tickets').doc(ticketId), newTicket);
-    batch.set(adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`), reservationData);
-    batch.set(adminDb.collection('playerParticipation').doc(`part_${userId}_${roomId}_${cardNum}`), {
-      id: `part_${userId}_${roomId}_${cardNum}`,
-      userId,
-      username: user.username,
-      roomId,
-      gameReferenceId: room.gameReferenceId,
-      cardNumber: cardNum,
-      ticketPrice: room.ticketPrice,
-      joinedAt: new Date().toISOString(),
-    });
-    batch.set(adminDb.collection('transactions').doc(walletTx.id), walletTx);
-    batch.set(adminDb.collection('users').doc(userId), { walletBalance: newBalance }, { merge: true });
-    batch.set(
-      adminDb.collection('wallets').doc(userId),
-      { userId, balance: newBalance, updatedAt: new Date().toISOString() },
-      { merge: true }
-    );
-    await batch.commit();
+    // Save ticket, reservation, and balance atomically to Firestore
+    firestoreGuard.safeWrite('ticketPurchase', 'buyTicket-purchase', async () => {
+      const batch = adminDb.batch();
+      batch.set(adminDb.collection('tickets').doc(ticketId), newTicket);
+      batch.set(adminDb.collection('cardReservations').doc(resKey), reservationData);
+      batch.set(adminDb.collection('transactions').doc(walletTx.id), walletTx);
+      batch.set(adminDb.collection('users').doc(userId), { walletBalance: newBalance }, { merge: true });
+      await batch.commit();
+    }, true); // Critical ticket purchase write
 
     return { action: 'PURCHASED', ticket: newTicket, newBalance };
   }
 
   /**
-   * Clears tickets and reservations for a room when starting a new game round.
-   * Completely frees all 400 cards and resets participation records for the room.
+   * Clears tickets and reservations in memory for a room when starting a new game round.
+   * Eliminates expensive 400-document Firestore write loops.
+   * Round isolation is strictly achieved logically via gameReferenceId.
    */
   public async clearTicketsForRoom(roomId: string): Promise<void> {
-    // 1. Mark in-memory tickets as COMPLETED so they are excluded from the new round
+    logger.debug(`[TicketManager] Resetting in-memory tickets & reservations for room ${roomId}`);
+
+    // 1. Mark in-memory active tickets as COMPLETED so they are excluded from the new round
     for (const [id, ticket] of db.tickets.entries()) {
       if (ticket.roomId === roomId && ticket.status === 'ACTIVE') {
         ticket.status = 'COMPLETED';
-        db.tickets.delete(id); // Remove from active memory tickets
+        db.tickets.delete(id);
       }
     }
 
-    try {
-      // 2. Mark active tickets in Firestore as COMPLETED
-      const activeTicketsSnap = await adminDb
-        .collection('tickets')
-        .where('roomId', '==', roomId)
-        .where('status', '==', 'ACTIVE')
-        .get();
-
-      if (!activeTicketsSnap.empty) {
-        const batch = adminDb.batch();
-        activeTicketsSnap.docs.forEach((docSnap) => {
-          batch.update(adminDb.collection('tickets').doc(docSnap.id), {
-            status: 'COMPLETED',
-            completedAt: new Date().toISOString(),
-          });
-        });
-        await batch.commit();
+    // 2. Clear in-memory reservations for this room
+    for (const [key, res] of this.inMemoryReservations.entries()) {
+      if (res.roomId === roomId) {
+        this.inMemoryReservations.delete(key);
       }
-
-      // 3. Delete all cardReservations for this room so all 400 cards are available
-      const cardResSnap = await adminDb.collection('cardReservations').where('roomId', '==', roomId).get();
-      if (!cardResSnap.empty) {
-        const batch = adminDb.batch();
-        cardResSnap.docs.forEach((docSnap) => {
-          batch.delete(adminDb.collection('cardReservations').doc(docSnap.id));
-        });
-        await batch.commit();
-      }
-
-      // 4. Delete playerParticipation records for this room
-      const partSnap = await adminDb.collection('playerParticipation').where('roomId', '==', roomId).get();
-      if (!partSnap.empty) {
-        const batch = adminDb.batch();
-        partSnap.docs.forEach((docSnap) => {
-          batch.delete(adminDb.collection('playerParticipation').doc(docSnap.id));
-        });
-        await batch.commit();
-      }
-    } catch (err: any) {
-      console.warn(`⚠️ [TicketManager] Error clearing reservations for ${roomId}:`, err.message);
     }
   }
 }

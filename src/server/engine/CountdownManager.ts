@@ -40,31 +40,13 @@ export class CountdownManager {
         if (remainingSeconds <= 0) {
           logger.debug(`[COUNTDOWN END] room=${room.id}`);
 
-          // 1. Verify confirmed ticket purchases (ACTIVE or BINGO_CLAIMED) in memory
-          const memoryTickets = Array.from(db.tickets.values()).filter(
-            (t) => t.roomId === room.id && (t.status === 'ACTIVE' || t.status === 'BINGO_CLAIMED')
+          // 1. Authoritative verification of confirmed ticket purchases (ACTIVE or BINGO_CLAIMED) in memory
+          const confirmedTickets = Array.from(db.tickets.values()).filter(
+            (t) =>
+              t.roomId === room.id &&
+              (t.status === 'ACTIVE' || t.status === 'BINGO_CLAIMED') &&
+              (!room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId)
           );
-
-          let confirmedTickets = memoryTickets;
-
-          // 2. Fallback to query Firestore if memory count is 0
-          if (confirmedTickets.length === 0) {
-            try {
-              const fsTicketsSnap = await adminDb
-                .collection('tickets')
-                .where('roomId', '==', room.id)
-                .where('status', '==', 'ACTIVE')
-                .get();
-
-              if (!fsTicketsSnap.empty) {
-                const fsTickets = fsTicketsSnap.docs.map((d) => d.data() as any);
-                fsTickets.forEach((t) => db.tickets.set(t.id, t));
-                confirmedTickets = fsTickets;
-              }
-            } catch (err: any) {
-              logger.warn(`[CountdownManager] Firestore tickets query error for ${room.id}:`, err.message);
-            }
-          }
 
           const confirmedCount = confirmedTickets.length;
           const uniqueActivePlayers = new Set(confirmedTickets.map((t) => t.userId)).size;

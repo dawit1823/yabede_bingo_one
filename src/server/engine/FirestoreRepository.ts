@@ -1,29 +1,27 @@
 import { adminDb } from '../firebaseAdmin.js';
 import { BingoRoom, GameWinner, GameHistoryRecord, BingoTicket, WalletTransaction } from '../../types.js';
+import { firestoreGuard } from '../firestoreGuard.js';
+import { logger } from '../logger.js';
 
 export class FirestoreRepository {
   /**
-   * Saves or updates a room snapshot in both 'rooms' and 'gameRooms' Firestore collections.
-   * Ensures room documents are immediately created in Firestore if deleted.
+   * Saves or updates a room snapshot in Firestore 'rooms' collection.
    */
   public async saveRoomSnapshot(room: BingoRoom): Promise<void> {
-    try {
+    await firestoreGuard.safeWrite('rooms', 'saveRoomSnapshot', async () => {
       const roomPayload = {
         ...room,
         updatedAt: new Date().toISOString(),
       };
       await adminDb.collection('rooms').doc(room.id).set(roomPayload, { merge: true });
-      await adminDb.collection('gameRooms').doc(room.id).set(roomPayload, { merge: true });
-    } catch (err: any) {
-      console.warn(`⚠️ [FirestoreRepo] Failed to save room snapshot for ${room.id}:`, err.message);
-    }
+    });
   }
 
   /**
    * Save a single checkpoint when a room starts a game (transitions to PLAYING).
    */
   public async saveGameStartCheckpoint(room: BingoRoom): Promise<void> {
-    try {
+    await firestoreGuard.safeWrite('rooms', 'saveGameStartCheckpoint', async () => {
       const payload = {
         status: 'PLAYING',
         gameReferenceId: room.gameReferenceId,
@@ -35,14 +33,12 @@ export class FirestoreRepository {
         updatedAt: new Date().toISOString(),
       };
       await adminDb.collection('rooms').doc(room.id).set(payload, { merge: true });
-      await adminDb.collection('gameRooms').doc(room.id).set(payload, { merge: true });
-    } catch (err: any) {
-      console.warn(`⚠️ [FirestoreRepo] Failed to save game start checkpoint for ${room.id}:`, err.message);
-    }
+    });
   }
 
   /**
    * Batched checkpoint write at Game End.
+   * Persists room state, history record, winners, and transactions in a single atomic batch.
    */
   public async saveGameEndCheckpoint(
     room: BingoRoom,
@@ -50,7 +46,7 @@ export class FirestoreRepository {
     tickets: BingoTicket[],
     transactions: WalletTransaction[]
   ): Promise<void> {
-    try {
+    await firestoreGuard.safeWrite('gameEndCheckpoint', 'saveGameEndCheckpoint', async () => {
       const batch = adminDb.batch();
 
       // 1. Room state
@@ -65,7 +61,6 @@ export class FirestoreRepository {
         updatedAt: new Date().toISOString(),
       };
       batch.set(adminDb.collection('rooms').doc(room.id), roomPayload, { merge: true });
-      batch.set(adminDb.collection('gameRooms').doc(room.id), roomPayload, { merge: true });
 
       // 2. Game history record
       const historyId = `gh_${room.gameReferenceId}_${Date.now()}`;
@@ -95,7 +90,7 @@ export class FirestoreRepository {
 
       // 3. Winners records
       for (const winner of winners) {
-        batch.set(adminDb.collection('gameWinners').doc(winner.id), winner);
+        batch.set(adminDb.collection('winners').doc(winner.id), winner);
       }
 
       // 4. Wallet transactions for payouts if any
@@ -104,22 +99,17 @@ export class FirestoreRepository {
       }
 
       await batch.commit();
-    } catch (err: any) {
-      console.warn(`⚠️ [FirestoreRepo] Failed to save game end checkpoint for ${room.id}:`, err.message);
-    }
+    }, true); // Critical game-end write
   }
 
   /**
-   * Retrieves all rooms from Firestore.
+   * Retrieves official rooms from Firestore safely.
    */
   public async getGameRooms(): Promise<BingoRoom[]> {
-    try {
-      const snap = await adminDb.collection('rooms').get();
+    return firestoreGuard.safeRead<BingoRoom[]>('rooms', 'getGameRooms', async () => {
+      const snap = await adminDb.collection('rooms').limit(10).get();
       return snap.docs.map((doc) => doc.data() as BingoRoom);
-    } catch (err: any) {
-      console.warn('⚠️ [FirestoreRepo] Failed to fetch game rooms:', err.message);
-      return [];
-    }
+    }, []);
   }
 }
 

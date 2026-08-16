@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { db as firestoreDb } from './lib/firebase';
@@ -249,6 +249,40 @@ export default function App() {
     }
   }, []);
 
+  // Unified Game State Reset function that clears userTickets, selectedCardRoom, and activeRoom state
+  const resetGameState = useCallback((roomId?: string) => {
+    if (roomId) {
+      setUserTickets((prev) => prev.filter((t) => t.roomId !== roomId));
+      setActiveRoom((prev) => (prev && prev.id === roomId ? null : prev));
+      setSelectedCardRoom((prev) => (prev && prev.id === roomId ? null : prev));
+    } else {
+      setUserTickets([]);
+      setActiveRoom(null);
+      setSelectedCardRoom(null);
+    }
+  }, []);
+
+  // Monitor activeTab or gameId changes to ensure UI state stays synchronized
+  const activeGameId = activeRoom?.gameReferenceId;
+  const prevGameIdRef = useRef<string | undefined>(activeGameId);
+
+  useEffect(() => {
+    if (prevGameIdRef.current && activeGameId && prevGameIdRef.current !== activeGameId) {
+      if (activeRoom) {
+        resetGameState(activeRoom.id);
+      } else {
+        resetGameState();
+      }
+    }
+    prevGameIdRef.current = activeGameId;
+
+    if (activeTab === 'home') {
+      if (activeRoom && activeRoom.status === 'FINISHED') {
+        resetGameState(activeRoom.id);
+      }
+    }
+  }, [activeTab, activeGameId, activeRoom, resetGameState]);
+
   // Connect Socket.IO
   useEffect(() => {
     const socketUrl = getSocketUrl();
@@ -476,11 +510,10 @@ export default function App() {
     });
 
     newSocket.on('game:reset', (data: { roomId: string; room: BingoRoom }) => {
-      setUserTickets((prev) => prev.filter((t) => t.roomId !== data.roomId));
+      resetGameState(data.roomId);
       setRooms((prev) => prev.map((r) => (r.id === data.roomId ? data.room : r)));
       if (activeRoom && activeRoom.id === data.roomId) {
         setSelectedCardRoom(data.room);
-        setActiveRoom(null);
       } else if (selectedCardRoom && selectedCardRoom.id === data.roomId) {
         setSelectedCardRoom(data.room);
       }

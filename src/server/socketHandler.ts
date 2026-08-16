@@ -17,6 +17,7 @@ import {
   autoCheckPrivateGroupWinners
 } from './bingoEngine.js';
 import { roomLifecycleCronService } from './cronSchedulerService.js';
+import { ticketManager } from './engine/TicketManager.js';
 import { ChatMessage } from '../types.js';
 
 let ioInstance: SocketIOServer | null = null;
@@ -173,30 +174,8 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
           )
         : [];
 
-      // Fetch active card reservations for room
-      const reservationsMap: Record<number, any> = {};
-      try {
-        const cardResSnap = await adminDb
-          .collection('cardReservations')
-          .where('roomId', '==', roomId)
-          .get();
-
-        const now = Date.now();
-        cardResSnap.docs.forEach((docSnap) => {
-          const resData = docSnap.data();
-          if (resData.status === 'RESERVED' && resData.expiresAt && resData.expiresAt < now) {
-            return;
-          }
-          if (room.gameReferenceId && resData.gameReferenceId && resData.gameReferenceId !== room.gameReferenceId) {
-            return;
-          }
-          if (resData.cardNumber) {
-            reservationsMap[resData.cardNumber] = resData;
-          }
-        });
-      } catch (err: any) {
-        console.warn('⚠️ [SocketIO] Error fetching cardReservations snapshot:', err.message);
-      }
+      // Fetch active card reservations for room from in-memory TicketManager
+      const reservationsMap = ticketManager.getRoomReservations(roomId, room.gameReferenceId);
 
       socket.emit('room:snapshot', {
         room,
