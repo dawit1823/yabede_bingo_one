@@ -345,8 +345,8 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
       io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:message', msg);
     });
 
-    socket.on('disconnect', (reason) => {
-      console.log('[Socket.IO] client disconnected:', socket.id, 'reason:', reason);
+    socket.on('disconnect', () => {
+      console.log('[Socket.IO] client disconnected:', socket.id);
       broadcastOnlineCount();
     });
   });

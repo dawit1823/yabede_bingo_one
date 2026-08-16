@@ -14,20 +14,21 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.NODE_ENV === 'production' && process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-  const FRONTEND_URL = process.env.FRONTEND_URL || '';
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const FRONTEND_URL = process.env.FRONTEND_URL || 'https://melodic-ganache-8bad94.netlify.app';
   const firebaseProjectId = process.env.FIREBASE_PROJECT_ID || config.projectId || 'exalted-strata-468319-j8';
   const firestoreDatabaseId = process.env.FIREBASE_FIRESTORE_DATABASE_ID || config.firestoreDatabaseId || 'ai-studio-ahunbingotelegra-e5b271a0-ddaa-40da-8f1e-b1ac2490e1df';
 
   console.log(`🚀 [Startup] Ahun Bingo Backend Starting...`);
   console.log(`ℹ️ [Startup] Environment: NODE_ENV=${process.env.NODE_ENV || 'development'}, PORT=${PORT}`);
+  console.log(`ℹ️ [Startup] Allowed Frontend Origin: ${FRONTEND_URL}`);
   console.log(`ℹ️ [Startup] Firebase Project: ${firebaseProjectId}, Firestore DB: ${firestoreDatabaseId}`);
 
   // Test Firebase Firestore database connection
   try {
     console.log('🔥 [Startup] Checking Firebase Firestore database connection...');
     const testSnap = await adminDb.collection('settings').doc('platformConfig').get();
-    console.log(`✅ [Startup] Firestore database connected successfully. Config exists: ${testSnap.exists}`);
+    console.log(`✅ [Startup] Firestore database connected successfully. platformConfig exists: ${testSnap.exists}`);
   } catch (err: any) {
     console.warn('⚠️ [Startup Notice] Firestore database connection note:', err.message || err);
   }
@@ -100,7 +101,10 @@ async function startServer() {
 
   // HTTP Server & Socket.IO Setup
   const server = http.createServer(app);
-  setupSocketIO(server);
+  const io = setupSocketIO(server);
+  if (!io) {
+    throw new Error('Fatal: Socket.IO failed to initialize');
+  }
 
   // Vite middleware for dev / static for prod
   if (process.env.NODE_ENV !== 'production') {
@@ -122,6 +126,16 @@ async function startServer() {
   });
 }
 
+// Global Fatal Error Handlers
+process.on('uncaughtException', (err) => {
+  console.error('💥 [Fatal Server Error] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 [Fatal Server Error] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 startServer().catch((err) => {
   console.error('💥 [Fatal Server Error] Uncaught error in startServer:', err);
+  process.exit(1);
 });
