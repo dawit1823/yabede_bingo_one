@@ -36,7 +36,7 @@ export class UserRepository {
   }
 
   public async getAllUsers(): Promise<UserProfile[]> {
-    const snap = await adminDb.collection('users').get();
+    const snap = await adminDb.collection('users').limit(100).get();
     return snap.docs.map((doc) => doc.data() as UserProfile);
   }
 

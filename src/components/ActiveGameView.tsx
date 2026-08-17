@@ -1,6 +1,5 @@
 import React from 'react';
-import { collection, query, where, doc, onSnapshot } from 'firebase/firestore';
-import { db as firestoreDb } from '../lib/firebase';
+import { Socket } from 'socket.io-client';
 import { BingoRoom, BingoTicket, ChatMessage, UserProfile, WinningPattern, RoomStats } from '../types';
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
 import { audioEngine, getAmharicNumberText } from '../lib/audioEngine';
@@ -22,6 +21,7 @@ interface ActiveGameViewProps {
   onCloseGroup?: () => void;
   isHost?: boolean;
   language: 'en' | 'am';
+  socket?: Socket | null;
 }
 
 // 75-Number Drawn Bingo Board Grid Component
@@ -102,6 +102,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
   onCloseGroup,
   isHost,
   language,
+  socket,
 }) => {
   const [autoDaub, setAutoDaub] = React.useState<boolean>(true);
   const [chatOpen, setChatOpen] = React.useState<boolean>(false);
@@ -183,36 +184,98 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
     };
   }, [room?.id, user?.id, room?.gameReferenceId]);
 
-  // Real-time Firestore snapshot for tickets belonging to current user in this room
+  // Real-time Socket.IO synchronization for active gameplay (room stats, tickets, updates)
   React.useEffect(() => {
-    if (!room?.id || !user?.id) return;
+    if (!socket || !room?.id) return;
 
-    const q = query(
-      collection(firestoreDb, 'tickets'),
-      where('roomId', '==', room.id),
-      where('userId', '==', user.id),
-      where('status', '==', 'ACTIVE')
-    );
+    socket.emit('room:join', { roomId: room.id, userId: user?.id });
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const fetched: BingoTicket[] = snapshot.docs
-          .map((d) => ({
-            id: d.id,
-            ...(d.data() as BingoTicket),
-          }))
-          .filter((t) => !room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId);
-
-        setLiveTickets(fetched);
-      },
-      (err) => {
-        logger.debug('Live tickets snapshot note:', err.message);
+    const handleRoomSnapshot = (data: {
+      room?: BingoRoom;
+      tickets?: BingoTicket[];
+      reservations?: Record<number, any>;
+    }) => {
+      if (data && data.tickets && Array.isArray(data.tickets)) {
+        const activeTkts = data.tickets.filter(
+          (t) =>
+            t.roomId === room.id &&
+            t.status === 'ACTIVE' &&
+            (!room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId)
+        );
+        if (activeTkts.length > 0) {
+          setLiveTickets(activeTkts);
+        }
       }
-    );
+      if (data && data.room && data.room.id === room.id) {
+        setLiveRoomStats({
+          prizePool: data.room.prizePool,
+          ticketsSold: data.room.ticketsSold,
+          activePlayersCount: data.room.activePlayersCount,
+        });
+      }
+    };
 
-    return () => unsubscribe();
-  }, [room?.id, user?.id, room?.gameReferenceId]);
+    const handleTicketBought = (data: { tickets: BingoTicket[] }) => {
+      if (data && data.tickets && Array.isArray(data.tickets)) {
+        const roomTkts = data.tickets.filter(
+          (t) =>
+            t.roomId === room.id &&
+            t.status === 'ACTIVE' &&
+            (!room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId)
+        );
+        if (roomTkts.length > 0) {
+          setLiveTickets((prev) => {
+            const ticketMap = new Map<string, BingoTicket>();
+            prev.forEach((t) => ticketMap.set(t.id, t));
+            roomTkts.forEach((t) => ticketMap.set(t.id, t));
+            return Array.from(ticketMap.values());
+          });
+        }
+      }
+    };
+
+    const handleStatsUpdated = (data: {
+      roomId?: string;
+      groupId?: string;
+      prizePool?: number;
+      ticketsSold?: number;
+      activePlayersCount?: number;
+    }) => {
+      const targetId = data.roomId || data.groupId;
+      if (targetId === room.id) {
+        setLiveRoomStats((prev) => ({
+          prizePool: typeof data.prizePool === 'number' ? data.prizePool : prev?.prizePool,
+          ticketsSold: typeof data.ticketsSold === 'number' ? data.ticketsSold : prev?.ticketsSold,
+          activePlayersCount:
+            typeof data.activePlayersCount === 'number' ? data.activePlayersCount : prev?.activePlayersCount,
+        }));
+      }
+    };
+
+    const handleRoomUpdated = (data: { room?: BingoRoom }) => {
+      if (data && data.room && data.room.id === room.id) {
+        setLiveRoomStats({
+          prizePool: data.room.prizePool,
+          ticketsSold: data.room.ticketsSold,
+          activePlayersCount: data.room.activePlayersCount,
+        });
+      }
+    };
+
+    socket.on('room:snapshot', handleRoomSnapshot);
+    socket.on('ticket:bought', handleTicketBought);
+    socket.on('room:stats_updated', handleStatsUpdated);
+    socket.on('private_group:stats_updated', handleStatsUpdated);
+    socket.on('room:updated', handleRoomUpdated);
+
+    return () => {
+      socket.off('room:snapshot', handleRoomSnapshot);
+      socket.off('ticket:bought', handleTicketBought);
+      socket.off('room:stats_updated', handleStatsUpdated);
+      socket.off('private_group:stats_updated', handleStatsUpdated);
+      socket.off('room:updated', handleRoomUpdated);
+    };
+  }, [socket, room?.id, user?.id, room?.gameReferenceId]);
 
   // Auto-reset modal state when a new game round starts
   React.useEffect(() => {
@@ -220,26 +283,6 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
       setShowWinnerModal(true);
     }
   }, [room.status]);
-
-  // Real-time Firestore Subscription specifically to 'roomStats' sub-collection
-  React.useEffect(() => {
-    if (!room?.id) return;
-
-    const statsRef = doc(firestoreDb, 'rooms', room.id, 'roomStats', 'current');
-    const unsubscribe = onSnapshot(
-      statsRef,
-      (snapshot) => {
-        if (snapshot.exists()) {
-          setLiveRoomStats(snapshot.data() as RoomStats);
-        }
-      },
-      (err) => {
-        logger.debug('roomStats sub-collection snapshot note:', err.message);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [room?.id]);
 
   const displayPrizePool = liveRoomStats?.prizePool ?? room.prizePool ?? 0;
   const displayTicketsSold = liveRoomStats?.ticketsSold ?? room.ticketsSold ?? 0;

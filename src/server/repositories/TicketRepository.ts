@@ -27,27 +27,10 @@ export class TicketRepository {
   }
 
   public async getAllTickets(): Promise<BingoTicket[]> {
-    const snap = await adminDb.collection('tickets').get();
-    return snap.docs.map((doc) => doc.data() as BingoTicket);
-  }
-
-  public async saveCardReservation(roomId: string, cardNumber: number, userId: string): Promise<void> {
-    const resId = `${roomId}_${cardNumber}`;
-    await adminDb.collection('cardReservations').doc(resId).set({
-      id: resId,
-      roomId,
-      cardNumber,
-      userId,
-      reservedAt: new Date().toISOString(),
+    const snap = await adminDb.collection('tickets').orderBy('boughtAt', 'desc').limit(100).get().catch(async () => {
+      return adminDb.collection('tickets').limit(100).get();
     });
-  }
-
-  public async deleteCardReservationsForRoom(roomId: string): Promise<void> {
-    const snap = await adminDb.collection('cardReservations').where('roomId', '==', roomId).get();
-    if (snap.empty) return;
-    const batch = adminDb.batch();
-    snap.docs.forEach((d) => batch.delete(adminDb.collection('cardReservations').doc(d.id)));
-    await batch.commit();
+    return snap.docs.map((doc) => doc.data() as BingoTicket);
   }
 }
 

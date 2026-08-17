@@ -8,6 +8,8 @@ import { db, OFFICIAL_ROOMS, generateGameReferenceId } from './db.js';
 import { adminDb } from './firebaseAdmin.js';
 import { adminService } from './adminService.js';
 import { logger } from './logger.js';
+import { firestoreGuard } from './firestoreGuard.js';
+import { ticketManager } from './engine/TicketManager.js';
 import { BingoRoom, BingoTicket, GameWinner, WinningPattern, WalletTransaction } from '../types.js';
 import { generateCardMatrixByNumber } from '../lib/bingoUtils.js';
 
@@ -309,6 +311,7 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
       roomId: room.id,
       gameReferenceId: room.gameReferenceId || ticket.gameReferenceId,
       userId: ticket.userId,
+      ticketId: ticket.id,
       username,
       photoUrl,
       cardNumber: ticket.cardNumber || 1,
@@ -321,62 +324,39 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
 
     db.winners.unshift(winner);
     foundWinners.push(winner);
-
-    // Sync updated ticket, winner, and wallet transaction to Firestore
-    adminDb.collection('tickets').doc(ticket.id).set(ticket, { merge: true }).catch(console.warn);
-    adminDb.collection('winners').doc(winner.id).set(winner).catch(console.warn);
-
-    const winnerTx: WalletTransaction = {
-      id: `tx_win_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
-      userId: ticket.userId,
-      amount: splitPrizeAmount,
-      balanceAfter: user ? user.walletBalance : splitPrizeAmount,
-      type: 'GAME_WIN',
-      status: 'COMPLETED',
-      reference: `WIN-${room.id}-${ticket.id}`,
-      description: `Bingo Prize Won (${pattern}) Card #${ticket.cardNumber || '?'} in ${room.name}`,
-      createdAt: new Date().toISOString(),
-    };
-    adminDb.collection('transactions').doc(winnerTx.id).set(winnerTx).catch(console.warn);
   }
 
-  // Mark all other tickets for this game round as LOST / COMPLETED
-  const roundRefId = room.gameReferenceId;
-  Array.from(db.tickets.values()).forEach((tkt) => {
-    if (tkt.roomId === room.id && (!roundRefId || tkt.gameReferenceId === roundRefId) && tkt.status === 'ACTIVE') {
-      tkt.status = 'COMPLETED';
-      (tkt as any).winningStatus = 'LOST';
-      (tkt as any).prizeWon = 0;
-      adminDb.collection('tickets').doc(tkt.id).set(tkt, { merge: true }).catch(console.warn);
-    }
-  });
+  // Single atomic batch: persist winners, winning tickets, transactions, and room status
+  if (foundWinners.length > 0) {
+    firestoreGuard.safeWrite('winners', 'checkBingoWinForRoom', async () => {
+      const batch = adminDb.batch();
 
-  // Set room status to FINISHED and record lastWinners
-  room.status = 'FINISHED';
-  room.lastWinners = foundWinners;
+      for (const winner of foundWinners) {
+        batch.set(adminDb.collection('winners').doc(winner.id), winner);
+        const tkt = db.tickets.get(winner.ticketId);
+        if (tkt) {
+          batch.set(adminDb.collection('tickets').doc(tkt.id), tkt, { merge: true });
+        }
+      }
 
-  db.recordGameHistoryForRoom(room, foundWinners);
+      // Mark other tickets COMPLETED
+      const roundRefId = room.gameReferenceId;
+      Array.from(db.tickets.values()).forEach((tkt) => {
+        if (tkt.roomId === room.id && (!roundRefId || tkt.gameReferenceId === roundRefId) && tkt.status === 'COMPLETED' && (tkt as any).winningStatus === 'LOST') {
+          batch.set(adminDb.collection('tickets').doc(tkt.id), tkt, { merge: true });
+        }
+      });
 
-  const roomUpdates = {
-    status: 'FINISHED',
-    lastWinners: foundWinners,
-    updatedAt: new Date().toISOString(),
-  };
+      const roomUpdates = {
+        status: 'FINISHED',
+        lastWinners: foundWinners,
+        updatedAt: new Date().toISOString(),
+      };
+      batch.set(adminDb.collection('rooms').doc(room.id), roomUpdates, { merge: true });
 
-  adminDb.collection('rooms').doc(room.id).update(roomUpdates).catch(console.warn);
-  adminDb.collection('gameRooms').doc(room.id).update(roomUpdates).catch(console.warn);
-
-  const finalStats = {
-    roomId: room.id,
-    prizePool: room.prizePool,
-    platformFee: room.platformFee || 0,
-    ticketsSold: room.ticketsSold || 0,
-    totalSales: (room.ticketsSold || 0) * room.ticketPrice,
-    activePlayersCount: room.activePlayersCount || 0,
-    updatedAt: new Date().toISOString(),
-  };
-  adminDb.collection(`rooms/${room.id}/roomStats`).doc('current').set(finalStats, { merge: true }).catch(console.warn);
-  adminDb.collection(`gameRooms/${room.id}/roomStats`).doc('current').set(finalStats, { merge: true }).catch(console.warn);
+      await batch.commit();
+    }, true);
+  }
 
   return { winners: foundWinners, room };
 }
@@ -388,13 +368,9 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
 export async function clearAndResetAllBingoGames(): Promise<BingoRoom[]> {
   logger.info('[BingoEngine] Resetting active Bingo game rounds...');
 
-  try {
-    // 1. Delete active card reservations only (clears seat selections for current round)
-    const cardResSnap = await adminDb.collection('cardReservations').get();
-    const deleteResPromises = cardResSnap.docs.map((docSnap) => adminDb.collection('cardReservations').doc(docSnap.id).delete());
-    await Promise.all(deleteResPromises);
-  } catch (err: any) {
-    console.warn('⚠️ [BingoEngine] Reset warning during cardReservations deletion:', err.message);
+  // 1. Reset in-memory tickets and reservations for all official rooms
+  for (const template of OFFICIAL_ROOMS) {
+    await ticketManager.clearTicketsForRoom(template.id);
   }
 
   // 2. Re-seed/Reset the 4 official Bingo game arenas with fresh gameReferenceIds
@@ -417,9 +393,6 @@ export async function clearAndResetAllBingoGames(): Promise<BingoRoom[]> {
 
     db.rooms.set(room.id, room);
     resetRooms.push(room);
-
-    adminDb.collection('rooms').doc(room.id).set(room).catch(console.warn);
-    adminDb.collection('gameRooms').doc(room.id).set(room).catch(console.warn);
   }
 
   logger.info('[BingoEngine] Active Bingo game rounds reset successfully.');
@@ -519,6 +492,7 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
       roomId: group.id,
       gameReferenceId: group.gameReferenceId || ticket.gameReferenceId,
       userId: ticket.userId,
+      ticketId: ticket.id,
       username,
       photoUrl,
       cardNumber: ticket.cardNumber || 1,
@@ -531,23 +505,37 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
 
     db.winners.unshift(winner);
     foundWinners.push(winner);
+  }
 
-    // Sync ticket, winner, and wallet tx to Firestore
-    adminDb.collection('tickets').doc(ticket.id).set(ticket, { merge: true }).catch(console.warn);
-    adminDb.collection('winners').doc(winner.id).set(winner).catch(console.warn);
+  // Single atomic batch: persist winners, winning tickets, and group status
+  if (foundWinners.length > 0) {
+    firestoreGuard.safeWrite('groupWinners', 'checkBingoWinForGroupGame', async () => {
+      const batch = adminDb.batch();
 
-    const winnerTx: WalletTransaction = {
-      id: `tx_win_grp_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
-      userId: ticket.userId,
-      amount: winnerShare,
-      balanceAfter: user ? user.walletBalance : winnerShare,
-      type: 'GAME_WIN',
-      status: 'COMPLETED',
-      reference: `GRP-WIN-${group.id}-${ticket.id}`,
-      description: `Private Group Prize Won (${group.winningPattern}) Card #${ticket.cardNumber || '?'} in "${group.name}"`,
-      createdAt: new Date().toISOString(),
-    };
-    adminDb.collection('transactions').doc(winnerTx.id).set(winnerTx).catch(console.warn);
+      for (const winner of foundWinners) {
+        batch.set(adminDb.collection('winners').doc(winner.id), winner);
+        const tkt = db.tickets.get(winner.ticketId);
+        if (tkt) {
+          batch.set(adminDb.collection('tickets').doc(tkt.id), tkt, { merge: true });
+        }
+      }
+
+      Array.from(db.tickets.values()).forEach((tkt) => {
+        if (tkt.roomId === group.id && tkt.status === 'COMPLETED' && (tkt as any).winningStatus === 'LOST') {
+          batch.set(adminDb.collection('tickets').doc(tkt.id), tkt, { merge: true });
+        }
+      });
+
+      const groupUpdates = {
+        status: 'WAITING_HOST_DECISION',
+        lastWinners: foundWinners,
+        hostDecisionTimeout: group.hostDecisionTimeout,
+        updatedAt: new Date().toISOString(),
+      };
+      batch.set(adminDb.collection('groupGames').doc(group.id), groupUpdates, { merge: true });
+
+      await batch.commit();
+    }, true);
   }
 
   // Mark all other tickets for this round as COMPLETED
@@ -556,7 +544,6 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
       tkt.status = 'COMPLETED';
       (tkt as any).winningStatus = 'LOST';
       (tkt as any).prizeWon = 0;
-      adminDb.collection('tickets').doc(tkt.id).set(tkt, { merge: true }).catch(console.warn);
     }
   });
 
@@ -585,15 +572,6 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
     gameReferenceId: group.gameReferenceId,
   };
   db.recordGameHistoryForRoom(roomFormatForHistory, foundWinners);
-
-  const groupUpdates = {
-    status: 'WAITING_HOST_DECISION',
-    lastWinners: foundWinners,
-    hostDecisionTimeout: group.hostDecisionTimeout,
-    updatedAt: new Date().toISOString(),
-  };
-
-  adminDb.collection('groupGames').doc(group.id).update(groupUpdates).catch(console.warn);
 
   return { winners: foundWinners, group };
 }

@@ -7,7 +7,9 @@ export class TransactionRepository {
   }
 
   public async getAuditLogs(): Promise<AuditLog[]> {
-    const snap = await adminDb.collection('auditLogs').get();
+    const snap = await adminDb.collection('auditLogs').orderBy('timestamp', 'desc').limit(100).get().catch(async () => {
+      return adminDb.collection('auditLogs').limit(100).get();
+    });
     return snap.docs.map((doc) => doc.data() as AuditLog);
   }
 
@@ -27,7 +29,9 @@ export class TransactionRepository {
   }
 
   public async getSettingsHistory(): Promise<Record<string, any>[]> {
-    const snap = await adminDb.collection('settingsHistory').get();
+    const snap = await adminDb.collection('settingsHistory').orderBy('changedAt', 'desc').limit(50).get().catch(async () => {
+      return adminDb.collection('settingsHistory').limit(50).get();
+    });
     return snap.docs.map((doc) => doc.data());
   }
 

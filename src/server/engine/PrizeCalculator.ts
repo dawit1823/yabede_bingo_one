@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { adminDb } from '../firebaseAdmin.js';
 import { adminService } from '../adminService.js';
 import { logger } from '../logger.js';
+import { firestoreGuard } from '../firestoreGuard.js';
 
 export class PrizeCalculator {
   /**
@@ -93,13 +94,17 @@ export class PrizeCalculator {
     // Batch update room document in Firestore
     batch.set(adminDb.collection('rooms').doc(room.id), room, { merge: true });
 
-    try {
-      await batch.commit();
-      logger.info(`[GAME] Payouts committed room=${room.id} winners=${calculatedWinners.length}`);
-    } catch (err: any) {
-      logger.error(`[PrizeCalculator] Firestore batch error on prize distribution for ${room.id}:`, err.message);
-    }
+    // Guarded critical batch write to Firestore (with controlled retry and backoff)
+    await firestoreGuard.safeWrite(
+      'payouts',
+      'calculateAndDistributePayouts',
+      async () => {
+        await batch.commit();
+      },
+      true
+    );
 
+    logger.info(`[GAME] Payouts committed room=${room.id} winners=${calculatedWinners.length}`);
     return { calculatedWinners, transactions };
   }
 }

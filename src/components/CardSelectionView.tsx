@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
 import { Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
-import { db as firestoreDb } from '../lib/firebase';
 import { BingoRoom, UserProfile, CardReservation, BingoTicket } from '../types';
 import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds } from '../lib/bingoUtils';
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
@@ -534,12 +532,38 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
       }
     };
 
+    const handleRoomStatsUpdated = (data: { roomId?: string; groupId?: string; prizePool?: number; ticketsSold?: number; activePlayersCount?: number }) => {
+      const targetId = data.roomId || data.groupId;
+      if (targetId === room.id) {
+        setLiveRoom((prev) => ({
+          ...prev,
+          prizePool: typeof data.prizePool === 'number' ? data.prizePool : prev.prizePool,
+          ticketsSold: typeof data.ticketsSold === 'number' ? data.ticketsSold : prev.ticketsSold,
+          activePlayersCount: typeof data.activePlayersCount === 'number' ? data.activePlayersCount : prev.activePlayersCount,
+        }));
+      }
+    };
+
+    const handleRoomStatusChanged = (data: { roomId?: string; groupId?: string; status: any }) => {
+      const targetId = data.roomId || data.groupId;
+      if (targetId === room.id) {
+        setLiveRoom((prev) => ({
+          ...prev,
+          status: data.status ?? prev.status,
+        }));
+      }
+    };
+
     socket.on('card:updated', handleCardUpdated);
     socket.on('card:reservation_updated', handleCardUpdated);
     socket.on('room:snapshot', handleRoomSnapshot);
     socket.on('game:reset', handleGameReset);
     socket.on('room:updated', handleRoomUpdated);
     socket.on('room:countdown', handleRoomCountdown);
+    socket.on('room:stats_updated', handleRoomStatsUpdated);
+    socket.on('private_group:stats_updated', handleRoomStatsUpdated);
+    socket.on('room:status_changed', handleRoomStatusChanged);
+    socket.on('private_group:started', handleRoomStatusChanged);
 
     return () => {
       socket.off('card:updated', handleCardUpdated);
@@ -548,6 +572,10 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
       socket.off('game:reset', handleGameReset);
       socket.off('room:updated', handleRoomUpdated);
       socket.off('room:countdown', handleRoomCountdown);
+      socket.off('room:stats_updated', handleRoomStatsUpdated);
+      socket.off('private_group:stats_updated', handleRoomStatsUpdated);
+      socket.off('room:status_changed', handleRoomStatusChanged);
+      socket.off('private_group:started', handleRoomStatusChanged);
     };
   }, [socket, room.id, user.id]);
 
@@ -557,61 +585,6 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
       onEnterGame();
     }
   }, [liveRoom.status, onEnterGame]);
-
-  // Real-time Firestore listener for room document updates
-  useEffect(() => {
-    const roomRef = doc(firestoreDb, 'rooms', room.id);
-    const unsubscribeRoom = onSnapshot(
-      roomRef,
-      (docSnap) => {
-        if (docSnap.exists()) {
-          setLiveRoom(docSnap.data() as BingoRoom);
-          setIsSyncing(false);
-        }
-      },
-      (err) => {
-        logger.debug('Live room listener note:', err.message);
-        setIsSyncing(true);
-      }
-    );
-    return () => unsubscribeRoom();
-  }, [room.id]);
-
-  // Real-time Firestore listener for card reservations in this room
-  useEffect(() => {
-    const q = query(
-      collection(firestoreDb, 'cardReservations'),
-      where('roomId', '==', room.id)
-    );
-
-    const unsubscribeCards = onSnapshot(
-      q,
-      (snapshot) => {
-        const resMap: Record<number, CardReservation> = {};
-        snapshot.docs.forEach((docSnap) => {
-          const res = docSnap.data() as CardReservation;
-          if (res && res.cardNumber) {
-            // Filter by gameReferenceId to ensure no previous round cards appear
-            if (
-              !liveRoom.gameReferenceId ||
-              !res.gameReferenceId ||
-              res.gameReferenceId === liveRoom.gameReferenceId
-            ) {
-              resMap[res.cardNumber] = res;
-            }
-          }
-        });
-        setReservations(resMap);
-        setIsSyncing(false);
-      },
-      (err) => {
-        logger.debug('Card reservations listener note:', err.message);
-        setIsSyncing(true);
-      }
-    );
-
-    return () => unsubscribeCards();
-  }, [room.id, liveRoom.gameReferenceId]);
 
   // Manual Refresh Handler
   const handleManualRefresh = useCallback(async () => {

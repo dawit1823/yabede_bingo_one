@@ -3,7 +3,6 @@ import { ballDrawer } from './BallDrawer.js';
 import { firestoreRepository } from './FirestoreRepository.js';
 import { webSocketGateway } from './WebSocketGateway.js';
 import { db } from '../db.js';
-import { adminDb } from '../firebaseAdmin.js';
 import { adminService } from '../adminService.js';
 import { logger } from '../logger.js';
 
@@ -86,7 +85,6 @@ export class CountdownManager {
             room.startedAt = startTime;
             room.endsAt = endTime;
 
-            firestoreRepository.saveRoomSnapshot(room).catch((err) => logger.warn('[Firestore] Room snapshot save error:', err.message));
             webSocketGateway.broadcastRoomUpdate(room);
             webSocketGateway.broadcastCountdown(
               room.id,

@@ -616,10 +616,10 @@ class FirestoreDatabaseStore {
   public addTransaction(tx: WalletTransaction): WalletTransaction {
     this.transactions.unshift(tx);
 
-    // Guarded write to Firestore transactions collection
+    // Guarded critical write to Firestore transactions collection
     firestoreGuard.safeWrite('transactions', 'addTransaction', async () => {
       await adminDb.collection('transactions').doc(tx.id).set(tx);
-    });
+    }, true);
 
     return tx;
   }
@@ -746,10 +746,10 @@ class FirestoreDatabaseStore {
 
     this.deposits.unshift(dep);
 
-    // Save to Firestore payments collection
-    adminDb.collection('payments').doc(dep.id).set(dep).catch((err) => {
-      console.error(`🔥 [Firestore] Error saving deposit ${dep.id}:`, err);
-    });
+    // Save to Firestore payments collection with controlled retry
+    firestoreGuard.safeWrite('payments', 'submitDeposit', async () => {
+      await adminDb.collection('payments').doc(dep.id).set(dep);
+    }, true);
 
     this.addNotification({
       userId: user.id,
@@ -770,7 +770,9 @@ class FirestoreDatabaseStore {
     dep.processedByAdminId = adminId;
     dep.updatedAt = new Date().toISOString();
 
-    adminDb.collection('payments').doc(dep.id).set(dep, { merge: true }).catch(console.error);
+    firestoreGuard.safeWrite('payments', 'approveDeposit', async () => {
+      await adminDb.collection('payments').doc(dep.id).set(dep, { merge: true });
+    }, true);
 
     const user = this.getUserById(dep.userId);
     if (!user) throw new Error('Deposit user not found');
@@ -836,7 +838,9 @@ class FirestoreDatabaseStore {
     dep.processedByAdminId = adminId;
     dep.updatedAt = new Date().toISOString();
 
-    adminDb.collection('payments').doc(dep.id).set(dep, { merge: true }).catch(console.error);
+    firestoreGuard.safeWrite('payments', 'rejectDeposit', async () => {
+      await adminDb.collection('payments').doc(dep.id).set(dep, { merge: true });
+    }, true);
 
     this.addNotification({
       userId: dep.userId,
@@ -865,7 +869,9 @@ class FirestoreDatabaseStore {
     dep.adminNote = adminNote;
     dep.updatedAt = new Date().toISOString();
 
-    adminDb.collection('payments').doc(dep.id).set(dep, { merge: true }).catch(console.error);
+    firestoreGuard.safeWrite('payments', 'requestDepositInfo', async () => {
+      await adminDb.collection('payments').doc(dep.id).set(dep, { merge: true });
+    }, true);
 
     this.addNotification({
       userId: dep.userId,
@@ -920,9 +926,10 @@ class FirestoreDatabaseStore {
 
     this.withdrawals.unshift(req);
 
-    adminDb.collection('withdrawals').doc(req.id).set(req).catch((err) => {
-      console.error(`🔥 [Firestore] Error saving withdrawal ${req.id}:`, err);
-    });
+    // Save to Firestore withdrawals collection with controlled retry
+    firestoreGuard.safeWrite('withdrawals', 'requestWithdrawal', async () => {
+      await adminDb.collection('withdrawals').doc(req.id).set(req);
+    }, true);
 
     this.addNotification({
       userId: user.id,
@@ -950,7 +957,9 @@ class FirestoreDatabaseStore {
     req.processedByAdminId = adminId;
     req.updatedAt = new Date().toISOString();
 
-    adminDb.collection('withdrawals').doc(req.id).set(req, { merge: true }).catch(console.error);
+    firestoreGuard.safeWrite('withdrawals', 'processWithdrawal', async () => {
+      await adminDb.collection('withdrawals').doc(req.id).set(req, { merge: true });
+    }, true);
 
     const user = this.getUserById(req.userId);
     if (user) {
@@ -1465,7 +1474,6 @@ class FirestoreDatabaseStore {
       };
 
       adminDb.collection('tickets').doc(ticket.id).set(ticket).catch(console.error);
-      adminDb.collection('cardReservations').doc(reservation.id).set(reservation).catch(console.error);
     }
 
     this.recalculatePrivateGroupStats(group.id);
@@ -1489,12 +1497,7 @@ class FirestoreDatabaseStore {
       }
     });
 
-    // 3. Clear card reservations for this group so all 400 cards are available
-    adminDb.collection('cardReservations').where('roomId', '==', groupId).get().then((snap) => {
-      snap.docs.forEach((d) => adminDb.collection('cardReservations').doc(d.id).delete().catch(console.error));
-    }).catch(console.error);
-
-    // 4. Reset game state
+    // 3. Reset game state
     group.status = 'LOBBY';
     group.drawnBalls = [];
     group.currentBall = null;

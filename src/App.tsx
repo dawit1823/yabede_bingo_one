@@ -347,7 +347,55 @@ export default function App() {
         const roomWithRem = { ...data.room, countdownSeconds: getRemainingSeconds(data.room) };
         setRooms((prev) => prev.map((r) => (r.id === data.room.id ? roomWithRem : r)));
         setActiveRoom((prev) => (prev && prev.id === data.room.id ? roomWithRem : prev));
-        setSelectedCardRoom((prev) => (prev && prev.id === data.room.id ? roomWithRem : prev));
+        setSelectedCardRoom((prev) => {
+          if (!prev || prev.id !== data.room.id) return prev;
+          if (data.room.status === 'PLAYING') {
+            setActiveRoom(roomWithRem);
+            setActiveTab('active_game');
+            return null;
+          }
+          return roomWithRem;
+        });
+      }
+    });
+
+    const handleRoomStatusChanged = (data: { roomId?: string; groupId?: string; status: any }) => {
+      const targetId = data.roomId || data.groupId;
+      if (!targetId) return;
+
+      setRooms((prev) =>
+        prev.map((r) => (r.id === targetId ? { ...r, status: data.status } : r))
+      );
+      setActiveRoom((prev) => (prev && prev.id === targetId ? { ...prev, status: data.status } : prev));
+      setSelectedCardRoom((prev) => {
+        if (!prev || prev.id !== targetId) return prev;
+        if (data.status === 'PLAYING') {
+          setActiveRoom({ ...prev, status: data.status });
+          setActiveTab('active_game');
+          return null;
+        }
+        return { ...prev, status: data.status };
+      });
+    };
+
+    newSocket.on('room:status_changed', handleRoomStatusChanged);
+    newSocket.on('private_group:started', (data: { group?: BingoRoom; status?: any }) => {
+      if (data && data.group) {
+        handleRoomStatusChanged({ groupId: data.group.id, status: data.status || 'PLAYING' });
+      }
+    });
+
+    newSocket.on('private_group:updated', (data: { group: BingoRoom }) => {
+      if (data && data.group) {
+        const updated = data.group;
+        setRooms((prev) => {
+          const exists = prev.some((r) => r.id === updated.id);
+          if (exists) {
+            return prev.map((r) => (r.id === updated.id ? updated : r));
+          }
+          return [...prev, updated];
+        });
+        setActiveRoom((prev) => (prev && prev.id === updated.id ? updated : prev));
       }
     });
 
@@ -386,6 +434,11 @@ export default function App() {
             startedAt: data.startedAt ?? prev.startedAt,
             endsAt: data.endsAt !== undefined ? data.endsAt : prev.endsAt,
           };
+          if (data.status === 'PLAYING') {
+            setActiveRoom(updated);
+            setActiveTab('active_game');
+            return null;
+          }
           return { ...updated, countdownSeconds: getRemainingSeconds(updated) };
         }
         return prev;
@@ -530,27 +583,8 @@ export default function App() {
     };
   }, [currentUser.id]);
 
-  // Real-time Firestore synchronization for rooms and settings
+  // Real-time Firestore synchronization for settings
   useEffect(() => {
-    const unsubRooms = onSnapshot(
-      collection(firestoreDb, 'rooms'),
-      (snapshot) => {
-        if (snapshot.empty) return;
-        snapshot.docChanges().forEach((change) => {
-          const updatedRoom = { id: change.doc.id, ...change.doc.data() } as BingoRoom;
-          const rem = getRemainingSeconds(updatedRoom);
-          const roomWithRem = { ...updatedRoom, countdownSeconds: rem };
-
-          setRooms((prev) => prev.map((r) => (r.id === updatedRoom.id ? roomWithRem : r)));
-          setActiveRoom((prev) => (prev && prev.id === updatedRoom.id ? roomWithRem : prev));
-          setSelectedCardRoom((prev) => (prev && prev.id === updatedRoom.id ? roomWithRem : prev));
-        });
-      },
-      (err) => {
-        logger.debug('Firestore room sync snapshot notice:', err.message);
-      }
-    );
-
     const unsubSettings = onSnapshot(
       doc(firestoreDb, 'settings', 'platformConfig'),
       (snapshot) => {
@@ -564,7 +598,6 @@ export default function App() {
     );
 
     return () => {
-      unsubRooms();
       unsubSettings();
     };
   }, []);
@@ -661,53 +694,7 @@ export default function App() {
   useEffect(() => {
     fetchData();
 
-    // Real-time Firestore Listeners
-    const unsubscribeRooms = onSnapshot(
-      collection(firestoreDb, 'rooms'),
-      (snapshot) => {
-        if (snapshot.empty) {
-          fetch(apiUrl('/api/bingo/rooms'))
-            .then((res) => res.json())
-            .then((data) => {
-              if (data && data.rooms && Array.isArray(data.rooms) && data.rooms.length > 0) {
-                setRooms(data.rooms);
-              }
-            })
-            .catch(console.warn);
-          return;
-        }
-        const roomList: BingoRoom[] = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as BingoRoom) }));
-        setRooms(roomList);
-        if (activeRoom) {
-          const updatedActive = roomList.find((r) => r.id === activeRoom.id);
-          if (updatedActive) {
-            if (
-              (activeRoom.status === 'FINISHED' || activeRoom.status === 'RESETTING') &&
-              (updatedActive.status === 'WAITING' || updatedActive.status === 'COUNTDOWN')
-            ) {
-              setSelectedCardRoom(updatedActive);
-              setActiveRoom(null);
-            } else {
-              setActiveRoom(updatedActive);
-            }
-          }
-        }
-        if (selectedCardRoom) {
-          const updatedSelected = roomList.find((r) => r.id === selectedCardRoom.id);
-          if (updatedSelected) {
-            if (updatedSelected.status === 'PLAYING') {
-              setActiveRoom(updatedSelected);
-              setSelectedCardRoom(null);
-              setActiveTab('active_game');
-            } else {
-              setSelectedCardRoom(updatedSelected);
-            }
-          }
-        }
-      },
-      (err) => logger.debug('Rooms snapshot listener note:', err.message)
-    );
-
+    // Persistent User & Transaction Ledger Firestore Listeners
     const unsubscribeUser = onSnapshot(
       doc(firestoreDb, 'users', currentUser.id),
       (docSnap) => {
@@ -728,21 +715,9 @@ export default function App() {
       (err) => logger.debug('Transactions snapshot listener note:', err.message)
     );
 
-    const qTickets = query(collection(firestoreDb, 'tickets'), where('userId', '==', currentUser.id));
-    const unsubscribeTickets = onSnapshot(
-      qTickets,
-      (snapshot) => {
-        const ticketList: BingoTicket[] = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as BingoTicket) }));
-        setUserTickets(ticketList);
-      },
-      (err) => logger.debug('Tickets snapshot listener note:', err.message)
-    );
-
     return () => {
-      unsubscribeRooms();
       unsubscribeUser();
       unsubscribeTx();
-      unsubscribeTickets();
     };
   }, [currentUser.id]);
 
@@ -1116,6 +1091,7 @@ export default function App() {
                 }}
                 isHost={Boolean(activeRoom.id.startsWith('grp_') && ((activeRoom as any).hostId === currentUser.id))}
                 language={language}
+                socket={socket}
               />
             )}
 

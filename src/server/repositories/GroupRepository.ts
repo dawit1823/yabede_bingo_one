@@ -7,7 +7,7 @@ export class GroupRepository {
   }
 
   public async getPrivateGroups(): Promise<PrivateGroup[]> {
-    const snap = await adminDb.collection('privateGroups').get();
+    const snap = await adminDb.collection('privateGroups').limit(50).get();
     return snap.docs.map((doc) => doc.data() as PrivateGroup);
   }
 

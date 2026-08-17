@@ -18,7 +18,6 @@ export class GameRepository {
       updatedAt: new Date().toISOString(),
     };
     await adminDb.collection('rooms').doc(room.id).set(payload, { merge: true });
-    await adminDb.collection('gameRooms').doc(room.id).set(payload, { merge: true });
   }
 
   /**
@@ -45,7 +44,6 @@ export class GameRepository {
       updatedAt: new Date().toISOString(),
     };
     batch.set(adminDb.collection('rooms').doc(room.id), roomPayload, { merge: true });
-    batch.set(adminDb.collection('gameRooms').doc(room.id), roomPayload, { merge: true });
 
     // 2. Game history record
     const historyId = `gh_${room.gameReferenceId}_${Date.now()}`;
@@ -91,16 +89,17 @@ export class GameRepository {
    */
   public async saveRoomSnapshot(room: BingoRoom): Promise<void> {
     await adminDb.collection('rooms').doc(room.id).set(room);
-    await adminDb.collection('gameRooms').doc(room.id).set(room);
   }
 
   public async getCompletedGameHistory(): Promise<GameHistoryRecord[]> {
-    const snap = await adminDb.collection('gameHistory').get();
+    const snap = await adminDb.collection('gameHistory').orderBy('playedAt', 'desc').limit(50).get().catch(async () => {
+      return adminDb.collection('gameHistory').limit(50).get();
+    });
     return snap.docs.map((doc) => doc.data() as GameHistoryRecord);
   }
 
   public async getGameRooms(): Promise<BingoRoom[]> {
-    const snap = await adminDb.collection('rooms').get();
+    const snap = await adminDb.collection('rooms').limit(10).get();
     return snap.docs.map((doc) => doc.data() as BingoRoom);
   }
 }

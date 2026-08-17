@@ -46,11 +46,10 @@ export const OFFICIAL_ROOM_CONFIGS: OfficialRoomConfig[] = [
 export class RoomInitializer {
   /**
    * Idempotent initialization of the four official Bingo rooms.
-   * If any official room is missing from memory or Firestore, creates it automatically.
+   * Ensures all official rooms exist in memory with default configs.
+   * Does NOT write repeated snapshots to Firestore.
    */
   public async initializeOfficialRooms(memoryRooms: Map<string, BingoRoom>): Promise<BingoRoom[]> {
-    logger.info('[RoomInitializer] Initializing official Bingo rooms...');
-
     const settings = adminService.getSystemSettings();
     const countdownSec = settings.countdownDurationSeconds || 45;
     const maxP = settings.maxPlayers || 400;
@@ -92,13 +91,7 @@ export class RoomInitializer {
 
         memoryRooms.set(config.id, newRoom);
         initializedRooms.push(newRoom);
-
-        // Immediately write snapshot to Firestore so collections are recreated if deleted
-        firestoreRepository.saveRoomSnapshot(newRoom).catch((err) => {
-          logger.warn(`[RoomInitializer] Snapshot write error for ${config.id}:`, err.message);
-        });
-
-        logger.debug(`[RoomInitializer] Auto-initialized room: ${config.name} (${config.id})`);
+        logger.debug(`[RoomInitializer] Initialized room in memory: ${config.name} (${config.id})`);
       } else {
         // Ensure endsAt, startedAt, and gameReferenceId are set
         if (!existing.gameReferenceId) {
@@ -107,13 +100,10 @@ export class RoomInitializer {
         if (!existing.endsAt) {
           existing.startedAt = startTime;
           existing.endsAt = endTime;
-          existing.countdownSeconds = 45;
+          existing.countdownSeconds = countdownSec;
         }
         memoryRooms.set(config.id, existing);
         initializedRooms.push(existing);
-
-        // Persist update snapshot to Firestore
-        firestoreRepository.saveRoomSnapshot(existing).catch(console.warn);
       }
     }
 

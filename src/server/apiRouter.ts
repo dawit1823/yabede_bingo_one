@@ -20,6 +20,7 @@ import { telegramBot } from './telegramBot.js';
 import { adminService, AdminService } from './adminService.js';
 import { emailService } from './emailService.js';
 import { broadcastCardUpdate, getIO } from './socketHandler.js';
+import { ticketManager } from './engine/TicketManager.js';
 
 export const apiRouter = Router();
 
@@ -1074,14 +1075,6 @@ apiRouter.post('/admin/games/action', async (req: Request, res: Response) => {
           updatedAt: restartNow.toISOString(),
         }).catch(console.warn);
 
-        adminDb.collection('gameRooms').doc(gameId).update({
-          status: 'WAITING',
-          countdownSeconds: 45,
-          startedAt: room.startedAt,
-          endsAt: room.endsAt,
-          updatedAt: restartNow.toISOString(),
-        }).catch(console.warn);
-
         db.logAudit(adminId, 'RESTART_COUNTDOWN', gameId, `Restarted countdown for ${room.name}`, 'Manual Restart', clientIp);
         res.json({ success: true, room });
         return;
@@ -1546,9 +1539,7 @@ apiRouter.post('/admin/private-groups/action', async (req: Request, res: Respons
         }
       }
 
-      adminDb.collection('cardReservations').where('roomId', '==', group.id).get().then((snap) => {
-        snap.docs.forEach((d) => adminDb.collection('cardReservations').doc(d.id).delete().catch(console.error));
-      }).catch(console.error);
+      await ticketManager.clearTicketsForRoom(group.id);
 
       group.status = 'CANCELLED';
       group.prizePool = 0;
@@ -2290,49 +2281,8 @@ apiRouter.get('/bingo/room-status/:roomId', async (req: Request, res: Response) 
       return;
     }
 
-    const cardResSnap = await adminDb
-      .collection('cardReservations')
-      .where('roomId', '==', roomId)
-      .get();
-
-    const reservations: Record<number, any> = {};
-    const now = Date.now();
-
-    cardResSnap.docs.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (data.status === 'RESERVED' && data.expiresAt && data.expiresAt < now) {
-        return;
-      }
-      // Ensure reservation belongs to current gameReferenceId if present
-      if (room.gameReferenceId && data.gameReferenceId && data.gameReferenceId !== room.gameReferenceId) {
-        return;
-      }
-      if (data.cardNumber) {
-        reservations[data.cardNumber] = data;
-      }
-    });
-
-    // Merge in-memory active tickets as SOLD reservations to ensure 0ms delay
-    Array.from(db.tickets.values()).forEach((tkt) => {
-      if (
-        tkt.roomId === roomId &&
-        (tkt.status === 'ACTIVE' || tkt.status === 'BINGO_CLAIMED') &&
-        (!room.gameReferenceId || !tkt.gameReferenceId || tkt.gameReferenceId === room.gameReferenceId)
-      ) {
-        if (tkt.cardNumber) {
-          reservations[tkt.cardNumber] = {
-            id: `${roomId}_${tkt.cardNumber}`,
-            roomId,
-            gameReferenceId: room.gameReferenceId || tkt.gameReferenceId,
-            cardNumber: tkt.cardNumber,
-            userId: tkt.userId,
-            username: tkt.username,
-            status: 'SOLD',
-            purchasedAt: tkt.boughtAt,
-          };
-        }
-      }
-    });
+    // In-memory active card reservations (zero Firestore read quota)
+    const reservations: Record<number, any> = ticketManager.getRoomReservations(roomId, room.gameReferenceId);
 
     let myTickets: BingoTicket[] = [];
     if (userId) {
@@ -2411,46 +2361,7 @@ apiRouter.post('/bingo/reserve-card', async (req: Request, res: Response) => {
     }
 
     const room = db.rooms.get(roomId);
-    if (room && (room.status === 'PLAYING' || room.status === 'FINISHED' || room.status === 'RESETTING')) {
-      res.status(400).json({ error: 'Ticket sales for this round are closed. Please wait for the next game.' });
-      return;
-    }
-
-    const resRef = adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`);
-    const resDoc = await resRef.get();
-
-    if (resDoc.exists) {
-      const existingData = resDoc.data();
-      if (existingData?.status === 'SOLD') {
-        res.status(400).json({ error: 'This Bingo card has already been selected. Please choose another available card.' });
-        return;
-      }
-
-      if (
-        existingData?.status === 'RESERVED' &&
-        existingData?.userId !== userId &&
-        existingData?.expiresAt &&
-        existingData.expiresAt > Date.now()
-      ) {
-        res.status(400).json({ error: 'This Bingo card is currently being reserved by another player.' });
-        return;
-      }
-    }
-
-    const reservation = {
-      id: `${roomId}_${cardNum}`,
-      roomId,
-      gameReferenceId: room?.gameReferenceId,
-      cardNumber: cardNum,
-      userId,
-      username: user.username,
-      status: 'RESERVED',
-      createdAt: new Date().toISOString(),
-      reservedAt: new Date().toISOString(),
-      expiresAt: Date.now() + 30000, // 30s temporary hold
-    };
-
-    await resRef.set(reservation);
+    const reservation = await ticketManager.reserveCard(roomId, cardNum, userId, user.username);
     broadcastCardUpdate(roomId, cardNum, reservation, 'RESERVED', room);
     res.json({ success: true, reservation });
   } catch (err: any) {
@@ -2467,15 +2378,9 @@ apiRouter.post('/bingo/cancel-reservation', async (req: Request, res: Response) 
     }
 
     const cardNum = Number(cardNumber);
-    const resRef = adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`);
-    const resDoc = await resRef.get();
-
-    if (resDoc.exists) {
-      const data = resDoc.data();
-      if (data?.status === 'RESERVED' && data?.userId === userId) {
-        await resRef.delete();
-        broadcastCardUpdate(roomId, cardNum, null, 'CANCELLED', db.rooms.get(roomId));
-      }
+    const released = await ticketManager.cancelReservation(roomId, cardNum, userId);
+    if (released) {
+      broadcastCardUpdate(roomId, cardNum, null, 'CANCELLED', db.rooms.get(roomId));
     }
 
     res.json({ success: true, message: 'Reservation released' });
@@ -2499,174 +2404,52 @@ apiRouter.post('/bingo/buy-card', async (req: Request, res: Response) => {
       return;
     }
 
-    // Run Firestore atomic transaction
-    const result = await adminDb.runTransaction(async (transaction) => {
-      const userRef = adminDb.collection('users').doc(userId);
-      const roomRef = adminDb.collection('rooms').doc(roomId);
-      const gameRoomRef = adminDb.collection('gameRooms').doc(roomId);
-      const resRef = adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`);
+    const result = await ticketManager.buyTicket(roomId, cardNum, userId);
+    const room = ticketManager.getRoomOrGroup(roomId);
 
-      const userDoc = await transaction.get(userRef);
-      if (!userDoc.exists) {
-        throw new Error('User account not found');
-      }
-      const user = userDoc.data() as UserProfile;
-
-      const roomDoc = await transaction.get(roomRef);
-      if (!roomDoc.exists) {
-        throw new Error('Bingo room not found');
-      }
-      const room = roomDoc.data() as BingoRoom;
-
-      if (room.status === 'FINISHED' || room.status === 'RESETTING') {
-        throw new Error('This game has already finished. Please join the next round.');
-      }
-      if (room.status === 'PLAYING') {
-        throw new Error('Ticket sales are closed for this active game round. Please wait for the next game.');
-      }
-      if (room.status !== 'COUNTDOWN' && room.status !== 'WAITING') {
-        throw new Error('Ticket sales are closed for this round. Please wait for the next game.');
-      }
-
-      if (user.walletBalance < room.ticketPrice) {
-        throw new Error(
-          `Insufficient wallet balance (${user.walletBalance} Birr available, ${room.ticketPrice} Birr required)`
-        );
-      }
-
-      const resDoc = await transaction.get(resRef);
-      if (resDoc.exists) {
-        const resData = resDoc.data();
-        if (resData?.status === 'SOLD') {
-          throw new Error('This Bingo card has already been selected. Please choose another available card.');
-        }
-        if (
-          resData?.status === 'RESERVED' &&
-          resData?.userId !== userId &&
-          resData?.expiresAt &&
-          resData.expiresAt > Date.now()
-        ) {
-          throw new Error('This Bingo card is currently being reserved by another player.');
-        }
-      }
-
-      // Calculate prize pool formula based on system settings
-      const sysSettings = adminService.getSystemSettings();
-      const platformFeePct = sysSettings.platformFeePercent ?? 20;
-      const prizePct = sysSettings.prizePercentage ?? 80;
-      const currentTicketsSold = ((room as any).ticketsSold || 0) + 1;
-      const totalTicketSales = currentTicketsSold * room.ticketPrice;
-      const newPrizePool = Math.round(totalTicketSales * (prizePct / 100));
-      const newPlatformFee = Math.round(totalTicketSales * (platformFeePct / 100));
-      const newBalance = user.walletBalance - room.ticketPrice;
-
-      // Deterministic matrix generation
-      const matrix = generateCardMatrixByNumber(cardNum);
-      const ticketId = `tkt_${roomId}_${cardNum}_${Date.now()}`;
-
-      const newTicket: BingoTicket = {
-        id: ticketId,
-        roomId,
-        gameReferenceId: room.gameReferenceId,
-        cardNumber: cardNum,
-        userId,
-        username: user.username,
-        matrix,
-        daubed: Array(5).fill(false).map(() => Array(5).fill(false)),
-        status: 'ACTIVE',
-        purchasePrice: room.ticketPrice,
-        boughtAt: new Date().toISOString(),
-      };
-
+    // Live Socket.IO Broadcasts
+    const io = getIO();
+    if (result.action === 'SELECTED') {
       const reservationData = {
         id: `${roomId}_${cardNum}`,
         roomId,
         cardNumber: cardNum,
         userId,
-        username: user.username,
+        username: result.ticket?.username || db.getUserById(userId)?.username || '',
         status: 'SOLD',
-        purchasedAt: new Date().toISOString(),
+        purchasedAt: result.ticket?.boughtAt || new Date().toISOString(),
       };
+      broadcastCardUpdate(roomId, cardNum, reservationData, 'SELECTED', room);
+    } else {
+      broadcastCardUpdate(roomId, cardNum, null, 'DESELECTED', room);
+    }
 
-      const walletTx: WalletTransaction = {
-        id: `tx_buy_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-        userId,
-        amount: -room.ticketPrice,
-        balanceAfter: newBalance,
-        type: 'TICKET_PURCHASE',
-        status: 'COMPLETED',
-        reference: `TKT-${cardNum}-${roomId}`,
-        description: `Bought Bingo Card #${cardNum} in ${room.name} [Ref: ${room.gameReferenceId}]`,
-        gameReferenceId: room.gameReferenceId,
-        createdAt: new Date().toISOString(),
-      };
-
-      const participationData = {
-        id: `part_${userId}_${roomId}_${cardNum}`,
-        userId,
-        username: user.username,
+    if (io && room) {
+      io.to(roomId).emit('room:stats_updated', {
         roomId,
-        cardNumber: cardNum,
-        ticketPrice: room.ticketPrice,
-        joinedAt: new Date().toISOString(),
-      };
-
-      // Atomic Writes
-      transaction.update(userRef, {
-        walletBalance: newBalance,
-        totalGamesPlayed: (user.totalGamesPlayed || 0) + 1,
-        updatedAt: new Date().toISOString(),
+        prizePool: room.prizePool,
+        ticketsSold: room.ticketsSold,
+        activePlayersCount: room.activePlayersCount,
       });
+      io.emit('wallet:updated', { userId, newBalance: result.newBalance });
 
-      const roomUpdates = {
-        ticketsSold: currentTicketsSold,
-        prizePool: newPrizePool,
-        platformFee: newPlatformFee,
-        activePlayersCount: ((room as any).activePlayersCount || 0) + 1,
-        updatedAt: new Date().toISOString(),
-      };
-
-      transaction.update(roomRef, roomUpdates);
-      transaction.set(gameRoomRef, { ...room, ...roomUpdates }, { merge: true });
-
-      // Sync roomStats sub-collection in Firestore
-      const roomStatsData = {
-        roomId,
-        prizePool: newPrizePool,
-        platformFee: newPlatformFee,
-        ticketsSold: currentTicketsSold,
-        totalSales: totalTicketSales,
-        activePlayersCount: ((room as any).activePlayersCount || 0) + 1,
-        updatedAt: new Date().toISOString(),
-      };
-      const roomStatsSubRef = adminDb.collection(`rooms/${roomId}/roomStats`).doc('current');
-      const gameRoomStatsSubRef = adminDb.collection(`gameRooms/${roomId}/roomStats`).doc('current');
-      transaction.set(roomStatsSubRef, roomStatsData, { merge: true });
-      transaction.set(gameRoomStatsSubRef, roomStatsData, { merge: true });
-
-      transaction.set(resRef, reservationData);
-      transaction.set(adminDb.collection('tickets').doc(ticketId), newTicket);
-      transaction.set(adminDb.collection('transactions').doc(walletTx.id), walletTx);
-      transaction.set(adminDb.collection('playerParticipation').doc(participationData.id), participationData);
-
-      // In-memory sync
-      db.updateWalletBalance(userId, -room.ticketPrice, 'TICKET_PURCHASE', walletTx.description, walletTx.reference);
-      db.tickets.set(newTicket.id, newTicket);
-      const memoryRoom = db.rooms.get(roomId);
-      if (memoryRoom) {
-        memoryRoom.prizePool = newPrizePool;
-        (memoryRoom as any).ticketsSold = currentTicketsSold;
+      if (roomId.startsWith('grp_') || db.privateGroups.has(roomId)) {
+        const stats = db.recalculatePrivateGroupStats(roomId);
+        const grp = db.privateGroups.get(roomId);
+        io.to(roomId).to(`private_grp_${roomId}`).emit('private_group:updated', { group: grp, members: db.groupMembers.get(roomId) || [] });
+        if (stats) {
+          io.to(roomId).to(`private_grp_${roomId}`).emit('private_group:stats_updated', { groupId: roomId, ...stats });
+        }
       }
-
-      return { ticket: newTicket, newBalance, newPrizePool };
-    });
+    }
 
     res.json({
       success: true,
       message: `Bingo card #${cardNum} purchased successfully!`,
       ticket: result.ticket,
       userBalance: result.newBalance,
-      prizePool: result.newPrizePool,
+      prizePool: room?.prizePool || 0,
+      action: result.action,
     });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to buy card' });
@@ -2688,334 +2471,54 @@ apiRouter.post('/bingo/toggle-card', async (req: Request, res: Response) => {
       return;
     }
 
-    const result = await adminDb.runTransaction(async (transaction) => {
-      const userRef = adminDb.collection('users').doc(userId);
-      const roomRef = adminDb.collection('rooms').doc(roomId);
-      const gameRoomRef = adminDb.collection('gameRooms').doc(roomId);
-      const resRef = adminDb.collection('cardReservations').doc(`${roomId}_${cardNum}`);
+    const result = await ticketManager.buyTicket(roomId, cardNum, userId);
+    const room = ticketManager.getRoomOrGroup(roomId);
 
-      const userDoc = await transaction.get(userRef);
-      if (!userDoc.exists) {
-        throw new Error('User account not found');
-      }
-      const user = userDoc.data() as UserProfile;
-
-      let room: BingoRoom;
-      let isPrivateGroup = false;
-      let groupObj: PrivateGroup | null = null;
-
-      const roomDoc = await transaction.get(roomRef);
-      if (roomDoc.exists) {
-        room = roomDoc.data() as BingoRoom;
-      } else {
-        const groupDoc = await transaction.get(adminDb.collection('groupGames').doc(roomId));
-        if (groupDoc.exists) {
-          groupObj = groupDoc.data() as PrivateGroup;
-        } else {
-          groupObj = db.privateGroups.get(roomId) || null;
-        }
-
-        if (groupObj) {
-          isPrivateGroup = true;
-          room = {
-            id: groupObj.id,
-            name: groupObj.name,
-            description: `Private Group Game (${groupObj.code})`,
-            icon: '🎟️',
-            ticketPrice: groupObj.ticketPrice,
-            minPlayers: 2,
-            maxPlayers: groupObj.maxPlayers,
-            status: groupObj.status === 'LOBBY' ? 'WAITING' : groupObj.status === 'COUNTDOWN' ? 'COUNTDOWN' : groupObj.status === 'PLAYING' ? 'PLAYING' : 'FINISHED',
-            currentBall: groupObj.currentBall ?? null,
-            drawnBalls: groupObj.drawnBalls || [],
-            winningPatterns: [groupObj.winningPattern],
-            prizePool: groupObj.prizePool,
-            countdownSeconds: groupObj.countdownSeconds || 0,
-            activePlayersCount: (db.groupMembers.get(groupObj.id) || []).length,
-            createdAt: groupObj.createdAt,
-          };
-        } else {
-          throw new Error('Bingo room or private group not found');
-        }
-      }
-
-      if (room.status === 'FINISHED' || room.status === 'RESETTING') {
-        throw new Error('This game has already finished. Please join the next round.');
-      }
-      if (room.status === 'PLAYING') {
-        throw new Error('Card selection is closed for this active game round. Please wait for the next game.');
-      }
-      if (room.status !== 'COUNTDOWN' && room.status !== 'WAITING') {
-        throw new Error('Card selection is closed for this round. Please wait for the next game.');
-      }
-
-      const resDoc = await transaction.get(resRef);
-      const isAlreadyOwnedByMe = resDoc.exists && resDoc.data()?.status === 'SOLD' && resDoc.data()?.userId === userId;
-      const isOwnedByOther = resDoc.exists && resDoc.data()?.status === 'SOLD' && resDoc.data()?.userId !== userId;
-
-      if (isOwnedByOther) {
-        throw new Error('This Bingo card is already owned by another player.');
-      }
-
-      if (isAlreadyOwnedByMe) {
-        // --- DESELECT / RELEASE CARD (REFUND) ---
-        const currentTicketsSold = Math.max(0, ((room as any).ticketsSold || 0) - 1);
-        const totalTicketSales = currentTicketsSold * room.ticketPrice;
-        const sysSettings = adminService.getSystemSettings();
-        const platformFeePct = sysSettings.platformFeePercent ?? 20;
-        const prizePct = sysSettings.prizePercentage ?? 80;
-        const newPrizePool = Math.round(totalTicketSales * (prizePct / 100));
-        const newPlatformFee = Math.round(totalTicketSales * (platformFeePct / 100));
-        const newBalance = user.walletBalance + room.ticketPrice;
-
-        const ticketQuery = await adminDb.collection('tickets')
-          .where('roomId', '==', roomId)
-          .where('cardNumber', '==', cardNum)
-          .where('userId', '==', userId)
-          .get();
-
-        const walletTx: WalletTransaction = {
-          id: `tx_refund_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-          userId,
-          amount: room.ticketPrice,
-          balanceAfter: newBalance,
-          type: 'REFUND',
-          status: 'COMPLETED',
-          reference: `REFUND-${cardNum}-${roomId}`,
-          description: `Released Bingo Card #${cardNum} in ${room.name}`,
-          createdAt: new Date().toISOString(),
-        };
-
-        // Atomic Deletions & Updates
-        transaction.delete(resRef);
-        ticketQuery.docs.forEach((docSnap) => transaction.delete(adminDb.collection('tickets').doc(docSnap.id)));
-        transaction.delete(adminDb.collection('playerParticipation').doc(`part_${userId}_${roomId}_${cardNum}`));
-
-        transaction.update(userRef, {
-          walletBalance: newBalance,
-          updatedAt: new Date().toISOString(),
-        });
-
-        // Recalculate unique active players count
-        const allPartSnap = await adminDb.collection('playerParticipation').where('roomId', '==', roomId).get();
-        const remainingPart = allPartSnap.docs.filter((d) => d.id !== `part_${userId}_${roomId}_${cardNum}`);
-        const uniqueUsers = new Set(remainingPart.map((d) => d.data().userId));
-
-        const roomUpdates = {
-          ticketsSold: currentTicketsSold,
-          prizePool: newPrizePool,
-          platformFee: newPlatformFee,
-          activePlayersCount: uniqueUsers.size,
-          updatedAt: new Date().toISOString(),
-        };
-
-        if (isPrivateGroup && groupObj) {
-          const memRef = adminDb.collection('groupMembers').doc(`${roomId}_${userId}`);
-          const memDoc = await transaction.get(memRef);
-          if (memDoc.exists) {
-            const memData = memDoc.data() as GroupMember;
-            const newCount = Math.max(0, (memData.ticketCount || 0) - 1);
-            transaction.update(memRef, { ticketCount: newCount });
-          }
-        } else {
-          transaction.update(roomRef, roomUpdates);
-          transaction.set(gameRoomRef, { ...room, ...roomUpdates }, { merge: true });
-
-          const roomStatsData = {
-            roomId,
-            prizePool: newPrizePool,
-            platformFee: newPlatformFee,
-            ticketsSold: currentTicketsSold,
-            totalSales: totalTicketSales,
-            activePlayersCount: uniqueUsers.size,
-            updatedAt: new Date().toISOString(),
-          };
-          transaction.set(adminDb.collection(`rooms/${roomId}/roomStats`).doc('current'), roomStatsData, { merge: true });
-          transaction.set(adminDb.collection(`gameRooms/${roomId}/roomStats`).doc('current'), roomStatsData, { merge: true });
-        }
-        transaction.set(adminDb.collection('transactions').doc(walletTx.id), walletTx);
-
-        // Update in-memory db
-        user.walletBalance = newBalance;
-        db.users.set(userId, user);
-        for (const [tId, t] of db.tickets.entries()) {
-          if (t.roomId === roomId && t.cardNumber === cardNum && t.userId === userId) {
-            db.tickets.delete(tId);
-          }
-        }
-        Object.assign(room, roomUpdates);
-        db.rooms.set(roomId, room);
-
-        return { action: 'DESELECTED', cardNumber: cardNum, newBalance, prizePool: newPrizePool, ticketsSold: currentTicketsSold };
-      } else {
-        // --- SELECT / PURCHASE CARD IMMEDIATELY ---
-        // Check max tickets limit (max 50 cards per player per room)
-        const myActiveTicketsSnap = await adminDb
-          .collection('tickets')
-          .where('roomId', '==', roomId)
-          .where('userId', '==', userId)
-          .where('status', '==', 'ACTIVE')
-          .get();
-
-        const sysSettings = adminService.getSystemSettings();
-        const maxCards = sysSettings.maxCardsPerPlayer || 50;
-        if (myActiveTicketsSnap.docs.length >= maxCards) {
-          throw new Error(`Maximum limit of ${maxCards} cards per player reached for this round.`);
-        }
-
-        if (user.walletBalance < room.ticketPrice) {
-          throw new Error(`Insufficient wallet balance (${user.walletBalance} Birr available, ${room.ticketPrice} Birr required)`);
-        }
-
-        const platformFeePct = sysSettings.platformFeePercent ?? 20;
-        const prizePct = sysSettings.prizePercentage ?? 80;
-        const currentTicketsSold = ((room as any).ticketsSold || 0) + 1;
-        const totalTicketSales = currentTicketsSold * room.ticketPrice;
-        const newPrizePool = Math.round(totalTicketSales * (prizePct / 100));
-        const newPlatformFee = Math.round(totalTicketSales * (platformFeePct / 100));
-        const newBalance = user.walletBalance - room.ticketPrice;
-
-        const matrix = generateCardMatrixByNumber(cardNum);
-        const ticketId = `tkt_${roomId}_${cardNum}_${Date.now()}`;
-
-        const newTicket: BingoTicket = {
-          id: ticketId,
-          roomId,
-          cardNumber: cardNum,
-          userId,
-          username: user.username,
-          matrix,
-          daubed: Array(5).fill(false).map(() => Array(5).fill(false)),
-          status: 'ACTIVE',
-          purchasePrice: room.ticketPrice,
-          boughtAt: new Date().toISOString(),
-        };
-
-        const reservationData = {
-          id: `${roomId}_${cardNum}`,
-          roomId,
-          cardNumber: cardNum,
-          userId,
-          username: user.username,
-          status: 'SOLD',
-          purchasedAt: new Date().toISOString(),
-        };
-
-        const walletTx: WalletTransaction = {
-          id: `tx_buy_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-          userId,
-          amount: -room.ticketPrice,
-          balanceAfter: newBalance,
-          type: 'TICKET_PURCHASE',
-          status: 'COMPLETED',
-          reference: `TKT-${cardNum}-${roomId}`,
-          description: `Bought Bingo Card #${cardNum} in ${room.name}`,
-          createdAt: new Date().toISOString(),
-        };
-
-        const participationData = {
-          id: `part_${userId}_${roomId}_${cardNum}`,
-          userId,
-          username: user.username,
-          roomId,
-          cardNumber: cardNum,
-          ticketPrice: room.ticketPrice,
-          joinedAt: new Date().toISOString(),
-        };
-
-        // Recalculate unique active players count
-        const allPartSnap = await adminDb.collection('playerParticipation').where('roomId', '==', roomId).get();
-        const uniqueUsers = new Set([...allPartSnap.docs.map((d) => d.data().userId), userId]);
-
-        transaction.update(userRef, {
-          walletBalance: newBalance,
-          totalGamesPlayed: (user.totalGamesPlayed || 0) + 1,
-          updatedAt: new Date().toISOString(),
-        });
-
-        const roomUpdates = {
-          ticketsSold: currentTicketsSold,
-          prizePool: newPrizePool,
-          platformFee: newPlatformFee,
-          activePlayersCount: uniqueUsers.size,
-          updatedAt: new Date().toISOString(),
-        };
-
-        if (isPrivateGroup && groupObj) {
-          const memRef = adminDb.collection('groupMembers').doc(`${roomId}_${userId}`);
-          const memDoc = await transaction.get(memRef);
-          if (memDoc.exists) {
-            const memData = memDoc.data() as GroupMember;
-            transaction.update(memRef, { ticketCount: (memData.ticketCount || 0) + 1, status: 'READY' });
-          }
-        } else {
-          transaction.update(roomRef, roomUpdates);
-          transaction.set(gameRoomRef, { ...room, ...roomUpdates }, { merge: true });
-
-          const roomStatsData = {
-            roomId,
-            prizePool: newPrizePool,
-            platformFee: newPlatformFee,
-            ticketsSold: currentTicketsSold,
-            totalSales: totalTicketSales,
-            activePlayersCount: uniqueUsers.size,
-            updatedAt: new Date().toISOString(),
-          };
-          transaction.set(adminDb.collection(`rooms/${roomId}/roomStats`).doc('current'), roomStatsData, { merge: true });
-          transaction.set(adminDb.collection(`gameRooms/${roomId}/roomStats`).doc('current'), roomStatsData, { merge: true });
-        }
-
-        transaction.set(resRef, reservationData);
-        transaction.set(adminDb.collection('tickets').doc(ticketId), newTicket);
-        transaction.set(adminDb.collection('transactions').doc(walletTx.id), walletTx);
-        transaction.set(adminDb.collection('playerParticipation').doc(participationData.id), participationData);
-
-        // Update in-memory db
-        user.walletBalance = newBalance;
-        user.totalGamesPlayed = (user.totalGamesPlayed || 0) + 1;
-        db.users.set(userId, user);
-        db.tickets.set(ticketId, newTicket);
-        Object.assign(room, roomUpdates);
-        db.rooms.set(roomId, room);
-
-        return { action: 'SELECTED', ticket: newTicket, newBalance, prizePool: newPrizePool, ticketsSold: currentTicketsSold };
-      }
-    });
-
-    const updatedRoom = db.rooms.get(roomId);
-    if (result.action === 'DESELECTED') {
-      broadcastCardUpdate(roomId, cardNum, null, 'DESELECTED', updatedRoom);
-    } else if (result.action === 'SELECTED') {
+    // Live Socket.IO Broadcasts
+    const io = getIO();
+    if (result.action === 'SELECTED') {
       const reservationData = {
         id: `${roomId}_${cardNum}`,
         roomId,
         cardNumber: cardNum,
         userId,
-        username: db.getUserById(userId)?.username || '',
+        username: result.ticket?.username || db.getUserById(userId)?.username || '',
         status: 'SOLD',
-        purchasedAt: new Date().toISOString(),
+        purchasedAt: result.ticket?.boughtAt || new Date().toISOString(),
       };
-      broadcastCardUpdate(roomId, cardNum, reservationData, 'SELECTED', updatedRoom);
+      broadcastCardUpdate(roomId, cardNum, reservationData, 'SELECTED', room);
+    } else {
+      broadcastCardUpdate(roomId, cardNum, null, 'DESELECTED', room);
     }
 
-    const io = getIO();
-    if (roomId.startsWith('grp_') || db.privateGroups.has(roomId)) {
-      const stats = db.recalculatePrivateGroupStats(roomId);
-      if (io) {
+    if (io && room) {
+      io.to(roomId).emit('room:stats_updated', {
+        roomId,
+        prizePool: room.prizePool,
+        ticketsSold: room.ticketsSold,
+        activePlayersCount: room.activePlayersCount,
+      });
+      io.emit('wallet:updated', { userId, newBalance: result.newBalance });
+
+      if (roomId.startsWith('grp_') || db.privateGroups.has(roomId)) {
+        const stats = db.recalculatePrivateGroupStats(roomId);
         const grp = db.privateGroups.get(roomId);
         io.to(roomId).to(`private_grp_${roomId}`).emit('private_group:updated', { group: grp, members: db.groupMembers.get(roomId) || [] });
         if (stats) {
           io.to(roomId).to(`private_grp_${roomId}`).emit('private_group:stats_updated', { groupId: roomId, ...stats });
-          io.to(roomId).to(`private_grp_${roomId}`).emit('room:stats_updated', { roomId, ...stats });
         }
       }
     }
 
-    if (io) {
-      io.emit('wallet:updated', { userId, newBalance: result.newBalance });
-    }
-
-    res.json({ success: true, ...result });
+    res.json({
+      success: true,
+      action: result.action,
+      cardNumber: cardNum,
+      ticket: result.ticket,
+      newBalance: result.newBalance,
+      prizePool: room?.prizePool || 0,
+      ticketsSold: room?.ticketsSold || 0,
+    });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to toggle card selection' });
   }

@@ -1,52 +1,39 @@
 import { BingoRoom } from '../../types.js';
 import { db } from '../db.js';
-import { roomInitializer, OFFICIAL_ROOM_CONFIGS } from './RoomInitializer.js';
+import { roomInitializer } from './RoomInitializer.js';
 import { firestoreRepository } from './FirestoreRepository.js';
 import { logger } from '../logger.js';
 
 export class RoomManager {
   /**
-   * Retrieves a room by ID from memory.
-   * Auto-recreates official room if missing.
+   * Retrieves a room by ID ONLY from memory.
+   * NEVER triggers Firestore reads or writes.
    */
   public getRoom(roomId: string): BingoRoom | undefined {
-    let room = db.rooms.get(roomId);
-    if (!room) {
-      const config = OFFICIAL_ROOM_CONFIGS.find((c) => c.id === roomId);
-      if (config) {
-        roomInitializer.initializeOfficialRooms(db.rooms).catch(console.warn);
-        room = db.rooms.get(roomId);
-      }
-    }
-    return room;
+    return db.rooms.get(roomId);
   }
 
   /**
-   * Retrieves all rooms from memory.
-   * Ensures all four official rooms are initialized.
+   * Retrieves all rooms ONLY from memory.
+   * NEVER triggers Firestore reads or writes.
    */
   public getAllRooms(): BingoRoom[] {
-    // Check if any official room is missing
-    const hasAllOfficial = OFFICIAL_ROOM_CONFIGS.every((c) => db.rooms.has(c.id));
-    if (!hasAllOfficial) {
-      roomInitializer.initializeOfficialRooms(db.rooms).catch(console.warn);
-    }
     return Array.from(db.rooms.values());
   }
 
   /**
-   * Saves or updates a room in memory and Firestore.
+   * Saves or updates a room in memory ONLY.
+   * Live game state (countdown, balls, player counts) is NEVER written to Firestore.
    */
   public setRoom(room: BingoRoom): void {
     db.rooms.set(room.id, room);
-    firestoreRepository.saveRoomSnapshot(room).catch(console.warn);
   }
 
   /**
-   * Updates partial properties on an existing room.
+   * Updates partial properties on an existing room in memory ONLY.
    */
   public updateRoom(roomId: string, updates: Partial<BingoRoom>): BingoRoom | undefined {
-    const room = this.getRoom(roomId);
+    const room = db.rooms.get(roomId);
     if (!room) return undefined;
 
     Object.assign(room, updates);
@@ -55,24 +42,23 @@ export class RoomManager {
   }
 
   /**
-   * Restores state from Firestore on server startup, falling back to auto-initialization.
+   * Explicitly persists durable room configurations (e.g. admin settings changes).
+   * Should ONLY be called for permanent configuration updates, not live gameplay.
+   */
+  public async persistDurableRoomConfig(room: BingoRoom): Promise<void> {
+    await firestoreRepository.saveRoomSnapshot(room);
+    logger.info(`[RoomManager] Persisted durable config for room: ${room.id}`);
+  }
+
+  /**
+   * Initializes official rooms once directly in memory on server startup with zero Firestore read overhead.
    */
   public async restoreStateFromFirestore(): Promise<void> {
-    try {
-      const dbRooms = await firestoreRepository.getGameRooms();
-      if (dbRooms && dbRooms.length > 0) {
-        for (const room of dbRooms) {
-          db.rooms.set(room.id, room);
-        }
-        logger.info(`[RoomManager] Restored ${dbRooms.length} rooms from Firestore.`);
-      }
-    } catch (err: any) {
-      logger.warn('[RoomManager] Firestore restore warning:', err.message);
-    }
-
-    // Always ensure the 4 official rooms are present
+    // Initialize the 4 official rooms directly in memory
     await roomInitializer.initializeOfficialRooms(db.rooms);
+    logger.info(`[RoomManager] Initialized ${db.rooms.size} official rooms in memory.`);
   }
 }
 
 export const roomManager = new RoomManager();
+

@@ -1,6 +1,5 @@
 import crypto from 'crypto';
 import { db, generateGameReferenceId } from '../db.js';
-import { adminDb } from '../firebaseAdmin.js';
 import { roomManager } from './RoomManager.js';
 import { winnerValidator } from './WinnerValidator.js';
 import { prizeCalculator } from './PrizeCalculator.js';
@@ -170,9 +169,6 @@ export class BallDrawer {
     room.startedAt = new Date(nowMs).toISOString();
     room.endsAt = new Date(nowMs + countdownSec * 1000).toISOString();
     room.status = 'WAITING';
-
-    // Persist updated room state to Firestore via FirestoreRepository
-    await firestoreRepository.saveRoomSnapshot(room);
 
     // Notify clients of game reset & card availability
     webSocketGateway.broadcastGameReset(room.id, room);
