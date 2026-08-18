@@ -97,10 +97,66 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
   useEffect(() => {
     if (isOpen && groupId) {
       fetchGroupDetails();
-      const interval = setInterval(fetchGroupDetails, 2500);
+      const interval = setInterval(fetchGroupDetails, 3000);
+
+      // Join socket room for this private group
+      if (socket) {
+        socket.emit('room:join', { roomId: groupId, userId: user.id });
+
+        const handleGroupUpdated = (data: { group?: PrivateGroup; members?: GroupMember[] }) => {
+          if (data.group && data.group.id === groupId) {
+            setGroup(data.group);
+            if (data.members) setMembers(data.members);
+          }
+        };
+
+        const handleStatsUpdated = (data: { groupId?: string; prizePool?: number; ticketsSold?: number; activePlayersCount?: number }) => {
+          if (data.groupId === groupId) {
+            setGroup((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                prizePool: typeof data.prizePool === 'number' ? data.prizePool : prev.prizePool,
+                ticketsSold: typeof data.ticketsSold === 'number' ? data.ticketsSold : prev.ticketsSold,
+                activePlayersCount: typeof data.activePlayersCount === 'number' ? data.activePlayersCount : prev.activePlayersCount,
+              };
+            });
+          }
+        };
+
+        const handleGroupStarted = (data: { groupId: string; group: PrivateGroup }) => {
+          if (data.groupId === groupId && data.group) {
+            setGroup(data.group);
+            onPlayActiveGame(data.group, userTickets);
+          }
+        };
+
+        const handleGroupCancelled = (data: { groupId: string; group?: PrivateGroup; reason?: string }) => {
+          if (data.groupId === groupId) {
+            if (data.group) setGroup(data.group);
+            alert(`Private group game cancelled: ${data.reason || 'Cancelled by host'}. All tickets have been refunded.`);
+            onClose();
+          }
+        };
+
+        socket.on('private_group:updated', handleGroupUpdated);
+        socket.on('private_group:stats_updated', handleStatsUpdated);
+        socket.on('private_group:started', handleGroupStarted);
+        socket.on('private_group:cancelled', handleGroupCancelled);
+
+        return () => {
+          clearInterval(interval);
+          socket.emit('room:leave', { roomId: groupId, userId: user.id });
+          socket.off('private_group:updated', handleGroupUpdated);
+          socket.off('private_group:stats_updated', handleStatsUpdated);
+          socket.off('private_group:started', handleGroupStarted);
+          socket.off('private_group:cancelled', handleGroupCancelled);
+        };
+      }
+
       return () => clearInterval(interval);
     }
-  }, [isOpen, groupId]);
+  }, [isOpen, groupId, socket, user.id]);
 
   if (!isOpen || !group) return null;
 

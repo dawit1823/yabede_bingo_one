@@ -10,7 +10,8 @@ export class WinnerValidator {
     drawnBalls: number[],
     pattern: WinningPattern
   ): boolean {
-    if (!ticket || !ticket.matrix) return false;
+    if (!ticket || !ticket.matrix || !Array.isArray(ticket.matrix)) return false;
+    if (!Array.isArray(drawnBalls) || drawnBalls.length === 0) return false;
 
     // Create boolean daubed matrix based on drawn numbers + FREE space
     const daubedMatrix: boolean[][] = ticket.matrix.map((row) =>
@@ -62,18 +63,35 @@ export class WinnerValidator {
 
   /**
    * Automatically checks all active tickets in a room for valid winning patterns.
-   * Supports multiple simultaneous winners.
+   * STRICTLY verifies:
+   * 1. Room is in PLAYING status with valid gameReferenceId
+   * 2. Only confirmed, purchased tickets matching the exact current gameReferenceId are checked
+   * 3. Ticket status must be ACTIVE (not cancelled, refunded, or previous game)
+   * 4. User must exist in the database
    */
   public autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; room: BingoRoom | undefined } {
     const room = db.rooms.get(roomId);
-    if (!room || room.status !== 'PLAYING') {
+    if (!room || room.status !== 'PLAYING' || !room.gameReferenceId) {
       return { winners: [], room: undefined };
     }
 
+    // Zero drawn balls means no pattern can possibly be won
+    if (!room.drawnBalls || room.drawnBalls.length === 0) {
+      return { winners: [], room };
+    }
+
+    // STRICT: Only evaluate tickets that are ACTIVE, have purchasePrice > 0, belong to THIS exact room and gameReferenceId
     const activeTickets = Array.from(db.tickets.values()).filter(
-      (t) => t.roomId === roomId && (t.status === 'ACTIVE' || t.status === 'BINGO_CLAIMED')
+      (t) =>
+        t.roomId === roomId &&
+        t.gameReferenceId === room.gameReferenceId &&
+        t.status === 'ACTIVE' &&
+        typeof t.purchasePrice === 'number' &&
+        t.purchasePrice > 0 &&
+        Boolean(t.userId)
     );
 
+    // If zero confirmed purchased tickets exist for this game, NO WINNER CAN BE DETECTED
     if (activeTickets.length === 0) {
       return { winners: [], room };
     }
@@ -83,24 +101,28 @@ export class WinnerValidator {
     const nowIso = new Date().toISOString();
 
     for (const ticket of activeTickets) {
+      // Verify user actually exists in the database
+      const user = db.getUserById(ticket.userId);
+      if (!user) continue;
+
       for (const pattern of winningPatterns) {
         if (this.checkWinningPattern(ticket, room.drawnBalls, pattern)) {
-          const user = db.getUserById(ticket.userId);
           const winnerRecord: GameWinner = {
             id: `win_${roomId}_${ticket.id}_${pattern}`,
             roomId,
-            gameReferenceId: room.gameReferenceId || room.id,
+            gameReferenceId: room.gameReferenceId,
             ticketId: ticket.id,
             userId: ticket.userId,
-            username: user ? user.username : ticket.username || 'Player',
+            username: user.username || ticket.username || 'Player',
             cardNumber: ticket.cardNumber || 1,
+            ticketPrice: ticket.purchasePrice || room.ticketPrice,
             pattern,
-            prizeAmount: 0, // Will be calculated by PrizeCalculator
+            prizeAmount: 0, // Calculated authoritatively by PrizeCalculator
             wonAt: nowIso,
           };
           winners.push(winnerRecord);
           ticket.status = 'BINGO_CLAIMED';
-          break; // Avoid multi-pattern double count for same ticket in single check
+          break; // Avoid multi-pattern double count for same ticket in a single ball draw
         }
       }
     }

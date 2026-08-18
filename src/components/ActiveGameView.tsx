@@ -113,14 +113,16 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
   const [showWinnerModal, setShowWinnerModal] = React.useState<boolean>(true);
   const [liveTickets, setLiveTickets] = React.useState<BingoTicket[]>(tickets || []);
   const [isRefreshing, setIsRefreshing] = React.useState<boolean>(false);
+  const isRefreshingRef = React.useRef<boolean>(false);
 
   const handleRefreshGame = React.useCallback(async () => {
-    if (isRefreshing || !room?.id) return;
+    if (isRefreshingRef.current || !room?.id) return;
     try {
+      isRefreshingRef.current = true;
       setIsRefreshing(true);
       triggerHaptic('light');
 
-      const res = await fetch(apiUrl(`/api/bingo/room-status/${room.id}?userId=${user.id}`));
+      const res = await fetch(apiUrl(`/api/bingo/room-status/${room.id}?userId=${user?.id}`));
       if (res.ok) {
         const data = await res.json();
         if (data && data.success) {
@@ -135,7 +137,9 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
             setLiveTickets((prev) => {
               const ticketMap = new Map<string, BingoTicket>();
               prev.forEach((t) => ticketMap.set(t.id, t));
-              data.myTickets.forEach((t: BingoTicket) => ticketMap.set(t.id, t));
+              data.myTickets
+                .filter((t: BingoTicket) => !room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId)
+                .forEach((t: BingoTicket) => ticketMap.set(t.id, t));
               return Array.from(ticketMap.values());
             });
           }
@@ -144,9 +148,10 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
     } catch (err) {
       logger.debug('Manual game refresh note:', err);
     } finally {
+      isRefreshingRef.current = false;
       setIsRefreshing(false);
     }
-  }, [room?.id, user?.id, isRefreshing]);
+  }, [room?.id, room?.gameReferenceId, user?.id]);
 
   // Auto-return to card selection when room resets to WAITING or COUNTDOWN for the next round
   React.useEffect(() => {
@@ -882,64 +887,76 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
 
             <div>
               <h3 className="text-xl sm:text-2xl font-black text-amber-400 tracking-tight">
-                {room.lastWinners && room.lastWinners.length > 1 ? '🏆 Multiple Winners!' : '🏆 Winner Announcement'}
+                {room.lastWinners && room.lastWinners.length > 1
+                  ? '🏆 Multiple Winners!'
+                  : room.lastWinners && room.lastWinners.length === 1
+                  ? '🏆 Winner Announcement'
+                  : '🏁 Round Completed'}
               </h3>
               <p className="text-xs text-slate-300 mt-1">
                 {room.lastWinners && room.lastWinners.length > 1
                   ? `Simultaneous Bingo on Ball #${room.currentBall || '?'}! Prize pool split equally.`
-                  : `Game round completed in ${room.name}!`}
+                  : room.lastWinners && room.lastWinners.length === 1
+                  ? `Game round completed in ${room.name}!`
+                  : `Round finished with no winning cards in ${room.name}.`}
               </p>
             </div>
 
             {/* Winner Information Cards List */}
-            <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
-              {(room.lastWinners || []).map((w, idx) => (
-                <div
-                  key={w.id || `win-${idx}`}
-                  className="bg-slate-950/90 border border-amber-500/40 rounded-2xl p-4 space-y-2 text-left relative"
-                >
-                  <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-2">
-                    <div className="flex items-center gap-2.5">
-                      {w.photoUrl ? (
-                        <img
-                          src={w.photoUrl}
-                          alt={w.username}
-                          className="w-10 h-10 rounded-full object-cover border border-amber-400"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-400/50 flex items-center justify-center font-black text-amber-300 text-sm shrink-0">
-                          {w.username.charAt(0).toUpperCase()}
+            {room.lastWinners && room.lastWinners.length > 0 ? (
+              <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                {room.lastWinners.map((w, idx) => (
+                  <div
+                    key={w.id || `win-${idx}`}
+                    className="bg-slate-950/90 border border-amber-500/40 rounded-2xl p-4 space-y-2 text-left relative"
+                  >
+                    <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-2">
+                      <div className="flex items-center gap-2.5">
+                        {w.photoUrl ? (
+                          <img
+                            src={w.photoUrl}
+                            alt={w.username}
+                            className="w-10 h-10 rounded-full object-cover border border-amber-400"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-400/50 flex items-center justify-center font-black text-amber-300 text-sm shrink-0">
+                            {w.username.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div>
+                          <div className="text-sm font-black text-white">@{w.username}</div>
+                          <div className="text-[10px] text-slate-400 font-bold">
+                            Card <span className="text-emerald-400 font-extrabold">#{formatCardNumber(w.cardNumber || 1)}</span> • Ticket: <span className="text-amber-300 font-bold">{w.ticketPrice || room.ticketPrice} Birr</span>
+                          </div>
                         </div>
-                      )}
-                      <div>
-                        <div className="text-sm font-black text-white">@{w.username}</div>
-                        <div className="text-[10px] text-slate-400 font-bold">
-                          Card <span className="text-emerald-400 font-extrabold">#{formatCardNumber(w.cardNumber || 1)}</span> • Ticket: <span className="text-amber-300 font-bold">{w.ticketPrice || room.ticketPrice} Birr</span>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-[10px] text-slate-400 font-medium">Prize Won</div>
+                        <div className="text-sm font-black text-emerald-400">
+                          {w.prizeAmount.toLocaleString()} Birr
                         </div>
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <div className="text-[10px] text-slate-400 font-medium">Prize Won</div>
-                      <div className="text-sm font-black text-emerald-400">
-                        {w.prizeAmount.toLocaleString()} Birr
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[11px] text-slate-300 font-semibold pt-1">
-                    <span>
-                      Pattern: <strong className="text-amber-400 font-extrabold">{w.pattern}</strong>
-                    </span>
-                    {room.lastWinners && room.lastWinners.length > 1 && (
-                      <span className="text-sky-400 text-[10px] bg-sky-500/10 border border-sky-500/30 px-2 py-0.5 rounded-full">
-                        Equal Share Split
+                    <div className="flex items-center justify-between text-[11px] text-slate-300 font-semibold pt-1">
+                      <span>
+                        Pattern: <strong className="text-amber-400 font-extrabold">{w.pattern}</strong>
                       </span>
-                    )}
+                      {room.lastWinners && room.lastWinners.length > 1 && (
+                        <span className="text-sky-400 text-[10px] bg-sky-500/10 border border-sky-500/30 px-2 py-0.5 rounded-full">
+                          Equal Share Split
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 text-center text-slate-400 text-xs font-semibold">
+                No winning claims registered for this round.
+              </div>
+            )}
 
             {room.id.startsWith('grp_') || room.status === 'WAITING_HOST_DECISION' ? (
               <div className="space-y-3 pt-2">

@@ -284,6 +284,7 @@ export class TicketManager {
 
       // Single atomic batch: delete ticket, persist refund transaction, update user balance
       firestoreGuard.safeWrite('ticketDeselect', 'buyTicket-deselect', async () => {
+        firestoreGuard.recordDelete('tickets', 1);
         const batch = adminDb.batch();
         batch.delete(adminDb.collection('tickets').doc(existingTicket.id));
         batch.set(adminDb.collection('transactions').doc(refundTx.id), refundTx);

@@ -3,9 +3,10 @@
  * 
  * Provides:
  * - Resource-exhausted (Quota exceeded, Error code 8) circuit breaker protection
- * - Prevention of retry storms for non-critical operations (room snapshots, stats, reservations)
- * - Controlled bounded exponential backoff retry for critical financial operations (purchases, refunds, deposits, withdrawals)
- * - Clear, high-visibility quota exhaustion logging
+ * - Lightweight in-memory diagnostic counters (reads, writes, deletes, queries, active listeners)
+ * - Zero extra Firestore writes or queries for metric collection
+ * - Periodic logging of aggregated diagnostics in development/debug modes without spamming production
+ * - Controlled bounded exponential backoff retry for critical financial operations
  * - Safe fallback execution to keep the in-memory game engine running smoothly
  */
 
@@ -14,7 +15,9 @@ import { logger } from './logger.js';
 export interface FirestoreMetrics {
   reads: number;
   writes: number;
+  deletes: number;
   queries: number;
+  activeListeners: number;
   errors: number;
   quotaExceededCount: number;
   isThrottled: boolean;
@@ -32,7 +35,9 @@ class FirestoreGuard {
   private metrics: FirestoreMetrics = {
     reads: 0,
     writes: 0,
+    deletes: 0,
     queries: 0,
+    activeListeners: 0,
     errors: 0,
     quotaExceededCount: 0,
     isThrottled: false,
@@ -41,6 +46,13 @@ class FirestoreGuard {
 
   // 60-second cooldown window when quota is exhausted before re-enabling non-critical ops
   private readonly THROTTLE_DURATION_MS = 60000;
+
+  // Periodic diagnostic logging timer
+  private diagnosticInterval: NodeJS.Timeout | null = null;
+
+  constructor() {
+    this.startPeriodicDiagnostics();
+  }
 
   /**
    * Helper to inspect whether an error is a Firestore RESOURCE_EXHAUSTED / code 8 error.
@@ -59,30 +71,46 @@ class FirestoreGuard {
   }
 
   /**
-   * Records a read operation and logs frequency.
+   * Records a read operation counter in memory.
    */
-  public recordRead(collectionName: string, count = 1): void {
+  public recordRead(collectionName?: string, count = 1): void {
     this.metrics.reads += count;
-    if (this.metrics.reads % 100 === 0) {
-      logger.debug(`[FirestoreUsage] op=read collection=${collectionName} reads=${count} totalReads=${this.metrics.reads}`);
-    }
   }
 
   /**
-   * Records a write/batch operation.
+   * Records a write/set/update operation counter in memory.
    */
-  public recordWrite(collectionName: string, count = 1): void {
+  public recordWrite(collectionName?: string, count = 1): void {
     this.metrics.writes += count;
-    if (this.metrics.writes % 100 === 0) {
-      logger.debug(`[FirestoreUsage] op=write collection=${collectionName} writes=${count} totalWrites=${this.metrics.writes}`);
-    }
   }
 
   /**
-   * Records a query execution.
+   * Records a delete operation counter in memory.
    */
-  public recordQuery(collectionName: string): void {
+  public recordDelete(collectionName?: string, count = 1): void {
+    this.metrics.deletes += count;
+  }
+
+  /**
+   * Records a query execution counter in memory.
+   */
+  public recordQuery(collectionName?: string): void {
     this.metrics.queries += 1;
+  }
+
+  /**
+   * Increments active listener counter when a realtime listener is attached.
+   * Returns a cleanup callback that decrements the listener counter when unsubscribed.
+   */
+  public registerListener(collectionName?: string): () => void {
+    this.metrics.activeListeners += 1;
+    let released = false;
+    return () => {
+      if (!released) {
+        released = true;
+        this.metrics.activeListeners = Math.max(0, this.metrics.activeListeners - 1);
+      }
+    };
   }
 
   /**
@@ -145,16 +173,7 @@ class FirestoreGuard {
   }
 
   /**
-   * Executes a Firestore write with error catching and throttling check.
-   * 
-   * Non-critical writes (critical=false):
-   * - Immediately skipped during quota throttling without retrying.
-   * - Fails silently or returns false without triggering any retry loop or storm.
-   * 
-   * Critical financial writes (critical=true):
-   * - Bypasses quota-throttled skipping.
-   * - Uses controlled, bounded exponential backoff (max 2 retries) with jitter.
-   * - If all retries fail, logs error clearly and safely returns false (or throws if critical).
+   * Executes a Firestore write/update with error catching and throttling check.
    */
   public async safeWrite(
     collectionName: string,
@@ -222,10 +241,114 @@ class FirestoreGuard {
   }
 
   /**
-   * Returns current usage metrics summary for monitoring.
+   * Executes a Firestore delete with error catching and metrics tracking.
+   */
+  public async safeDelete(
+    collectionName: string,
+    operationName: string,
+    fn: () => Promise<any>,
+    critical = false
+  ): Promise<boolean> {
+    if (!critical && this.isQuotaThrottled()) {
+      logger.debug(`[FirestoreGuard] Dropping non-critical delete '${operationName}' on '${collectionName}' (Quota throttled).`);
+      return false;
+    }
+    try {
+      this.recordDelete(collectionName);
+      await fn();
+      return true;
+    } catch (err: any) {
+      this.handleError(operationName, collectionName, err, critical);
+      return false;
+    }
+  }
+
+  /**
+   * Executes a Firestore query with error catching and metrics tracking.
+   */
+  public async safeQuery<T>(
+    collectionName: string,
+    operationName: string,
+    fn: () => Promise<T>,
+    fallbackValue: T
+  ): Promise<T> {
+    if (this.isQuotaThrottled()) {
+      logger.debug(`[FirestoreGuard] Skipping query '${operationName}' on '${collectionName}' due to quota throttle.`);
+      return fallbackValue;
+    }
+    try {
+      this.recordQuery(collectionName);
+      return await fn();
+    } catch (err: any) {
+      this.handleError(operationName, collectionName, err, false);
+      return fallbackValue;
+    }
+  }
+
+  /**
+   * Returns formatted string representation of in-memory metrics.
+   */
+  public getFormattedMetrics(): string {
+    return (
+      `[FirestoreMetrics]\n` +
+      `reads=${this.metrics.reads}\n` +
+      `writes=${this.metrics.writes}\n` +
+      `deletes=${this.metrics.deletes}\n` +
+      `queries=${this.metrics.queries}\n` +
+      `activeListeners=${this.metrics.activeListeners}`
+    );
+  }
+
+  /**
+   * Returns current in-memory usage metrics summary for monitoring or debug APIs.
    */
   public getMetrics(): FirestoreMetrics {
     return { ...this.metrics };
+  }
+
+  /**
+   * Resets in-memory counters (useful for unit tests or snapshot intervals).
+   */
+  public resetMetrics(): void {
+    this.metrics.reads = 0;
+    this.metrics.writes = 0;
+    this.metrics.deletes = 0;
+    this.metrics.queries = 0;
+    this.metrics.errors = 0;
+    this.metrics.quotaExceededCount = 0;
+  }
+
+  /**
+   * Starts periodic diagnostic logging if in development, test, or when DEBUG/INFO logging is enabled.
+   * Does NOT make any Firestore calls.
+   */
+  private startPeriodicDiagnostics(): void {
+    const isDev = process.env.NODE_ENV !== 'production';
+    const isDebug = (process.env.LOG_LEVEL || '').toUpperCase() === 'DEBUG';
+
+    // In dev or debug mode, log aggregated metrics every 60 seconds
+    const intervalMs = isDebug ? 30000 : 60000;
+
+    if (isDev || isDebug) {
+      this.diagnosticInterval = setInterval(() => {
+        // Only log if there has been any activity
+        const hasActivity =
+          this.metrics.reads > 0 ||
+          this.metrics.writes > 0 ||
+          this.metrics.deletes > 0 ||
+          this.metrics.queries > 0 ||
+          this.metrics.activeListeners > 0;
+
+        if (hasActivity || isDebug) {
+          console.log(`\n${this.getFormattedMetrics()}\n`);
+        }
+      }, intervalMs);
+
+      // Unref timer so it doesn't hold open process shutdown
+      if (this.diagnosticInterval.unref) {
+        this.diagnosticInterval.unref();
+      }
+    }
   }
 }
 

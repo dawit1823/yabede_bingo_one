@@ -71,6 +71,7 @@ export type TransactionType =
   | 'DAILY_BONUS'
   | 'SPIN_WIN'
   | 'REFUND'
+  | 'GAME_REFUND'
   | 'ADMIN_ADJUSTMENT';
 
 export type TransactionStatus = 'COMPLETED' | 'PENDING' | 'FAILED' | 'REJECTED';
@@ -195,6 +196,7 @@ export interface PrivateGroup {
   activePlayersCount?: number;
   hostDecisionTimeout?: number;
   lastWinners?: GameWinner[];
+  cancelReason?: string;
   createdAt: string;
 }
 

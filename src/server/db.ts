@@ -1128,7 +1128,7 @@ class FirestoreDatabaseStore {
   // --- PRIVATE GROUP BINGO ENGINE ---
   public createPrivateGroup(params: {
     hostId: string;
-    name: string;
+    name?: string;
     imageUrl?: string;
     ticketPrice: number;
     maxPlayers?: number;
@@ -1148,27 +1148,33 @@ class FirestoreDatabaseStore {
     } while (this.privateGroupCodeIndex.has(code));
 
     const groupId = `grp_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const gameReferenceId = generateGameReferenceId(params.ticketPrice, groupId);
+    const ticketPrice = Number(params.ticketPrice) || 50;
+    const gameReferenceId = generateGameReferenceId(ticketPrice, groupId);
 
     const group: PrivateGroup = {
       id: groupId,
       gameReferenceId,
       code,
-      name: params.name,
+      name: params.name ? String(params.name).trim() : `${host.firstName}'s Private Group`,
+      imageUrl: params.imageUrl,
       hostId: host.id,
       hostName: host.username,
-      ticketPrice: params.ticketPrice,
-      maxPlayers: params.maxPlayers || 10,
-      maxTicketsPerPlayer: 3,
+      ticketPrice,
+      maxPlayers: params.maxPlayers ? Number(params.maxPlayers) : 10,
+      maxTicketsPerPlayer: params.maxTicketsPerPlayer ? Number(params.maxTicketsPerPlayer) : 3,
       winningPattern: params.winningPattern || 'FULL_HOUSE',
       prizeDistribution: params.prizeDistribution || 'WINNER_100',
-      autoStartReady: params.autoStartReady ?? true,
-      allowSpectators: params.allowSpectators ?? true,
+      autoStartReady: params.autoStartReady !== undefined ? Boolean(params.autoStartReady) : true,
+      allowSpectators: params.allowSpectators !== undefined ? Boolean(params.allowSpectators) : true,
+      startTime: params.startTime || new Date().toISOString(),
       status: 'LOBBY',
       countdownSeconds: 0,
       currentBall: null,
       drawnBalls: [],
       prizePool: 0,
+      ticketsSold: 0,
+      remainingTickets: 400,
+      activePlayersCount: 1,
       createdAt: new Date().toISOString(),
     };
 
@@ -1574,35 +1580,145 @@ class FirestoreDatabaseStore {
     return group;
   }
 
-  public cancelPrivateGroupGame(groupId: string, hostId: string, reason?: string): PrivateGroup {
+  public cancelPrivateGroupGame(groupId: string, hostId: string, reason?: string): { group: PrivateGroup; refundedUsersCount: number; totalRefunded: number } {
     const group = this.privateGroups.get(groupId);
     if (!group) throw new Error('Group not found');
-    if (group.hostId !== hostId) throw new Error('Only host can cancel game');
+    if (group.hostId !== hostId && hostId !== 'SYSTEM' && hostId !== 'ADMIN') {
+      throw new Error('Only host can cancel game');
+    }
+
+    // Idempotency: if already cancelled, return immediately without duplicate refunds
+    if (group.status === 'CANCELLED') {
+      return { group, refundedUsersCount: 0, totalRefunded: 0 };
+    }
 
     group.status = 'CANCELLED';
-    adminDb.collection('groupGames').doc(group.id).update({ status: 'CANCELLED', cancelReason: reason || 'Cancelled by host' }).catch(console.error);
+    group.cancelReason = reason || 'Cancelled by host';
 
-    return group;
+    // Find all active tickets for this group/game
+    const activeTickets = Array.from(this.tickets.values()).filter(
+      (t) => t.roomId === group.id && t.status === 'ACTIVE'
+    );
+
+    const userRefunds = new Map<string, { amount: number; count: number }>();
+    for (const tkt of activeTickets) {
+      tkt.status = 'CANCELLED';
+      const existing = userRefunds.get(tkt.userId) || { amount: 0, count: 0 };
+      existing.amount += (tkt.purchasePrice ?? group.ticketPrice);
+      existing.count += 1;
+      userRefunds.set(tkt.userId, existing);
+    }
+
+    let totalRefunded = 0;
+    for (const [uid, refundData] of userRefunds.entries()) {
+      if (refundData.amount > 0) {
+        totalRefunded += refundData.amount;
+        try {
+          this.updateWalletBalance(
+            uid,
+            refundData.amount,
+            'GAME_REFUND',
+            `Refund for cancelled Private Group "${group.name}" (${refundData.count} ticket(s)) [Ref: ${group.gameReferenceId}]`,
+            `GRP-REF-${group.id}`,
+            group.gameReferenceId
+          );
+
+          this.addNotification({
+            userId: uid,
+            title: 'Private Group Cancelled - Refund Processed 🎟️',
+            message: `The private game "${group.name}" was cancelled. ${refundData.amount} Birr has been refunded to your wallet.`,
+            type: 'SYSTEM',
+          });
+        } catch (refundErr) {
+          console.error(`❌ [Refund Error] Failed to credit refund to user ${uid}:`, refundErr);
+        }
+      }
+    }
+
+    // Reset game stats
+    group.prizePool = 0;
+    group.ticketsSold = 0;
+
+    adminDb.collection('groupGames').doc(group.id).set({
+      status: 'CANCELLED',
+      cancelReason: group.cancelReason,
+      prizePool: 0,
+      ticketsSold: 0,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true }).catch(console.error);
+
+    for (const tkt of activeTickets) {
+      adminDb.collection('tickets').doc(tkt.id).update({ status: 'CANCELLED' }).catch(console.error);
+    }
+
+    return { group, refundedUsersCount: userRefunds.size, totalRefunded };
   }
 
-  public removeGroupMember(groupId: string, hostId: string, targetUserId: string): { success: boolean } {
+  public removeGroupMember(groupId: string, targetUserId: string, hostId: string): { success: boolean; refundedAmount: number } {
     const group = this.privateGroups.get(groupId);
     if (!group) throw new Error('Group not found');
-    if (group.hostId !== hostId) throw new Error('Only host can remove players');
+    if (group.hostId !== hostId && hostId !== 'SYSTEM' && hostId !== 'ADMIN') {
+      throw new Error('Only host can remove players');
+    }
 
     let members = this.groupMembers.get(groupId) || [];
     members = members.filter((m) => m.userId !== targetUserId);
     this.groupMembers.set(groupId, members);
 
-    adminDb.collection('groupMembers').doc(`${groupId}_${targetUserId}`).delete().catch(console.error);
+    // Refund target user's active tickets for this group
+    const activeTickets = Array.from(this.tickets.values()).filter(
+      (t) => t.roomId === group.id && t.userId === targetUserId && t.status === 'ACTIVE'
+    );
 
-    return { success: true };
+    let refundedAmount = 0;
+    for (const tkt of activeTickets) {
+      tkt.status = 'CANCELLED';
+      refundedAmount += (tkt.purchasePrice ?? group.ticketPrice);
+      adminDb.collection('tickets').doc(tkt.id).update({ status: 'CANCELLED' }).catch(console.error);
+    }
+
+    if (refundedAmount > 0) {
+      try {
+        this.updateWalletBalance(
+          targetUserId,
+          refundedAmount,
+          'GAME_REFUND',
+          `Refund for removal from Private Group "${group.name}" [Ref: ${group.gameReferenceId}]`,
+          `GRP-REM-${group.id}`,
+          group.gameReferenceId
+        );
+
+        this.addNotification({
+          userId: targetUserId,
+          title: 'Removed from Private Group',
+          message: `You were removed from "${group.name}". ${refundedAmount} Birr has been refunded to your wallet.`,
+          type: 'SYSTEM',
+        });
+      } catch (err) {
+        console.error(`❌ [Refund Error] Failed to credit refund to removed user ${targetUserId}:`, err);
+      }
+    }
+
+    this.recalculatePrivateGroupStats(group.id);
+
+    firestoreGuard.safeDelete('groupMembers', 'removeGroupMember', async () => {
+      await adminDb.collection('groupMembers').doc(`${groupId}_${targetUserId}`).delete();
+    });
+
+    return { success: true, refundedAmount };
   }
 
   // --- GAME HISTORY METHODS ---
   public recordGameHistoryForRoom(room: BingoRoom, winners: GameWinner[]) {
     try {
-      const roomTickets = Array.from(this.tickets.values()).filter((t) => t.roomId === room.id);
+      const roomTickets = Array.from(this.tickets.values()).filter(
+        (t) =>
+          t.roomId === room.id &&
+          t.gameReferenceId === room.gameReferenceId &&
+          (t.status === 'ACTIVE' || t.status === 'BINGO_CLAIMED' || t.status === 'COMPLETED') &&
+          typeof t.purchasePrice === 'number' &&
+          t.purchasePrice > 0
+      );
       const userTicketsMap = new Map<string, BingoTicket[]>();
 
       for (const ticket of roomTickets) {
@@ -1611,26 +1727,9 @@ class FirestoreDatabaseStore {
         userTicketsMap.set(ticket.userId, list);
       }
 
-      // If no tickets were found in memory map, check winners list for userIds
-      if (userTicketsMap.size === 0 && winners.length > 0) {
-        for (const w of winners) {
-          if (!userTicketsMap.has(w.userId)) {
-            userTicketsMap.set(w.userId, [
-              {
-                id: `ticket_virtual_${w.userId}`,
-                roomId: room.id,
-                cardNumber: w.cardNumber || 1,
-                userId: w.userId,
-                username: w.username,
-                matrix: [],
-                daubed: [],
-                status: 'BINGO_CLAIMED',
-                purchasePrice: room.ticketPrice,
-                boughtAt: new Date().toISOString(),
-              },
-            ]);
-          }
-        }
+      // If no real tickets exist for this game, skip game history generation
+      if (userTicketsMap.size === 0) {
+        return;
       }
 
       const playedAt = new Date().toISOString();
@@ -1676,7 +1775,9 @@ class FirestoreDatabaseStore {
     const initialCount = this.gameHistoryRecords.length;
     this.gameHistoryRecords = this.gameHistoryRecords.filter((r) => r.id !== historyId);
 
-    adminDb.collection('gameHistory').doc(historyId).delete().catch(console.warn);
+    firestoreGuard.safeDelete('gameHistory', 'deleteGameHistoryRecord', async () => {
+      await adminDb.collection('gameHistory').doc(historyId).delete();
+    });
     this.logAudit(adminId, 'DELETE_GAME_HISTORY', undefined, `Deleted game history record ${historyId}`, 'Admin Deletion');
     return this.gameHistoryRecords.length < initialCount;
   }

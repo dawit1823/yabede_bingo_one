@@ -310,6 +310,7 @@ export default function App() {
     });
 
     newSocket.on('settings:updated', (data: any) => {
+      logger.debug('[Socket.IO] Received authoritative settings:updated');
       if (data?.settings?.maintenanceMode !== undefined) {
         setIsMaintenanceMode(Boolean(data.settings.maintenanceMode));
       }
@@ -328,6 +329,7 @@ export default function App() {
           return prev;
         });
       }
+      fetchData();
     });
 
     newSocket.on('online:users_count', (data: { count: number }) => {
@@ -570,10 +572,6 @@ export default function App() {
       } else if (selectedCardRoom && selectedCardRoom.id === data.roomId) {
         setSelectedCardRoom(data.room);
       }
-    });
-
-    newSocket.on('settings:updated', (data: { settings: any }) => {
-      fetchData();
     });
 
     setSocket(newSocket);

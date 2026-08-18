@@ -22,8 +22,34 @@ export class CountdownManager {
       const settings = adminService.getSystemSettings();
       const defaultDurationSec = settings.countdownDurationSeconds || 45;
       const defaultDurationMs = defaultDurationSec * 1000;
+      const resultDurationSec = settings.resultScreenDurationSeconds || 15;
 
       for (const room of rooms) {
+        // --- 1. HANDLE RESULT SCREEN COUNTDOWN (FINISHED) ---
+        if (room.status === 'FINISHED') {
+          const now = Date.now();
+          const endsAtMs = room.endsAt ? new Date(room.endsAt).getTime() : now;
+          const remainingSeconds = Math.max(0, Math.ceil((endsAtMs - now) / 1000));
+
+          room.countdownSeconds = remainingSeconds;
+
+          if (remainingSeconds <= 0) {
+            logger.info(`[RESULT SCREEN END] room=${room.id} - resetting and transitioning to next round`);
+            await ballDrawer.resetAndCreateNextGame(room);
+          } else {
+            // Broadcast live 1s result screen ticker to clients (zero Firestore writes)
+            webSocketGateway.broadcastCountdown(
+              room.id,
+              remainingSeconds,
+              'FINISHED',
+              room.startedAt,
+              room.endsAt
+            );
+          }
+          continue;
+        }
+
+        // --- 2. HANDLE PRE-GAME CARD SELECTION COUNTDOWN (WAITING / COUNTDOWN) ---
         if (room.status !== 'WAITING' && room.status !== 'COUNTDOWN') {
           continue;
         }
@@ -39,12 +65,16 @@ export class CountdownManager {
         if (remainingSeconds <= 0) {
           logger.debug(`[COUNTDOWN END] room=${room.id}`);
 
-          // 1. Authoritative verification of confirmed ticket purchases (ACTIVE or BINGO_CLAIMED) in memory
+          // 1. Authoritative verification of confirmed ticket purchases in memory
           const confirmedTickets = Array.from(db.tickets.values()).filter(
             (t) =>
               t.roomId === room.id &&
-              (t.status === 'ACTIVE' || t.status === 'BINGO_CLAIMED') &&
-              (!room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId)
+              room.gameReferenceId &&
+              t.gameReferenceId === room.gameReferenceId &&
+              t.status === 'ACTIVE' &&
+              typeof t.purchasePrice === 'number' &&
+              t.purchasePrice > 0 &&
+              Boolean(t.userId)
           );
 
           const confirmedCount = confirmedTickets.length;

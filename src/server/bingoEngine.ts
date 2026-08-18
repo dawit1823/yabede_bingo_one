@@ -194,12 +194,22 @@ export function processBingoClaim(
   if (!room) return { success: false, message: 'Room not found' };
   if (room.status !== 'PLAYING') return { success: false, message: 'Game is not active' };
 
+  // STRICT: Ticket must belong to the active gameReferenceId of the room
+  if (!room.gameReferenceId || ticket.gameReferenceId !== room.gameReferenceId) {
+    return { success: false, message: 'Ticket belongs to a different game round' };
+  }
+
+  // STRICT: Ticket must be active (not cancelled, refunded, or already claimed)
+  if (ticket.status !== 'ACTIVE' || typeof ticket.purchasePrice !== 'number' || ticket.purchasePrice <= 0) {
+    return { success: false, message: 'Ticket is not in active playable status' };
+  }
+
   const user = db.getUserById(userId);
   if (!user) return { success: false, message: 'User not found' };
 
   // Check valid pattern against drawn balls
   let matchedPattern: WinningPattern | null = null;
-  for (const pattern of room.winningPatterns) {
+  for (const pattern of (room.winningPatterns || ['ONE_LINE', 'TWO_LINES', 'FOUR_CORNERS', 'FULL_HOUSE'])) {
     if (checkWinningPattern(ticket, room.drawnBalls, pattern)) {
       matchedPattern = pattern;
       break;
@@ -210,11 +220,30 @@ export function processBingoClaim(
     return { success: false, message: 'Bingo claim failed: Pattern requirements not met yet!' };
   }
 
-  // Calculate prize share based on pattern
-  let prizeShare = Math.round(room.prizePool * 0.5); // Default 50% for 1st pattern
-  if (matchedPattern === 'FULL_HOUSE') {
-    prizeShare = room.prizePool;
+  // Calculate prize share based on confirmed tickets sold for this gameReferenceId
+  const confirmedTickets = Array.from(db.tickets.values()).filter(
+    (t) =>
+      t.roomId === room.id &&
+      t.gameReferenceId === room.gameReferenceId &&
+      (t.status === 'ACTIVE' || t.status === 'BINGO_CLAIMED') &&
+      typeof t.purchasePrice === 'number' &&
+      t.purchasePrice > 0
+  );
+
+  const totalTicketSales = confirmedTickets.length * room.ticketPrice;
+  if (totalTicketSales <= 0) {
+    return { success: false, message: 'Zero confirmed tickets in game round' };
   }
+
+  const sysSettings = adminService.getSystemSettings();
+  const prizePct = sysSettings.prizePercentage ?? 80;
+  const totalPrizePool = Math.round(totalTicketSales * (prizePct / 100));
+
+  let prizeShare = Math.round(totalPrizePool * 0.5); // Default 50% for 1st pattern
+  if (matchedPattern === 'FULL_HOUSE') {
+    prizeShare = totalPrizePool;
+  }
+  prizeShare = Math.max(1, prizeShare);
 
   ticket.status = 'BINGO_CLAIMED';
 
@@ -225,17 +254,21 @@ export function processBingoClaim(
     'GAME_WIN',
     `Bingo Win (${matchedPattern}) in ${room.name}!`,
     `WIN-${room.id}-${ticket.id}`,
-    room.gameReferenceId || ticket.gameReferenceId
+    room.gameReferenceId
   );
 
   const winner: GameWinner = {
-    id: `win_${Date.now()}`,
+    id: `win_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
     roomId: room.id,
-    gameReferenceId: room.gameReferenceId || ticket.gameReferenceId,
+    gameReferenceId: room.gameReferenceId,
     userId,
-    username: user.username,
+    ticketId: ticket.id,
+    cardNumber: ticket.cardNumber || 1,
+    ticketPrice: ticket.purchasePrice || room.ticketPrice,
+    username: user.username || ticket.username || 'Player',
     pattern: matchedPattern,
     prizeAmount: prizeShare,
+    totalPrizePool,
     wonAt: new Date().toISOString(),
   };
 
@@ -255,16 +288,27 @@ export function processBingoClaim(
 
 export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; room: BingoRoom } {
   const room = db.rooms.get(roomId);
-  if (!room || room.status !== 'PLAYING') return { winners: [], room: room! };
+  if (!room || room.status !== 'PLAYING' || !room.gameReferenceId) return { winners: [], room: room! };
 
+  // STRICT: Only active confirmed tickets for current gameReferenceId
   const roomTickets = Array.from(db.tickets.values()).filter(
-    (t) => t.roomId === roomId && t.status === 'ACTIVE'
+    (t) =>
+      t.roomId === roomId &&
+      t.gameReferenceId === room.gameReferenceId &&
+      t.status === 'ACTIVE' &&
+      typeof t.purchasePrice === 'number' &&
+      t.purchasePrice > 0 &&
+      Boolean(t.userId)
   );
+
+  if (roomTickets.length === 0 || !room.drawnBalls || room.drawnBalls.length === 0) {
+    return { winners: [], room };
+  }
 
   const winningTickets: { ticket: BingoTicket; pattern: WinningPattern }[] = [];
 
   for (const ticket of roomTickets) {
-    for (const pattern of room.winningPatterns) {
+    for (const pattern of (room.winningPatterns || ['ONE_LINE', 'TWO_LINES', 'FOUR_CORNERS', 'FULL_HOUSE'])) {
       if (checkWinningPattern(ticket, room.drawnBalls, pattern)) {
         winningTickets.push({ ticket, pattern });
         break; // Only count highest/first pattern for a ticket on this draw
@@ -276,10 +320,16 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
     return { winners: [], room };
   }
 
-  // Formula: Prize Pool = (Total Value of All Tickets Sold) × 80%
-  const ticketsSold = room.ticketsSold || roomTickets.length;
+  // Formula: Prize Pool = (Total Value of All Confirmed Tickets Sold) × 80%
+  const ticketsSold = roomTickets.length;
   const totalTicketSales = ticketsSold * room.ticketPrice;
-  const totalPrizePool = Math.round(totalTicketSales * 0.80);
+  const sysSettings = adminService.getSystemSettings();
+  const prizePct = sysSettings.prizePercentage ?? 80;
+  const totalPrizePool = Math.round(totalTicketSales * (prizePct / 100));
+
+  if (totalPrizePool <= 0) {
+    return { winners: [], room };
+  }
 
   // Split prize pool equally among all simultaneous winners on this draw
   const splitPrizeAmount = Math.max(1, Math.floor(totalPrizePool / winningTickets.length));
@@ -303,13 +353,13 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
       'GAME_WIN',
       `Bingo Prize Win (${pattern}) Card #${ticket.cardNumber || '?'} in ${room.name}`,
       `WIN-${room.id}-${ticket.id}`,
-      room.gameReferenceId || ticket.gameReferenceId
+      room.gameReferenceId
     );
 
     const winner: GameWinner = {
       id: `win_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
       roomId: room.id,
-      gameReferenceId: room.gameReferenceId || ticket.gameReferenceId,
+      gameReferenceId: room.gameReferenceId,
       userId: ticket.userId,
       ticketId: ticket.id,
       username,
@@ -342,7 +392,7 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
       // Mark other tickets COMPLETED
       const roundRefId = room.gameReferenceId;
       Array.from(db.tickets.values()).forEach((tkt) => {
-        if (tkt.roomId === room.id && (!roundRefId || tkt.gameReferenceId === roundRefId) && tkt.status === 'COMPLETED' && (tkt as any).winningStatus === 'LOST') {
+        if (tkt.roomId === room.id && tkt.gameReferenceId === roundRefId && tkt.status === 'COMPLETED' && (tkt as any).winningStatus === 'LOST') {
           batch.set(adminDb.collection('tickets').doc(tkt.id), tkt, { merge: true });
         }
       });

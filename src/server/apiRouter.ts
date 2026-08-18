@@ -21,6 +21,7 @@ import { adminService, AdminService } from './adminService.js';
 import { emailService } from './emailService.js';
 import { broadcastCardUpdate, getIO } from './socketHandler.js';
 import { ticketManager } from './engine/TicketManager.js';
+import { firestoreGuard } from './firestoreGuard.js';
 
 export const apiRouter = Router();
 
@@ -743,9 +744,11 @@ apiRouter.get('/admin/metrics', async (req: Request, res: Response) => {
     const paymentMethods = db.getAllPaymentMethods();
     const settings = adminService.getSystemSettings();
     const adminProfile = adminService.getAdminProfile();
+    const firestoreUsage = firestoreGuard.getMetrics();
 
     res.json({
       metrics,
+      firestoreUsage,
       pendingDeposits,
       pendingWithdrawals,
       auditLogs,
@@ -1009,7 +1012,9 @@ apiRouter.post('/admin/rooms/create', (req: Request, res: Response) => {
   };
 
   db.rooms.set(roomId, room);
-  adminDb.collection('rooms').doc(roomId).set(room).catch(console.warn);
+  firestoreGuard.safeWrite('rooms', 'createRoom', async () => {
+    await adminDb.collection('rooms').doc(roomId).set(room);
+  });
 
   db.logAudit(adminId, 'CREATE_ROOM', roomId, `Created new room ${name} with ticket price ${ticketPrice}`, 'New Arena', clientIp);
   res.json({ success: true, room });
@@ -1033,7 +1038,9 @@ apiRouter.post('/admin/rooms/update', (req: Request, res: Response) => {
   if (countdownSeconds) room.countdownSeconds = Number(countdownSeconds);
 
   db.rooms.set(roomId, room);
-  adminDb.collection('rooms').doc(roomId).set(room, { merge: true }).catch(console.warn);
+  firestoreGuard.safeWrite('rooms', 'updateRoom', async () => {
+    await adminDb.collection('rooms').doc(roomId).set(room, { merge: true });
+  });
 
   db.logAudit(adminId, 'UPDATE_ROOM', roomId, `Updated room configuration for ${room.name}`, 'Room Config', clientIp);
   res.json({ success: true, room });
@@ -1067,13 +1074,15 @@ apiRouter.post('/admin/games/action', async (req: Request, res: Response) => {
         room.endsAt = restartEnd.toISOString();
         db.rooms.set(gameId, room);
 
-        adminDb.collection('rooms').doc(gameId).update({
-          status: 'WAITING',
-          countdownSeconds: 45,
-          startedAt: room.startedAt,
-          endsAt: room.endsAt,
-          updatedAt: restartNow.toISOString(),
-        }).catch(console.warn);
+        firestoreGuard.safeWrite('rooms', 'restartCountdown', async () => {
+          await adminDb.collection('rooms').doc(gameId).update({
+            status: 'WAITING',
+            countdownSeconds: 45,
+            startedAt: room.startedAt,
+            endsAt: room.endsAt,
+            updatedAt: restartNow.toISOString(),
+          });
+        });
 
         db.logAudit(adminId, 'RESTART_COUNTDOWN', gameId, `Restarted countdown for ${room.name}`, 'Manual Restart', clientIp);
         res.json({ success: true, room });
@@ -2004,21 +2013,21 @@ apiRouter.post('/private-groups/create', (req: Request, res: Response) => {
       return;
     }
 
-    const result = db.createPrivateGroup({
+    const group = db.createPrivateGroup({
       hostId,
-      name,
+      name: name ? String(name).trim() : undefined,
       imageUrl,
-      ticketPrice: Number(ticketPrice),
-      maxPlayers: Number(maxPlayers),
-      maxTicketsPerPlayer: Number(maxTicketsPerPlayer),
-      winningPattern,
-      prizeDistribution,
-      autoStartReady: Boolean(autoStartReady),
-      allowSpectators: Boolean(allowSpectators),
+      ticketPrice: Number(ticketPrice) || 50,
+      maxPlayers: maxPlayers ? Number(maxPlayers) : 10,
+      maxTicketsPerPlayer: maxTicketsPerPlayer ? Number(maxTicketsPerPlayer) : 3,
+      winningPattern: winningPattern || 'FULL_HOUSE',
+      prizeDistribution: prizeDistribution || 'WINNER_100',
+      autoStartReady: autoStartReady !== undefined ? Boolean(autoStartReady) : true,
+      allowSpectators: allowSpectators !== undefined ? Boolean(allowSpectators) : true,
       startTime,
     });
 
-    res.json({ success: true, ...result });
+    res.json({ success: true, group });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to create private group' });
   }
@@ -2033,7 +2042,7 @@ apiRouter.get('/private-groups/my-groups', (req: Request, res: Response) => {
 apiRouter.get('/private-groups/details/:idOrCode', (req: Request, res: Response) => {
   const idOrCode = req.params.idOrCode;
   const result = db.getPrivateGroupByIdOrCode(idOrCode);
-  if (!result.group) {
+  if (!result || !result.group) {
     res.status(404).json({ error: 'Private group not found' });
     return;
   }
@@ -2049,7 +2058,7 @@ apiRouter.post('/private-groups/invite', (req: Request, res: Response) => {
     }
 
     const result = db.inviteUserToGroup(groupId, invitedIdentifier, hostUserId);
-    res.json({ success: true, ...result });
+    res.json({ success: true, invitation: result });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Invitation failed' });
   }
@@ -2063,8 +2072,8 @@ apiRouter.post('/private-groups/respond-invite', (req: Request, res: Response) =
       return;
     }
 
-    const result = db.respondToInvitation(invitationId, userId, action);
-    res.json({ success: true, ...result });
+    const group = db.respondToInvitation(invitationId, userId, action);
+    res.json({ success: true, group });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Invitation response failed' });
   }
@@ -2078,8 +2087,8 @@ apiRouter.post('/private-groups/join-code', (req: Request, res: Response) => {
       return;
     }
 
-    const result = db.joinGroupByCode(code, userId);
-    res.json({ success: true, ...result });
+    const group = db.joinGroupByCode(code, userId);
+    res.json({ success: true, group });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to join group by code' });
   }
@@ -2156,7 +2165,7 @@ apiRouter.post('/private-groups/toggle-ready', (req: Request, res: Response) => 
     }
 
     const result = db.togglePlayerReady(groupId, userId);
-    res.json({ success: true, ...result });
+    res.json({ success: true, member: result });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to toggle ready status' });
   }
@@ -2194,8 +2203,24 @@ apiRouter.post('/private-groups/cancel', (req: Request, res: Response) => {
       return;
     }
 
-    const group = db.cancelPrivateGroupGame(groupId, hostUserId, reason);
-    res.json({ success: true, group });
+    const result = db.cancelPrivateGroupGame(groupId, hostUserId, reason);
+    const io = getIO();
+    if (io) {
+      io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:cancelled', {
+        groupId,
+        group: result.group,
+        reason: reason || 'Cancelled by host',
+      });
+      io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:updated', {
+        group: result.group,
+        members: db.groupMembers.get(groupId) || [],
+      });
+      io.to(groupId).to(`private_grp_${groupId}`).emit('room:status_changed', {
+        roomId: groupId,
+        status: 'CANCELLED',
+      });
+    }
+    res.json({ success: true, group: result.group, refundedUsersCount: result.refundedUsersCount, totalRefunded: result.totalRefunded });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to cancel private game' });
   }
@@ -2210,6 +2235,20 @@ apiRouter.post('/private-groups/remove-member', (req: Request, res: Response) =>
     }
 
     const result = db.removeGroupMember(groupId, targetUserId, hostUserId);
+    const io = getIO();
+    if (io) {
+      const group = db.privateGroups.get(groupId);
+      io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:updated', {
+        group,
+        members: db.groupMembers.get(groupId) || [],
+      });
+      io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:stats_updated', {
+        groupId,
+        prizePool: group?.prizePool,
+        ticketsSold: group?.ticketsSold,
+        activePlayersCount: group?.activePlayersCount,
+      });
+    }
     res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Failed to remove member' });
@@ -2245,13 +2284,6 @@ apiRouter.get('/bingo/room-status/:roomId', async (req: Request, res: Response) 
 
     let room = db.rooms.get(roomId);
     if (!room) {
-      const roomDoc = await adminDb.collection('rooms').doc(roomId).get();
-      if (roomDoc.exists) {
-        room = roomDoc.data() as BingoRoom;
-      }
-    }
-
-    if (!room) {
       const groupRes = db.getPrivateGroupByIdOrCode(roomId);
       const group = groupRes.group || db.privateGroups.get(roomId);
       if (group) {
@@ -2269,8 +2301,11 @@ apiRouter.get('/bingo/room-status/:roomId', async (req: Request, res: Response) 
           drawnBalls: group.drawnBalls || [],
           winningPatterns: [group.winningPattern],
           prizePool: group.prizePool,
+          platformFee: group.platformFee,
           countdownSeconds: group.countdownSeconds || 0,
-          activePlayersCount: (db.groupMembers.get(group.id) || []).length,
+          activePlayersCount: group.activePlayersCount || (db.groupMembers.get(group.id) || []).length,
+          ticketsSold: group.ticketsSold || 0,
+          gameReferenceId: group.gameReferenceId,
           createdAt: group.createdAt,
         };
       }

@@ -416,13 +416,15 @@ export class AdminService {
     // Sync local password hash if authenticated via Firebase Auth
     if (firebaseAuthValid && !localHashValid) {
       this.passwordHash = this.hashPassword(password);
-      await adminDb.collection('admins').doc(AdminService.FIXED_ADMIN_EMAIL).set(
-        {
-          passwordHash: this.passwordHash,
-          lastPasswordChange: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      await firestoreGuard.safeWrite('admins', 'syncAdminPasswordHash', async () => {
+        await adminDb.collection('admins').doc(AdminService.FIXED_ADMIN_EMAIL).set(
+          {
+            passwordHash: this.passwordHash,
+            lastPasswordChange: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      });
       console.log('✅ [AdminService] Synchronized local password hash with Firebase Auth.');
     }
 
@@ -441,14 +443,16 @@ export class AdminService {
       this.adminProfile.lastDevice = deviceInfo || 'Web Browser';
 
       // Update Firestore profile
-      await adminDb.collection('admins').doc(AdminService.FIXED_ADMIN_EMAIL).set(
-        {
-          lastLogin: now,
-          lastLoginIp: ipAddress,
-          lastDevice: deviceInfo,
-        },
-        { merge: true }
-      );
+      await firestoreGuard.safeWrite('admins', 'updateAdminLoginMetadata', async () => {
+        await adminDb.collection('admins').doc(AdminService.FIXED_ADMIN_EMAIL).set(
+          {
+            lastLogin: now,
+            lastLoginIp: ipAddress,
+            lastDevice: deviceInfo,
+          },
+          { merge: true }
+        );
+      });
     }
 
     await this.logAction('ADMIN_LOGIN', 'SUCCESS', 'Administrator successfully logged in', ipAddress, deviceInfo, browser);
@@ -495,14 +499,16 @@ export class AdminService {
       this.adminProfile.lastDevice = deviceInfo || 'Web Browser';
 
       // Update Firestore profile
-      await adminDb.collection('admins').doc(AdminService.FIXED_ADMIN_EMAIL).set(
-        {
-          lastLogin: now,
-          lastLoginIp: ipAddress,
-          lastDevice: deviceInfo,
-        },
-        { merge: true }
-      );
+      await firestoreGuard.safeWrite('admins', 'updateAdmin2FALoginMetadata', async () => {
+        await adminDb.collection('admins').doc(AdminService.FIXED_ADMIN_EMAIL).set(
+          {
+            lastLogin: now,
+            lastLoginIp: ipAddress,
+            lastDevice: deviceInfo,
+          },
+          { merge: true }
+        );
+      });
     }
 
     await this.logAction('ADMIN_LOGIN', 'SUCCESS', 'Administrator successfully logged in via 2-Step Verification', ipAddress, deviceInfo, browser);
@@ -573,13 +579,15 @@ export class AdminService {
       this.adminProfile.lastPasswordChange = now;
     }
 
-    await adminDb.collection('admins').doc(AdminService.FIXED_ADMIN_EMAIL).set(
-      {
-        passwordHash: this.passwordHash,
-        lastPasswordChange: now,
-      },
-      { merge: true }
-    );
+    await firestoreGuard.safeWrite('admins', 'updateAdminPasswordReset', async () => {
+      await adminDb.collection('admins').doc(AdminService.FIXED_ADMIN_EMAIL).set(
+        {
+          passwordHash: this.passwordHash,
+          lastPasswordChange: now,
+        },
+        { merge: true }
+      );
+    });
 
     // Logout all existing admin tokens
     this.activeAdminTokens.clear();
@@ -624,7 +632,9 @@ export class AdminService {
       this.detailedAuditLogs = this.detailedAuditLogs.slice(0, 200);
     }
 
-    adminDb.collection('auditLogs').doc(log.id).set(log).catch(console.error);
+    firestoreGuard.safeWrite('auditLogs', 'logAction', async () => {
+      await adminDb.collection('auditLogs').doc(log.id).set(log);
+    });
 
     return log;
   }
@@ -672,8 +682,23 @@ export class AdminService {
     if (settings.countdownDurationSeconds !== undefined && Number(settings.countdownDurationSeconds) < 5) {
       return { valid: false, error: 'Countdown duration must be at least 5 seconds' };
     }
+    if (settings.resultScreenDurationSeconds !== undefined && Number(settings.resultScreenDurationSeconds) < 3) {
+      return { valid: false, error: 'Result screen duration must be at least 3 seconds' };
+    }
     if (settings.ballDrawIntervalSeconds !== undefined && Number(settings.ballDrawIntervalSeconds) < 1) {
       return { valid: false, error: 'Ball draw interval must be at least 1 second' };
+    }
+    if (settings.minPlayers !== undefined && Number(settings.minPlayers) < 1) {
+      return { valid: false, error: 'Minimum players must be at least 1' };
+    }
+    if (settings.maxPlayers !== undefined && Number(settings.maxPlayers) < 1) {
+      return { valid: false, error: 'Maximum players must be at least 1' };
+    }
+    if (settings.maxCardsPerPlayer !== undefined && Number(settings.maxCardsPerPlayer) < 1) {
+      return { valid: false, error: 'Max cards per player must be at least 1' };
+    }
+    if (settings.cardReservationTimeoutSeconds !== undefined && Number(settings.cardReservationTimeoutSeconds) < 10) {
+      return { valid: false, error: 'Card reservation timeout must be at least 10 seconds' };
     }
     return { valid: true };
   }
@@ -740,7 +765,9 @@ export class AdminService {
       );
       if (regProg) {
         regProg.amountBirr = Number(parsedSettings.welcomeBonusBirr);
-        adminDb.collection('settings').doc('bonusConfigs').set({ programs: this.bonusPrograms }).catch(console.warn);
+        firestoreGuard.safeWrite('settings', 'updateWelcomeBonusConfig', async () => {
+          await adminDb.collection('settings').doc('bonusConfigs').set({ programs: this.bonusPrograms });
+        });
       }
     }
 
@@ -755,10 +782,14 @@ export class AdminService {
         timestamp: new Date().toISOString(),
       };
       this.settingsHistory.unshift(historyRec);
-      adminDb.collection('settingsHistory').doc(historyRec.id).set(historyRec).catch(console.warn);
+      firestoreGuard.safeWrite('settingsHistory', 'recordSettingsHistory', async () => {
+        await adminDb.collection('settingsHistory').doc(historyRec.id).set(historyRec);
+      });
     }
 
-    await adminDb.collection('settings').doc('platformConfig').set(this.systemSettings, { merge: true });
+    await firestoreGuard.safeWrite('settings', 'updatePlatformConfig', async () => {
+      await adminDb.collection('settings').doc('platformConfig').set(this.systemSettings, { merge: true });
+    });
     await this.logAction('SETTINGS_CHANGE', 'SUCCESS', `Updated system settings: ${Object.keys(changes).join(', ')}`, ipAddress);
 
     return { success: true, settings: this.systemSettings };
@@ -806,10 +837,14 @@ export class AdminService {
     );
     if (regProg && typeof regProg.amountBirr === 'number') {
       this.systemSettings.welcomeBonusBirr = regProg.amountBirr;
-      adminDb.collection('settings').doc('platformConfig').set(this.systemSettings, { merge: true }).catch(console.warn);
+      firestoreGuard.safeWrite('settings', 'syncPlatformConfigWelcomeBonus', async () => {
+        await adminDb.collection('settings').doc('platformConfig').set(this.systemSettings, { merge: true });
+      });
     }
 
-    await adminDb.collection('settings').doc('bonusConfigs').set({ programs: this.bonusPrograms });
+    await firestoreGuard.safeWrite('settings', 'updateBonusPrograms', async () => {
+      await adminDb.collection('settings').doc('bonusConfigs').set({ programs: this.bonusPrograms });
+    });
     await this.logAction('BONUS_SETTINGS_CHANGE', 'SUCCESS', `Updated ${programs.length} bonus program configurations`, ipAddress);
 
     return { success: true, bonusPrograms: this.bonusPrograms };

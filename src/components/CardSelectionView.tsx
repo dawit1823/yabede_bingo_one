@@ -587,9 +587,12 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
   }, [liveRoom.status, onEnterGame]);
 
   // Manual Refresh Handler
+  const isRefreshingRef = React.useRef(false);
+
   const handleManualRefresh = useCallback(async () => {
-    if (isRefreshing) return;
+    if (isRefreshingRef.current) return;
     try {
+      isRefreshingRef.current = true;
       setIsRefreshing(true);
       triggerHaptic('light');
 
@@ -605,7 +608,7 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
           }
           if (data.myTickets && Array.isArray(data.myTickets)) {
             data.myTickets.forEach((t: BingoTicket) => {
-              if (!liveRoom.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === liveRoom.gameReferenceId) {
+              if (!room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId) {
                 onCardPurchased(t);
               }
             });
@@ -617,14 +620,15 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
       logger.debug('Manual refresh note:', err);
       setIsSyncing(true);
     } finally {
+      isRefreshingRef.current = false;
       setIsRefreshing(false);
     }
-  }, [room.id, user.id, isRefreshing, onCardPurchased, liveRoom.gameReferenceId]);
+  }, [room.id, room.gameReferenceId, user.id, onCardPurchased]);
 
   // Initial fetch of room status on mount
   useEffect(() => {
     handleManualRefresh();
-  }, [handleManualRefresh]);
+  }, [room.id, user.id]);
 
   // Helper to filter valid reservations
   const getActiveReservation = useCallback(

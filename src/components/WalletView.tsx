@@ -763,9 +763,10 @@ export const WalletView: React.FC<WalletViewProps> = ({
               <button
                 type="button"
                 onClick={fetchUserDeposits}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1"
+                disabled={loadingHistory}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1 disabled:opacity-50"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingHistory ? 'animate-spin text-amber-400' : ''}`} />
                 <span>Refresh</span>
               </button>
             </div>

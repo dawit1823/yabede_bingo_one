@@ -115,6 +115,24 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
     let currentUserId: string | null = null;
     broadcastOnlineCount();
 
+    // Send authoritative settings immediately on connection/reconnection
+    const currentSettings = adminService.getSystemSettings();
+    const currentBonusPrograms = adminService.getBonusPrograms();
+    const currentRegistrationBonus = adminService.getRegistrationBonusAmount();
+    socket.emit('settings:updated', {
+      settings: currentSettings,
+      bonusPrograms: currentBonusPrograms,
+      registrationBonusCredit: currentRegistrationBonus,
+    });
+
+    socket.on('settings:get', () => {
+      socket.emit('settings:updated', {
+        settings: adminService.getSystemSettings(),
+        bonusPrograms: adminService.getBonusPrograms(),
+        registrationBonusCredit: adminService.getRegistrationBonusAmount(),
+      });
+    });
+
     // Auth & identify user socket
     socket.on('auth:identify', (data: { userId: string }) => {
       currentUserId = data.userId;
@@ -122,6 +140,11 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
       if (user) {
         socket.emit('auth:success', { user });
       }
+      socket.emit('settings:updated', {
+        settings: adminService.getSystemSettings(),
+        bonusPrograms: adminService.getBonusPrograms(),
+        registrationBonusCredit: adminService.getRegistrationBonusAmount(),
+      });
       broadcastOnlineCount();
     });
 

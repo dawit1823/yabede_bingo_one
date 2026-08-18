@@ -111,42 +111,68 @@ export class BallDrawer {
    * Handles game completion, prize distribution, checkpoint persistence, and schedules the next game.
    */
   private async handleGameCompletion(room: BingoRoom, rawWinners: any[]): Promise<void> {
+    if (room.status === 'FINISHED' || room.status === 'RESETTING') {
+      return;
+    }
+
+    const settings = adminService.getSystemSettings();
+    const resultDurationSec = settings.resultScreenDurationSeconds || 15;
+    const nowMs = Date.now();
+
     room.status = 'FINISHED';
+    room.startedAt = new Date(nowMs).toISOString();
+    room.endsAt = new Date(nowMs + resultDurationSec * 1000).toISOString();
+    room.countdownSeconds = resultDurationSec;
 
-    const roomTickets = Array.from(db.tickets.values()).filter((t) => t.roomId === room.id);
+    const roomTickets = Array.from(db.tickets.values()).filter(
+      (t) => t.roomId === room.id && t.gameReferenceId === room.gameReferenceId
+    );
 
-    // Calculate payouts & update wallets
+    // Calculate payouts & update wallets strictly for validated confirmed tickets
     const { calculatedWinners, transactions } = await prizeCalculator.calculateAndDistributePayouts(
       room,
       rawWinners
     );
 
+    room.lastWinners = calculatedWinners;
+
     // Persist checkpoint to Firestore
     await firestoreRepository.saveGameEndCheckpoint(room, calculatedWinners, roomTickets, transactions);
 
-    // Broadcast winner event to socket clients
-    for (const winner of calculatedWinners) {
-      webSocketGateway.broadcastWinner(room.id, winner, room);
-      // Send private wallet update to winner
-      const user = db.getUserById(winner.userId);
-      if (user) {
-        webSocketGateway.emitWalletUpdated(winner.userId, user.walletBalance);
+    if (calculatedWinners.length > 0) {
+      // Broadcast winner event to socket clients
+      for (const winner of calculatedWinners) {
+        webSocketGateway.broadcastWinner(room.id, winner, room);
+        // Send private wallet update to winner
+        const user = db.getUserById(winner.userId);
+        if (user) {
+          webSocketGateway.emitWalletUpdated(winner.userId, user.walletBalance);
+        }
       }
+    } else {
+      logger.info(`[GAME] Game round ended with no winners room=${room.id} gameRef=${room.gameReferenceId}`);
     }
 
-    // Schedule game reset after result screen duration to allow players to celebrate
-    const settings = adminService.getSystemSettings();
-    const resultDelayMs = (settings.resultScreenDurationSeconds || 8) * 1000;
-    setTimeout(async () => {
-      await this.resetAndCreateNextGame(room);
-    }, resultDelayMs);
+    // Broadcast room update and synchronized result screen countdown
+    webSocketGateway.broadcastRoomUpdate(room);
+    webSocketGateway.broadcastCountdown(
+      room.id,
+      resultDurationSec,
+      'FINISHED',
+      room.startedAt,
+      room.endsAt
+    );
   }
 
   /**
    * Resets room data and automatically creates the next game round.
    */
   public async resetAndCreateNextGame(room: BingoRoom): Promise<void> {
-    logger.debug(`[GAME] Resetting game round room=${room.id}`);
+    if (room.status === 'RESETTING' || room.status === 'WAITING' || room.status === 'COUNTDOWN') {
+      return;
+    }
+
+    logger.info(`[GAME] Resetting game round room=${room.id} prevGameRef=${room.gameReferenceId}`);
 
     const settings = adminService.getSystemSettings();
     const countdownSec = settings.countdownDurationSeconds || 45;
@@ -191,7 +217,7 @@ export class BallDrawer {
       });
     }
 
-    logger.info(`[GAME] Next game round initialized room=${room.id} gameRef=${newGameRef}`);
+    logger.info(`[GAME] Next game round initialized room=${room.id} newGameRef=${newGameRef}`);
   }
 }
 
