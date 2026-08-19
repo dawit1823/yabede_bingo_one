@@ -293,20 +293,20 @@ export const WalletView: React.FC<WalletViewProps> = ({
       </div>
 
       {/* Tabs Switcher */}
-      <div className="grid grid-cols-3 gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-800">
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-800">
         <button
           onClick={() => {
             setActiveTab('deposit');
             triggerHaptic('light');
           }}
-          className={`py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition ${
+          className={`py-2.5 px-1 rounded-xl text-[11px] sm:text-xs font-black flex items-center justify-center gap-1 sm:gap-1.5 transition truncate ${
             activeTab === 'deposit'
               ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          <ArrowDownLeft className="w-4 h-4" />
-          <span>Deposit</span>
+          <ArrowDownLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+          <span className="truncate">{language === 'am' ? 'ገቢ' : 'Deposit'}</span>
         </button>
 
         <button
@@ -314,14 +314,14 @@ export const WalletView: React.FC<WalletViewProps> = ({
             setActiveTab('withdraw');
             triggerHaptic('light');
           }}
-          className={`py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition ${
+          className={`py-2.5 px-1 rounded-xl text-[11px] sm:text-xs font-black flex items-center justify-center gap-1 sm:gap-1.5 transition truncate ${
             activeTab === 'withdraw'
               ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          <ArrowUpRight className="w-4 h-4" />
-          <span>Withdraw</span>
+          <ArrowUpRight className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+          <span className="truncate">{language === 'am' ? 'ወጪ' : 'Withdraw'}</span>
         </button>
 
         <button
@@ -330,14 +330,14 @@ export const WalletView: React.FC<WalletViewProps> = ({
             triggerHaptic('light');
             fetchUserDeposits();
           }}
-          className={`py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition ${
+          className={`py-2.5 px-1 rounded-xl text-[11px] sm:text-xs font-black flex items-center justify-center gap-1 sm:gap-1.5 transition truncate ${
             activeTab === 'history'
               ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          <Clock className="w-4 h-4" />
-          <span>Status & History</span>
+          <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+          <span className="truncate">{language === 'am' ? 'ታሪክ' : 'History'}</span>
         </button>
       </div>
 

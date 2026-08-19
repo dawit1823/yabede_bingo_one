@@ -136,7 +136,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
             {/* Theme Dropdown Menu */}
             {showThemeDropdown && (
-              <div className="absolute right-0 mt-2 w-52 sm:w-56 rounded-2xl bg-slate-900/95 border border-slate-700/80 shadow-2xl backdrop-blur-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="absolute right-0 mt-2 w-52 sm:w-56 max-w-[calc(100vw-24px)] rounded-2xl bg-slate-900/95 border border-slate-700/80 shadow-2xl backdrop-blur-xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
                 <div className="px-3 py-1.5 border-b border-slate-800/80 flex items-center justify-between">
                   <span className="text-[10px] font-black tracking-wider uppercase text-slate-400 flex items-center gap-1">
                     <Sparkles className="w-3 h-3 text-amber-400" />

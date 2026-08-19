@@ -44,20 +44,31 @@ export const BonusesView: React.FC<BonusesViewProps> = ({
         {/* Copy Referral Link Box */}
         <div className="space-y-2">
           <label className="text-xs font-bold text-slate-300 block">Your Telegram Invite Link:</label>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             <input
               type="text"
               readOnly
               value={referralLink}
-              className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-xs text-amber-300 font-mono focus:outline-none"
+              className="flex-1 min-w-0 bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-xs text-amber-300 font-mono focus:outline-none truncate"
             />
-            <button
-              onClick={handleCopyLink}
-              className="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs flex items-center gap-1.5 transition"
-            >
-              {copiedLink ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
-              <span>{copiedLink ? 'Copied' : 'Copy'}</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleCopyLink}
+                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs flex items-center justify-center gap-1.5 transition min-h-[40px] cursor-pointer"
+              >
+                {copiedLink ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+                <span>{copiedLink ? 'Copied' : 'Copy'}</span>
+              </button>
+              <a
+                href={`https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join me on Ahun Bingo! 🎱 Play multiplayer 75-ball bingo and win Birr!')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => triggerHaptic('medium')}
+                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition min-h-[40px] shadow-md shadow-amber-500/20"
+              >
+                <span>Share</span>
+              </a>
+            </div>
           </div>
         </div>
 
