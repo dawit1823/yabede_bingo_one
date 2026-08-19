@@ -3,11 +3,11 @@ import { Socket } from 'socket.io-client';
 import { BingoRoom, BingoTicket, ChatMessage, UserProfile, WinningPattern, RoomStats } from '../types';
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
 import { audioEngine, getAmharicNumberText } from '../lib/audioEngine';
-import { formatCardNumber, getRemainingSeconds } from '../lib/bingoUtils';
+import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds } from '../lib/bingoUtils';
 import { apiUrl } from '../lib/apiConfig';
 import { logger } from '../lib/logger';
 import confetti from 'canvas-confetti';
-import { MessageSquare, Send, Sparkles, Trophy, Volume2, CheckCircle2, AlertCircle, History, RefreshCw } from 'lucide-react';
+import { MessageSquare, Send, Sparkles, Trophy, Volume2, CheckCircle2, AlertCircle, History, RefreshCw, ChevronDown, ChevronUp, Grid } from 'lucide-react';
 
 interface ActiveGameViewProps {
   room: BingoRoom;
@@ -25,8 +25,8 @@ interface ActiveGameViewProps {
 }
 
 // 75-Number Drawn Bingo Board Grid Component
-const BingoMasterBoard = React.memo<{ drawnBalls: number[]; currentBall: number | null }>(
-  ({ drawnBalls, currentBall }) => {
+const BingoMasterBoard = React.memo<{ drawnBalls: number[]; currentBall: number | null; isOpen?: boolean; onToggle?: () => void }>(
+  ({ drawnBalls, currentBall, isOpen = false, onToggle }) => {
     const drawnSet = React.useMemo(() => new Set(drawnBalls || []), [drawnBalls]);
     const columns = [
       { label: 'B', min: 1, max: 15, color: 'text-red-400 border-red-500/30 bg-red-500/10' },
@@ -38,53 +38,61 @@ const BingoMasterBoard = React.memo<{ drawnBalls: number[]; currentBall: number 
 
     return (
       <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-3 sm:p-4 space-y-2 shadow-xl">
-        <div className="flex items-center justify-between text-xs font-bold text-slate-300 border-b border-slate-800 pb-2">
+        <div
+          onClick={onToggle}
+          className="flex items-center justify-between text-xs font-bold text-slate-300 border-b border-slate-800 pb-2 cursor-pointer select-none"
+        >
           <span className="flex items-center gap-1.5 text-amber-400 font-black">
             <Sparkles className="w-4 h-4" />
-            <span>Drawn Bingo Numbers ({drawnSet.size}/75)</span>
+            <span>Master 75-Number Board ({drawnSet.size}/75)</span>
           </span>
-          <span className="text-[10px] text-slate-400 font-mono">LIVE DRAW</span>
+          <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+            <span className="font-mono">{isOpen ? 'COLLAPSE' : 'EXPAND'}</span>
+            {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </div>
         </div>
 
         {/* Vertical B-I-N-G-O Columns Grid */}
-        <div className="grid grid-cols-5 gap-1 sm:gap-1.5 pt-1">
-          {columns.map((col) => {
-            const numbers = Array.from({ length: col.max - col.min + 1 }, (_, i) => col.min + i);
-            return (
-              <div key={col.label} className="flex flex-col gap-1 text-center">
-                {/* Column Header */}
-                <div
-                  className={`w-full py-1.5 rounded-lg border font-black text-xs sm:text-sm flex items-center justify-center shrink-0 shadow-sm ${col.color}`}
-                >
-                  {col.label}
-                </div>
-                {/* Vertical Column Numbers */}
-                <div className="flex flex-col gap-1">
-                  {numbers.map((num) => {
-                    const isDrawn = drawnSet.has(num);
-                    const isCurrent = currentBall === num;
+        {isOpen && (
+          <div className="grid grid-cols-5 gap-1 sm:gap-1.5 pt-1">
+            {columns.map((col) => {
+              const numbers = Array.from({ length: col.max - col.min + 1 }, (_, i) => col.min + i);
+              return (
+                <div key={col.label} className="flex flex-col gap-1 text-center">
+                  {/* Column Header */}
+                  <div
+                    className={`w-full py-1 rounded-lg border font-black text-xs flex items-center justify-center shrink-0 shadow-sm ${col.color}`}
+                  >
+                    {col.label}
+                  </div>
+                  {/* Vertical Column Numbers */}
+                  <div className="flex flex-col gap-0.5 sm:gap-1">
+                    {numbers.map((num) => {
+                      const isDrawn = drawnSet.has(num);
+                      const isCurrent = currentBall === num;
 
-                    return (
-                      <div
-                        key={num}
-                        className={`w-full py-1 rounded text-[10px] sm:text-xs font-mono font-bold flex items-center justify-center transition ${
-                          isCurrent
-                            ? 'bg-amber-400 text-slate-950 font-black ring-2 ring-amber-300 animate-pulse scale-105 z-10 shadow-lg'
-                            : isDrawn
-                            ? 'bg-emerald-500/90 text-white font-extrabold shadow-sm'
-                            : 'bg-slate-950 text-slate-600 border border-slate-800/80'
-                        }`}
-                        title={`Ball #${num} ${isDrawn ? '(Drawn)' : ''}`}
-                      >
-                        {num}
-                      </div>
-                    );
-                  })}
+                      return (
+                        <div
+                          key={num}
+                          className={`w-full py-0.5 sm:py-1 rounded text-[9px] sm:text-xs font-mono font-bold flex items-center justify-center transition ${
+                            isCurrent
+                              ? 'bg-amber-400 text-slate-950 font-black ring-2 ring-amber-300 animate-pulse scale-105 z-10 shadow-lg'
+                              : isDrawn
+                              ? 'bg-emerald-500/90 text-white font-extrabold shadow-sm'
+                              : 'bg-slate-950 text-slate-600 border border-slate-800/80'
+                          }`}
+                          title={`Ball #${num} ${isDrawn ? '(Drawn)' : ''}`}
+                        >
+                          {num}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }
@@ -113,6 +121,8 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
   const [showWinnerModal, setShowWinnerModal] = React.useState<boolean>(true);
   const [liveTickets, setLiveTickets] = React.useState<BingoTicket[]>(tickets || []);
   const [isRefreshing, setIsRefreshing] = React.useState<boolean>(false);
+  const [selectedCardIndex, setSelectedCardIndex] = React.useState<number>(0);
+  const [showMasterBoard, setShowMasterBoard] = React.useState<boolean>(false);
   const isRefreshingRef = React.useRef<boolean>(false);
 
   const handleRefreshGame = React.useCallback(async () => {
@@ -519,71 +529,138 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
         </div>
       </div>
 
-      {/* Live Current Ball Callout */}
+      {/* Live Current Ball Callout / Winner Results Screen */}
       {room.status === 'FINISHED' ? (
-        <div className="bg-gradient-to-br from-amber-950/80 via-slate-900 to-amber-950/80 border-2 border-amber-500 rounded-3xl p-6 text-center shadow-2xl relative overflow-hidden space-y-4 animate-fade-in">
+        <div className="bg-gradient-to-br from-amber-950/80 via-slate-900 to-amber-950/80 border-2 border-amber-500 rounded-3xl p-4 sm:p-6 text-center shadow-2xl relative overflow-hidden space-y-4 animate-fade-in w-full">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10 space-y-3">
-            <div className="w-16 h-16 rounded-full bg-amber-500/20 border-2 border-amber-400 text-amber-400 flex items-center justify-center mx-auto text-3xl font-black">
+          <div className="relative z-10 space-y-3.5">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-amber-500/20 border-2 border-amber-400 text-amber-400 flex items-center justify-center mx-auto text-2xl sm:text-3xl font-black shadow-lg shadow-amber-500/20 animate-bounce">
               🏆
             </div>
-            <h3 className="text-xl font-black text-amber-400 tracking-tight">
+            <h3 className="text-lg sm:text-xl font-black text-amber-400 tracking-tight">
               {language === 'am' ? '🎉 የዙሩ አሸናፊዎች (GAME FINISHED)!' : '🎉 ROUND WINNERS ANNOUNCEMENT!'}
             </h3>
-            {room.gameReferenceId && (
-              <div className="inline-block bg-slate-950/80 border border-amber-500/30 px-3 py-1 rounded-full text-xs font-mono font-bold text-amber-300 shadow-sm">
-                Game Ref: {room.gameReferenceId}
+            
+            {/* Game Reference Badge & Payout Notice */}
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {room.gameReferenceId && (
+                <div className="inline-flex items-center gap-1 bg-slate-950/90 border border-amber-500/30 px-3 py-1 rounded-full text-xs font-mono font-bold text-amber-300 shadow-sm">
+                  <span>Ref:</span>
+                  <span className="text-white">{room.gameReferenceId}</span>
+                </div>
+              )}
+              <div className="inline-flex items-center gap-1 bg-emerald-950/80 border border-emerald-500/40 px-3 py-1 rounded-full text-[11px] font-bold text-emerald-300 shadow-sm">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{language === 'am' ? 'ሽልማቱ ወደ ቦርሳ ገብቷል' : 'Winnings Credited to Wallet'}</span>
               </div>
-            )}
-            <p className="text-xs text-slate-300 max-w-sm mx-auto">
+            </div>
+
+            <p className="text-xs text-slate-300 max-w-sm mx-auto leading-relaxed">
               {language === 'am'
                 ? 'እንኳን ደስ አለዎት! የዚህ ዙር አሸናፊዎች ተለይተዋል፡'
                 : 'Congratulations to the winners of this round! Winnings have been credited directly to their wallets.'}
             </p>
 
             {room.lastWinners && room.lastWinners.length > 0 ? (
-              <div className="space-y-2.5 max-w-md mx-auto pt-2">
-                {room.lastWinners.map((winner, idx) => (
-                  <div
-                    key={winner.id || `win-${idx}`}
-                    className="bg-slate-950/95 border border-amber-500/50 rounded-2xl p-4 flex items-center justify-between gap-3 text-left shadow-xl"
-                  >
-                    <div className="flex items-center gap-3">
-                      {winner.photoUrl ? (
-                        <img
-                          src={winner.photoUrl}
-                          alt={winner.username}
-                          className="w-11 h-11 rounded-full object-cover border-2 border-amber-400 shrink-0"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-950 font-black flex items-center justify-center text-sm border-2 border-amber-400 shrink-0">
-                          {winner.username.charAt(0).toUpperCase()}
+              <div className="space-y-3 max-w-md mx-auto pt-1 w-full">
+                {room.lastWinners.map((winner, idx) => {
+                  const formattedCardNum = winner.cardNumber ? formatCardNumber(winner.cardNumber) : '—';
+                  const winnerMatrix = winner.cardNumber ? generateCardMatrixByNumber(winner.cardNumber) : null;
+
+                  return (
+                    <div
+                      key={winner.id || `win-${idx}`}
+                      className="bg-slate-950/95 border border-amber-500/50 rounded-2xl p-3.5 sm:p-4 text-left shadow-xl space-y-3"
+                    >
+                      {/* Top Row: User & Prize Amount */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-800/80 pb-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {winner.photoUrl ? (
+                            <img
+                              src={winner.photoUrl}
+                              alt={winner.username}
+                              className="w-10 h-10 rounded-full object-cover border-2 border-amber-400 shrink-0"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-950 font-black flex items-center justify-center text-sm border-2 border-amber-400 shrink-0">
+                              {winner.username.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="text-sm font-black text-white flex items-center gap-1.5 truncate">
+                              <span>@{winner.username}</span>
+                            </div>
+                            <div className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                              <span>Verified Bingo Winner</span>
+                            </div>
+                          </div>
                         </div>
-                      )}
-                      <div className="space-y-0.5">
-                        <div className="text-sm font-black text-white flex items-center gap-1.5">
-                          <span>@{winner.username}</span>
-                          <span className="bg-amber-500/20 text-amber-300 text-[10px] px-2 py-0.5 rounded-full border border-amber-500/40 font-bold">
-                            Card #{winner.cardNumber || '—'}
+
+                        {/* Prize Amount Box */}
+                        <div className="flex sm:flex-col items-center sm:items-end justify-between bg-slate-900/80 sm:bg-transparent px-3 py-1.5 sm:p-0 rounded-xl border sm:border-0 border-slate-800">
+                          <span className="text-[10px] text-slate-400 block font-semibold">Prize Won</span>
+                          <span className="text-base sm:text-lg font-black text-emerald-400">
+                            +{(winner.prizeAmount || 0).toLocaleString()} Birr
                           </span>
                         </div>
-                        <div className="text-[11px] text-slate-300 font-semibold flex items-center gap-2">
-                          <span>Pattern: <strong className="text-amber-300">{winner.pattern}</strong></span>
-                          <span>•</span>
-                          <span>Ticket: <strong className="text-slate-200">{winner.ticketPrice || room.ticketPrice} Birr</strong></span>
+                      </div>
+
+                      {/* Details Strip */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/60">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400 text-[11px]">Card:</span>
+                          <span className="font-mono font-black text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">
+                            #{formattedCardNum}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400 text-[11px]">Pattern:</span>
+                          <span className="font-bold text-amber-400 bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-800">
+                            {winner.pattern}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400 text-[11px]">Stake:</span>
+                          <span className="font-bold text-slate-200">
+                            {winner.ticketPrice || room.ticketPrice} Birr
+                          </span>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="text-right shrink-0">
-                      <span className="text-[10px] text-slate-400 block font-semibold">Prize Won</span>
-                      <span className="text-base font-black text-emerald-400">
-                        +{(winner.prizeAmount || 0).toLocaleString()} Birr
-                      </span>
+                      {/* Optional Winner 5x5 Winning Card Preview */}
+                      {winnerMatrix && (
+                        <div className="bg-slate-900/40 p-2 rounded-xl border border-slate-800/40 space-y-1">
+                          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">
+                            Winning Card #{formattedCardNum} Layout
+                          </div>
+                          <div className="grid grid-cols-5 gap-1 text-center text-[8px] font-black font-mono max-w-[200px] mx-auto">
+                            {['B', 'I', 'N', 'G', 'O'].map((l, i) => (
+                              <div key={i} className="text-amber-400 font-sans text-[8px] font-bold py-0.5">
+                                {l}
+                              </div>
+                            ))}
+                            {winnerMatrix.map((row, rIdx) =>
+                              row.map((cell, cIdx) => (
+                                <div
+                                  key={`${rIdx}-${cIdx}`}
+                                  className={`p-0.5 rounded text-[8px] aspect-square flex items-center justify-center ${
+                                    cell === 'FREE'
+                                      ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40 font-black'
+                                      : 'bg-slate-950 text-slate-300 border border-slate-800'
+                                  }`}
+                                >
+                                  {cell === 'FREE' ? '★' : cell}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="bg-slate-950/80 rounded-2xl p-4 border border-slate-800 text-xs text-slate-400">
@@ -597,233 +674,270 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
           </div>
         </div>
       ) : (
-        /* Responsive Main Game Grid Container (2 Columns on Desktop, Stacked Mobile) */
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* Left Column: Live Ball Callout & 75-Number Master Board */}
-          <div className="lg:col-span-5 space-y-4">
-            {/* Live Ball Card */}
-            <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-3xl p-4 text-center shadow-2xl relative overflow-hidden">
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+        /* Responsive Main Game Layout (Mobile-first prioritized order) */
+        <div className="space-y-4 max-w-2xl mx-auto w-full">
+          {/* PRIORITY 1 & 2: Status & Countdown / Live Draw Stage */}
+          <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-3xl p-4 text-center shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
 
-              <div className="relative z-10 space-y-2.5">
-                <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400 flex items-center justify-center gap-2">
+            <div className="relative z-10 space-y-3">
+              {/* Game Status Badge */}
+              <div className="flex items-center justify-between text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+                <span className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${room.status === 'PLAYING' ? 'bg-red-500 animate-ping' : 'bg-amber-400'}`} />
                   <span>{room.status === 'PLAYING' ? '⚡ LIVE BALL DRAW' : '⏳ GAME COUNTDOWN'}</span>
-                  <span className="px-2 py-0.5 rounded-full bg-amber-400/10 border border-amber-400/30 text-amber-300 font-bold text-[10px]">
-                    {room.status === 'PLAYING'
-                      ? `Next ball in ${nextDrawSeconds}s`
-                      : `Starts in ${activeCountdown}s`}
-                  </span>
                 </span>
-
-                {room.currentBall ? (
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <div
-                      className={`w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-tr ${getBallColor(
-                        room.currentBall
-                      )} shadow-2xl flex flex-col items-center justify-center text-white border-4 border-slate-900 animate-bounce`}
-                    >
-                      <span className="text-xs sm:text-sm font-black opacity-80">
-                        {getBallLetter(room.currentBall)}
-                      </span>
-                      <span className="text-3xl sm:text-4xl font-black leading-none">{room.currentBall}</span>
-                    </div>
-
-                    {/* Draw Interval Progress Indicator & Spoken Voice Tag */}
-                    <div className="flex flex-col items-center gap-1.5">
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800/90 border border-slate-700/80 text-amber-300 font-extrabold text-xs shadow-md">
-                        <Volume2 className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                        <span>
-                          {language === 'am'
-                            ? `${getAmharicLetter(room.currentBall)}, ${getAmharicNumberText(room.currentBall)}`
-                            : `${getBallLetter(room.currentBall)}, ${room.currentBall}`}
-                        </span>
-                      </div>
-
-                      <div className="w-36 h-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/80">
-                        <div
-                          className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-1000 ease-linear"
-                          style={{ width: `${(nextDrawSeconds / 3) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="py-4 text-slate-300 text-base font-extrabold flex flex-col items-center gap-2">
-                    <Sparkles className="w-8 h-8 text-amber-400 animate-spin" />
-                    <div className="text-2xl font-black text-amber-400 font-mono">
-                      00:{activeCountdown.toString().padStart(2, '0')}
-                    </div>
-                    <span className="text-xs text-slate-400 font-medium">Waiting for players & game start...</span>
-                  </div>
-                )}
-
-                {/* Vertical Scrollable Drawn Balls History Feed */}
-                <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
-                  <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 px-1">
-                    <span className="flex items-center gap-1 text-amber-400">
-                      <History className="w-3.5 h-3.5" />
-                      <span>Drawn Balls History ({room.drawnBalls.length}/75)</span>
-                    </span>
-                    <span className="text-[9px] font-mono text-slate-500">NEWEST FIRST</span>
-                  </div>
-                  <div className="flex flex-col gap-1.5 max-h-44 overflow-y-auto py-1 px-0.5 no-scrollbar">
-                    {room.drawnBalls.length === 0 ? (
-                      <span className="text-[11px] text-slate-500 italic py-1 text-center">No balls drawn yet...</span>
-                    ) : (
-                      [...room.drawnBalls].reverse().map((b, idx) => {
-                        const letter = getBallLetter(b);
-                        const colorClass = getBallColor(b);
-                        const isLatest = idx === 0;
-
-                        return (
-                          <div
-                            key={`${b}-${idx}`}
-                            className={`flex items-center justify-between px-3 py-1.5 rounded-xl border text-xs font-black transition ${
-                              isLatest
-                                ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md ring-2 ring-amber-400/40'
-                                : 'bg-slate-950 text-slate-200 border-slate-800'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`w-5 h-5 rounded-full bg-gradient-to-tr ${colorClass} text-white text-[10px] flex items-center justify-center font-black shadow-sm`}
-                              >
-                                {letter}
-                              </span>
-                              <span className="font-mono text-xs font-black">Ball #{b}</span>
-                            </div>
-                            <span className={`text-[9px] font-mono ${isLatest ? 'text-slate-950 font-black' : 'text-slate-400'}`}>
-                              {isLatest ? 'LATEST DRAW' : `#${room.drawnBalls.length - idx}`}
-                            </span>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-400/10 border border-amber-400/30 text-amber-300 font-bold font-mono">
+                  {room.status === 'PLAYING'
+                    ? `Next in ${nextDrawSeconds}s`
+                    : `Starts in ${activeCountdown}s`}
+                </span>
               </div>
-            </div>
 
-            {/* Master 75-Number Drawn Bingo Board */}
-            <BingoMasterBoard drawnBalls={room.drawnBalls} currentBall={room.currentBall} />
-          </div>
+              {/* PRIORITY 3: Current Bingo Ball */}
+              {room.currentBall ? (
+                <div className="flex flex-col items-center justify-center gap-2.5 py-1">
+                  <div
+                    className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-tr ${getBallColor(
+                      room.currentBall
+                    )} shadow-2xl shadow-amber-500/10 flex flex-col items-center justify-center text-white border-4 border-slate-900 animate-bounce`}
+                  >
+                    <span className="text-xs sm:text-sm font-black opacity-90 leading-none">
+                      {getBallLetter(room.currentBall)}
+                    </span>
+                    <span className="text-3xl sm:text-4xl font-black leading-none mt-0.5">{room.currentBall}</span>
+                  </div>
 
-          {/* Right Column: User Purchased Cards */}
-          <div className="lg:col-span-7 space-y-4">
-            {liveTickets.length > 0 ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between px-1">
-                  <h3 className="text-xs sm:text-sm font-black text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                    <Trophy className="w-4 h-4 text-amber-400" />
-                    <span>Your Purchased Cards ({liveTickets.length})</span>
-                  </h3>
-                  <span className="text-[10px] text-slate-400 font-bold">
-                    {liveTickets.length > 1 ? 'Horizontal scrollable' : 'Active'}
+                  {/* Draw Interval Progress Indicator & Spoken Voice Tag */}
+                  <div className="flex flex-col items-center gap-1.5">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800/90 border border-slate-700/80 text-amber-300 font-extrabold text-xs shadow-md">
+                      <Volume2 className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                      <span>
+                        {language === 'am'
+                          ? `${getAmharicLetter(room.currentBall)}, ${getAmharicNumberText(room.currentBall)}`
+                          : `${getBallLetter(room.currentBall)}, ${room.currentBall}`}
+                      </span>
+                    </div>
+
+                    <div className="w-32 sm:w-40 h-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/80">
+                      <div
+                        className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-1000 ease-linear"
+                        style={{ width: `${(nextDrawSeconds / 3) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-4 text-slate-300 text-base font-extrabold flex flex-col items-center gap-2">
+                  <Sparkles className="w-8 h-8 text-amber-400 animate-spin" />
+                  <div className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">
+                    00:{activeCountdown.toString().padStart(2, '0')}
+                  </div>
+                  <span className="text-xs text-slate-400 font-medium">Waiting for players & game start...</span>
+                </div>
+              )}
+
+              {/* PRIORITY 4: Contained Drawn Balls History Feed */}
+              <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 px-1">
+                  <span className="flex items-center gap-1 text-amber-400">
+                    <History className="w-3.5 h-3.5" />
+                    <span>Drawn Balls History ({room.drawnBalls.length}/75)</span>
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowMasterBoard((prev) => !prev)}
+                    className="text-amber-400 hover:text-amber-300 font-extrabold text-[10px] flex items-center gap-1 bg-slate-800/80 px-2 py-0.5 rounded-lg border border-slate-700/60"
+                  >
+                    <span>{showMasterBoard ? 'Hide Board' : 'Show 75 Board'}</span>
+                    {showMasterBoard ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
                 </div>
 
-                {/* Horizontal Scrollable Row for Cards on Mobile, Stack/Grid on Large Screens */}
-                <div className="flex flex-row lg:flex-col overflow-x-auto lg:overflow-visible gap-4 pb-3 lg:pb-0 snap-x snap-mandatory no-scrollbar">
-                  {liveTickets.map((ticket) => {
-                    const isReady = checkReadyForBingo(ticket);
-                    const cardDisplayNumber = ticket.cardNumber ? formatCardNumber(ticket.cardNumber) : `#${ticket.id.slice(-3)}`;
+                {/* Horizontal scrollable chips for drawn balls */}
+                <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-0.5 no-scrollbar min-h-[36px]">
+                  {room.drawnBalls.length === 0 ? (
+                    <span className="text-[11px] text-slate-500 italic py-1 w-full text-center">No balls drawn yet...</span>
+                  ) : (
+                    [...room.drawnBalls].reverse().map((b, idx) => {
+                      const letter = getBallLetter(b);
+                      const colorClass = getBallColor(b);
+                      const isLatest = idx === 0;
 
-                    return (
-                      <div
-                        key={ticket.id}
-                        className={`bg-slate-900 border ${
-                          isReady ? 'border-emerald-500/80 shadow-emerald-500/20' : 'border-slate-800'
-                        } rounded-3xl p-4 space-y-3 shadow-xl relative transition min-w-[280px] sm:min-w-[320px] lg:min-w-0 max-w-[360px] lg:max-w-none shrink-0 lg:shrink snap-center`}
-                      >
-                        {/* Ticket Header displaying EXACT Card Number & Game Ref */}
-                        <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-2">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-black text-emerald-400 text-sm">
-                              Card {cardDisplayNumber}
-                            </span>
-                            {(ticket.gameReferenceId || room.gameReferenceId) && (
-                              <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                                {ticket.gameReferenceId || room.gameReferenceId}
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
-                            Patterns: {room.winningPatterns.join(', ')}
-                          </span>
-                        </div>
-
-                        {/* 5x5 Bingo Matrix */}
-                        <div className="grid grid-cols-5 gap-1.5 text-center">
-                          {['B', 'I', 'N', 'G', 'O'].map((letter, lIdx) => (
-                            <div
-                              key={lIdx}
-                              className="text-xs font-black text-amber-400 py-1 bg-slate-950 rounded-lg border border-slate-800"
-                            >
-                              {letter}
-                            </div>
-                          ))}
-
-                          {ticket.matrix.map((row, rIdx) =>
-                            row.map((cell, cIdx) => {
-                              const marked = isCellMarked(ticket.id, rIdx, cIdx, cell);
-
-                              return (
-                                <button
-                                  key={`${rIdx}-${cIdx}`}
-                                  onClick={() => handleCellClick(ticket.id, rIdx, cIdx)}
-                                  className={`aspect-square rounded-xl text-xs font-black flex items-center justify-center transition border ${
-                                    cell === 'FREE'
-                                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-black'
-                                      : marked
-                                      ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/30 scale-95 font-black'
-                                      : 'bg-slate-800/80 text-slate-200 border-slate-700/80 hover:bg-slate-700'
-                                  }`}
-                                >
-                                  {cell === 'FREE' ? '★' : cell}
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
-
-                        {/* BINGO CLAIM BUTTON */}
-                        <button
-                          onClick={() => handleClaim(ticket.id)}
-                          disabled={!isReady || ticket.status === 'BINGO_CLAIMED'}
-                          className={`w-full py-3.5 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition shadow-xl ${
-                            isReady && ticket.status !== 'BINGO_CLAIMED'
-                              ? 'bg-gradient-to-r from-emerald-400 via-green-500 to-emerald-400 text-slate-950 shadow-emerald-500/30 animate-pulse hover:brightness-110 cursor-pointer'
-                              : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                      return (
+                        <div
+                          key={`${b}-${idx}`}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs font-black shrink-0 transition ${
+                            isLatest
+                              ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md ring-2 ring-amber-400/40'
+                              : 'bg-slate-950 text-slate-200 border-slate-800'
                           }`}
                         >
-                          <Sparkles className="w-4 h-4" />
-                          <span>
-                            {ticket.status === 'BINGO_CLAIMED'
-                              ? '✅ BINGO CLAIMED!'
-                              : isReady
-                              ? '🎉 CLAIM BINGO NOW!'
-                              : 'Complete Pattern to Claim Bingo'}
+                          <span
+                            className={`w-4 h-4 rounded-full bg-gradient-to-tr ${colorClass} text-white text-[9px] flex items-center justify-center font-black`}
+                          >
+                            {letter}
                           </span>
-                        </button>
-                      </div>
+                          <span className="font-mono text-xs font-black">{b}</span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Collapsible 75 Master Board */}
+                {showMasterBoard && (
+                  <div className="pt-2">
+                    <BingoMasterBoard
+                      drawnBalls={room.drawnBalls}
+                      currentBall={room.currentBall}
+                      isOpen={showMasterBoard}
+                      onToggle={() => setShowMasterBoard(false)}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* PRIORITY 5, 6 & 7: User Purchased Bingo Cards & Claim Button */}
+          {liveTickets.length > 0 ? (
+            <div className="space-y-3">
+              {/* PRIORITY 6: Multi-Card Selection Switcher Tabs (when player has >1 card) */}
+              {liveTickets.length > 1 && (
+                <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                  {liveTickets.map((t, idx) => {
+                    const isCardReady = checkReadyForBingo(t);
+                    const isSelected = selectedCardIndex === idx;
+                    const cardNum = t.cardNumber ? formatCardNumber(t.cardNumber) : `#${t.id.slice(-3)}`;
+
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedCardIndex(idx);
+                          triggerHaptic('light');
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition shrink-0 min-h-[40px] ${
+                          isSelected
+                            ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                            : 'bg-slate-950 text-slate-300 hover:text-white border border-slate-800'
+                        }`}
+                      >
+                        <span>Card {cardNum}</span>
+                        {isCardReady && (
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                        )}
+                      </button>
                     );
                   })}
                 </div>
+              )}
+
+              {/* PRIORITY 5: Active Selected Card Full View */}
+              {(() => {
+                const currentTicket = liveTickets[selectedCardIndex] || liveTickets[0];
+                if (!currentTicket) return null;
+                const isReady = checkReadyForBingo(currentTicket);
+                const cardDisplayNumber = currentTicket.cardNumber ? formatCardNumber(currentTicket.cardNumber) : `#${currentTicket.id.slice(-3)}`;
+
+                return (
+                  <div
+                    key={currentTicket.id}
+                    className={`bg-slate-900 border ${
+                      isReady ? 'border-emerald-500/80 shadow-emerald-500/20 ring-1 ring-emerald-500/40' : 'border-slate-800'
+                    } rounded-3xl p-3.5 sm:p-5 space-y-3.5 shadow-xl relative transition w-full`}
+                  >
+                    {/* Ticket Header */}
+                    <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-emerald-400 text-sm sm:text-base">
+                          Card {cardDisplayNumber}
+                        </span>
+                        {(currentTicket.gameReferenceId || room.gameReferenceId) && (
+                          <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded-lg border border-slate-800">
+                            {currentTicket.gameReferenceId || room.gameReferenceId}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
+                        {room.winningPatterns.join(', ')}
+                      </span>
+                    </div>
+
+                    {/* 5x5 Bingo Matrix Grid - Optimized for Mobile Finger Touches */}
+                    <div className="grid grid-cols-5 gap-1.5 sm:gap-2 text-center w-full">
+                      {['B', 'I', 'N', 'G', 'O'].map((letter, lIdx) => (
+                        <div
+                          key={lIdx}
+                          className="text-xs sm:text-sm font-black text-amber-400 py-1 sm:py-1.5 bg-slate-950 rounded-xl border border-slate-800 shadow-inner"
+                        >
+                          {letter}
+                        </div>
+                      ))}
+
+                      {currentTicket.matrix.map((row, rIdx) =>
+                        row.map((cell, cIdx) => {
+                          const marked = isCellMarked(currentTicket.id, rIdx, cIdx, cell);
+
+                          return (
+                            <button
+                              key={`${rIdx}-${cIdx}`}
+                              type="button"
+                              onClick={() => handleCellClick(currentTicket.id, rIdx, cIdx)}
+                              className={`aspect-square rounded-xl sm:rounded-2xl text-xs sm:text-base font-black flex items-center justify-center transition border min-h-[44px] min-w-[44px] active:scale-95 ${
+                                cell === 'FREE'
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-black shadow-inner text-sm sm:text-lg'
+                                  : marked
+                                  ? 'bg-gradient-to-br from-emerald-400 to-emerald-600 text-slate-950 border-emerald-300 shadow-md shadow-emerald-500/30 font-black'
+                                  : 'bg-slate-950 text-slate-200 border-slate-800 hover:border-slate-700'
+                              }`}
+                            >
+                              {cell === 'FREE' ? '★' : cell}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* PRIORITY 7: BINGO CLAIM BUTTON */}
+                    <button
+                      type="button"
+                      onClick={() => handleClaim(currentTicket.id)}
+                      disabled={!isReady || currentTicket.status === 'BINGO_CLAIMED'}
+                      className={`w-full py-4 rounded-2xl font-black text-sm sm:text-base flex items-center justify-center gap-2 transition shadow-xl ${
+                        isReady && currentTicket.status !== 'BINGO_CLAIMED'
+                          ? 'bg-gradient-to-r from-emerald-400 via-green-400 to-emerald-500 text-slate-950 shadow-emerald-500/30 animate-pulse hover:brightness-110 cursor-pointer active:scale-95'
+                          : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                      }`}
+                    >
+                      <Sparkles className="w-5 h-5" />
+                      <span>
+                        {currentTicket.status === 'BINGO_CLAIMED'
+                          ? '✅ BINGO CLAIMED!'
+                          : isReady
+                          ? '🎉 CLAIM BINGO NOW!'
+                          : 'Complete Pattern to Claim Bingo'}
+                      </span>
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-3 shadow-xl">
+              <AlertCircle className="w-8 h-8 text-amber-400 mx-auto" />
+              <div className="space-y-1">
+                <span className="text-xs font-black uppercase text-amber-400 tracking-wider">
+                  👁️ Spectator Mode Active
+                </span>
+                <p className="text-xs text-slate-300 max-w-sm mx-auto">
+                  You are currently spectating live ball draws and winner announcements. Since you did not purchase a ticket before countdown ended, you are not participating in this round. Get ready to select your card when the next countdown begins!
+                </p>
               </div>
-            ) : (
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-3 shadow-xl">
-                <AlertCircle className="w-8 h-8 text-amber-400 mx-auto" />
-                <div className="space-y-1">
-                  <span className="text-xs font-black uppercase text-amber-400 tracking-wider">
-                    👁️ Spectator Mode Active
-                  </span>
-                  <p className="text-xs text-slate-300 max-w-sm mx-auto">
-                    You are currently spectating live ball draws and winner announcements. Since you did not purchase a ticket before countdown ended, you are not participating in this round. Get ready to select your card when the next countdown begins!
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 

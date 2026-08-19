@@ -310,7 +310,7 @@ export const SelectedCardsPanel: React.FC<SelectedCardsPanelProps> = React.memo(
 
   if (mySelectedCards.length === 0) {
     return (
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-3 shadow-lg">
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-3 pb-safe shadow-lg">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-3 text-xs text-slate-400 px-1">
           <div className="flex items-center gap-2">
             <Grid className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -329,7 +329,7 @@ export const SelectedCardsPanel: React.FC<SelectedCardsPanelProps> = React.memo(
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-xl border-t-2 border-emerald-500/50 p-3 sm:p-4 shadow-[0_-12px_40px_rgba(0,0,0,0.85)]">
+    <div className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-xl border-t-2 border-emerald-500/50 p-3 sm:p-4 pb-safe shadow-[0_-12px_40px_rgba(0,0,0,0.85)]">
       <div className="max-w-3xl mx-auto space-y-2.5">
         {/* Header */}
         <div className="flex items-center justify-between text-xs font-black text-slate-200 px-1">

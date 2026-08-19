@@ -179,7 +179,7 @@ export const TelegramBotModal: React.FC<TelegramBotModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md h-[620px] flex flex-col shadow-2xl overflow-hidden relative">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md h-[88vh] max-h-[640px] min-h-[380px] flex flex-col shadow-2xl overflow-hidden relative">
         {/* Header Bar */}
         <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">

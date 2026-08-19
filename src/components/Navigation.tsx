@@ -112,13 +112,13 @@ export const Navigation: React.FC<NavigationProps> = ({
   return (
     <nav className="relative z-50">
       {/* Floating Side Bar Trigger Button */}
-      <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2">
+      <div className="fixed bottom-4 right-4 sm:bottom-5 sm:right-5 z-50 flex items-center gap-2 pb-safe pr-safe">
         <button
           onClick={() => {
             setIsOpen(!isOpen);
             triggerHaptic('light');
           }}
-          className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-2xl transition-all duration-300 backdrop-blur-xl border ${
+          className={`flex items-center gap-2 sm:gap-2.5 px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl shadow-2xl transition-all duration-300 backdrop-blur-xl border min-h-[44px] ${
             isOpen
               ? 'bg-amber-500 text-slate-950 border-amber-300 scale-95 shadow-amber-500/30'
               : 'bg-slate-900/90 text-white border-slate-700/80 hover:border-amber-400/50 hover:bg-slate-800 shadow-slate-950/80 active:scale-95'
@@ -162,21 +162,21 @@ export const Navigation: React.FC<NavigationProps> = ({
 
       {/* Dropdown Sidebar Drawer */}
       <div
-        className={`fixed top-0 right-0 bottom-0 z-50 w-80 max-w-[85vw] bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border-l border-slate-800 shadow-2xl transform transition-transform duration-300 ease-out flex flex-col ${
+        className={`fixed top-0 right-0 bottom-0 z-50 w-72 sm:w-80 max-w-[85vw] bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border-l border-slate-800 shadow-2xl transform transition-transform duration-300 ease-out flex flex-col pt-safe pb-safe ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
         {/* Sidebar Header */}
-        <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-yellow-600 flex items-center justify-center font-black text-slate-950 shadow-md">
+        <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-amber-400 to-yellow-600 flex items-center justify-center font-black text-slate-950 shadow-md shrink-0">
               🎱
             </div>
-            <div>
-              <div className="text-sm font-black text-white tracking-wide flex items-center gap-1.5">
+            <div className="min-w-0">
+              <div className="text-xs sm:text-sm font-black text-white tracking-wide flex items-center gap-1.5 truncate">
                 YABEDE <span className="text-amber-400">BINGO</span>
               </div>
-              <div className="text-[10px] text-slate-400 font-medium">
+              <div className="text-[10px] text-slate-400 font-medium truncate">
                 {language === 'am' ? 'የአሰሳ ምናሌ' : 'Navigation Menu'}
               </div>
             </div>
@@ -187,14 +187,14 @@ export const Navigation: React.FC<NavigationProps> = ({
               setIsOpen(false);
               triggerHaptic('light');
             }}
-            className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+            className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white transition shrink-0 min-h-[36px] min-w-[36px] flex items-center justify-center"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Sidebar Items List */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-1.5 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-1.5 custom-scrollbar">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -203,15 +203,15 @@ export const Navigation: React.FC<NavigationProps> = ({
               <button
                 key={tab.id}
                 onClick={() => handleSelectTab(tab.id)}
-                className={`w-full flex items-center justify-between p-3 rounded-2xl transition-all duration-200 text-left border ${
+                className={`w-full flex items-center justify-between p-2.5 sm:p-3 rounded-2xl transition-all duration-200 text-left border min-h-[44px] ${
                   isActive
                     ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-300 border-amber-500/40 shadow-lg shadow-amber-500/10 font-bold'
                     : 'bg-slate-800/40 hover:bg-slate-800 text-slate-300 hover:text-white border-transparent hover:border-slate-700/60'
                 }`}
               >
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                   <div
-                    className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shrink-0 ${
+                    className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition-colors shrink-0 ${
                       isActive
                         ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-400/20'
                         : 'bg-slate-800 text-slate-400'
@@ -221,15 +221,15 @@ export const Navigation: React.FC<NavigationProps> = ({
                   </div>
 
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 sm:gap-2">
                       <span className="text-xs font-bold truncate leading-tight">
                         {tab.label}
                       </span>
                       {tab.badge && (
                         <span
-                          className={`text-[9px] font-black px-1.5 py-0.5 rounded-full text-white ${
+                          className={`text-[8px] sm:text-[9px] font-black px-1.5 py-0.5 rounded-full text-white ${
                             tab.badgeColor || 'bg-red-500'
-                          } animate-pulse`}
+                          } animate-pulse shrink-0`}
                         >
                           {tab.badge}
                         </span>
@@ -252,8 +252,8 @@ export const Navigation: React.FC<NavigationProps> = ({
         </div>
 
         {/* Sidebar Footer */}
-        <div className="p-4 border-t border-slate-800/80 bg-slate-950/60 space-y-2">
-          <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+        <div className="p-3.5 sm:p-4 border-t border-slate-800/80 bg-slate-950/60 space-y-2">
+          <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-400 px-1">
             <span className="flex items-center gap-1 text-emerald-400 font-bold">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               {language === 'am' ? 'ስርዓት ዝግጁ ነው' : 'Live System Online'}
@@ -261,9 +261,9 @@ export const Navigation: React.FC<NavigationProps> = ({
             <span className="text-[10px] text-slate-500 font-mono">v2.6.0</span>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-amber-300 text-[11px]">
-            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-            <span className="text-[10px] leading-tight">
+          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-amber-300 text-[10px] sm:text-[11px]">
+            <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
+            <span className="text-[10px] leading-tight truncate">
               {language === 'am'
                 ? 'በቴሌብር እና ሲቢኢ ፈጣን ጨዋታ እና ገቢ/ወጪ'
                 : 'Instant 75-Ball Multiplayer Gaming'}

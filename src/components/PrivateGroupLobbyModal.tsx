@@ -56,6 +56,9 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
   const [copiedCode, setCopiedCode] = useState(false);
   const [showCardSelection, setShowCardSelection] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [memberToRemove, setMemberToRemove] = useState<string | null>(null);
+  const [cancellationNotice, setCancellationNotice] = useState<string | null>(null);
 
   // Fetch initial details
   const fetchGroupDetails = async () => {
@@ -134,8 +137,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
         const handleGroupCancelled = (data: { groupId: string; group?: PrivateGroup; reason?: string }) => {
           if (data.groupId === groupId) {
             if (data.group) setGroup(data.group);
-            alert(`Private group game cancelled: ${data.reason || 'Cancelled by host'}. All tickets have been refunded.`);
-            onClose();
+            setCancellationNotice(data.reason || 'Group game has been cancelled by host. All tickets were refunded.');
           }
         };
 
@@ -317,10 +319,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
   };
 
   const handleCancelGame = async () => {
-    if (!confirm('Are you sure you want to cancel this game? All tickets will be 100% refunded to players.')) {
-      return;
-    }
-
+    setShowCancelConfirm(false);
     setActionError(null);
     try {
       const res = await fetch(apiUrl('/api/private-groups/cancel'), {
@@ -375,7 +374,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
   };
 
   const handleRemoveMember = async (targetUserId: string) => {
-    if (!confirm('Remove member and refund their tickets?')) return;
+    setMemberToRemove(null);
 
     try {
       const res = await fetch(apiUrl('/api/private-groups/remove-member'), {
@@ -423,16 +422,16 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
     <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-end sm:items-center justify-center p-2 sm:p-4 animate-in fade-in">
       <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col justify-between overflow-hidden">
         {/* Header Bar */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-black text-xl">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-black text-lg sm:text-xl shrink-0">
               🎟️
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-black text-white">{group.name}</h3>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h3 className="text-base sm:text-lg font-black text-white truncate max-w-[140px] sm:max-w-none">{group.name}</h3>
                 <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide border ${
+                  className={`px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black tracking-wide border shrink-0 ${
                     group.status === 'PLAYING'
                       ? 'bg-red-500/10 text-red-400 border-red-500/30 animate-pulse'
                       : group.status === 'COUNTDOWN'
@@ -445,7 +444,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
                   {group.status}
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-[11px] sm:text-xs text-slate-400 truncate">
                 Host: <span className="text-amber-300 font-bold">@{group.hostName}</span> • Code:{' '}
                 <span className="text-emerald-400 font-extrabold">{group.code}</span>
                 {group.gameReferenceId && (
@@ -457,34 +456,36 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <button
               onClick={handleManualRefreshGroup}
               disabled={isRefreshing}
               title="Refresh Group Status"
               className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 active:scale-95 transition disabled:opacity-50 cursor-pointer"
             >
-              <RefreshCw className={`w-4 h-4 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
 
             <button
               onClick={handleCopyCode}
               className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center gap-1"
+              title="Copy Code"
             >
-              <Copy className="w-4 h-4" />
-              <span>{copiedCode ? 'Copied!' : 'Code'}</span>
+              <Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">{copiedCode ? 'Copied!' : 'Code'}</span>
             </button>
 
             <button
               onClick={handleShareLink}
               className="p-2 rounded-xl bg-amber-500 text-slate-950 font-black text-xs flex items-center gap-1 shadow-lg shadow-amber-500/20"
+              title="Invite Players"
             >
-              <Share2 className="w-4 h-4" />
-              <span>Invite</span>
+              <Share2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">Invite</span>
             </button>
 
             <button onClick={onClose} className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
         </div>
@@ -595,7 +596,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
 
                         {isHost && !mIsHost && group.status === 'LOBBY' && (
                           <button
-                            onClick={() => handleRemoveMember(m.userId)}
+                            onClick={() => setMemberToRemove(m.userId)}
                             className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800"
                             title="Remove member & refund tickets"
                           >
@@ -620,7 +621,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
                   </button>
 
                   <button
-                    onClick={handleCancelGame}
+                    onClick={() => setShowCancelConfirm(true)}
                     className="py-2.5 px-3 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold text-xs flex items-center justify-center gap-1 border border-red-500/30"
                   >
                     <Ban className="w-4 h-4" />
@@ -784,8 +785,8 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
 
       {/* Host Invite User Sub-Modal */}
       {showInviteModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 max-w-sm w-full space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
             <h4 className="text-base font-black text-white">Invite Registered User</h4>
             <input
               type="text"
@@ -808,6 +809,92 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
                 Send Invite
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Game Confirmation Dialog */}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-red-500/40 rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center font-black text-lg">
+                <Ban className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white">Cancel Private Game?</h4>
+                <p className="text-[11px] text-slate-400">This action will refund 100% of tickets to all players.</p>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setShowCancelConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
+              >
+                Keep Game
+              </button>
+              <button
+                onClick={handleCancelGame}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-black text-xs hover:bg-red-600 transition"
+              >
+                Yes, Cancel Game
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remove Member Confirmation Dialog */}
+      {memberToRemove && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-black">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white">Remove Player?</h4>
+                <p className="text-[11px] text-slate-400">Their tickets will be immediately refunded.</p>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setMemberToRemove(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleRemoveMember(memberToRemove)}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-black text-xs hover:bg-red-600 transition"
+              >
+                Confirm Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancellation Notice Alert */}
+      {cancellationNotice && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl text-center">
+            <div className="w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto text-2xl font-black">
+              ⚠️
+            </div>
+            <div>
+              <h4 className="text-sm font-black text-white">Private Game Cancelled</h4>
+              <p className="text-xs text-slate-300 mt-1">{cancellationNotice}</p>
+            </div>
+            <button
+              onClick={() => {
+                setCancellationNotice(null);
+                onClose();
+              }}
+              className="w-full py-2.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs hover:bg-amber-400 transition"
+            >
+              OK, Return to Lobby
+            </button>
           </div>
         </div>
       )}
