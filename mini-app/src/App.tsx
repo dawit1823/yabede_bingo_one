@@ -1,7 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
-import { db as firestoreDb } from '@shared/firebase';
 import { initTelegramApp, triggerHaptic } from './lib/telegramSDK';
 import { audioEngine } from './lib/audioEngine';
 import { logger } from '@shared/logger';
