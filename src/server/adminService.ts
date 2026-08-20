@@ -213,8 +213,10 @@ export class AdminService {
   ];
 
   constructor() {
-    this.initializeSuperAdmin().catch((err) => {
-      console.error('🔥 [AdminService] Error initializing SuperAdmin:', err);
+    setImmediate(() => {
+      this.initializeSuperAdmin().catch((err) => {
+        console.error('🔥 [AdminService] Error initializing SuperAdmin:', err);
+      });
     });
   }
 
@@ -310,7 +312,9 @@ export class AdminService {
       totalDeposited: 30000,
       totalWithdrawn: 5000,
     };
-    db.users.set(AdminService.FIXED_ADMIN_ID, adminUserObj);
+    if (typeof db !== 'undefined' && db?.users) {
+      db.users.set(AdminService.FIXED_ADMIN_ID, adminUserObj);
+    }
 
     // 2. Fetch or sync admin profile from Firestore via firestoreGuard
     await firestoreGuard.safeRead('admins', 'initializeSuperAdmin', async () => {
@@ -854,10 +858,10 @@ export class AdminService {
    * Calculates Real-Time Dashboard Metrics
    */
   public async getDashboardMetrics(): Promise<SystemMetrics> {
-    const allUsers = db.getAllUsers();
-    const deposits = db.deposits;
-    const withdrawals = db.withdrawals;
-    const rooms = Array.from(db.rooms.values());
+    const allUsers = (typeof db !== 'undefined' && db?.getAllUsers) ? db.getAllUsers() : [];
+    const deposits = (typeof db !== 'undefined' && db?.deposits) ? db.deposits : [];
+    const withdrawals = (typeof db !== 'undefined' && db?.withdrawals) ? db.withdrawals : [];
+    const rooms = (typeof db !== 'undefined' && db?.rooms) ? Array.from(db.rooms.values()) : [];
 
     const pendingDeposits = deposits.filter((d) => d.status === 'PENDING').length;
     const pendingWithdrawals = withdrawals.filter((w) => w.status === 'PENDING').length;
