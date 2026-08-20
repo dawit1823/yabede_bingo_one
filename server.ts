@@ -25,14 +25,17 @@ async function startServer() {
     'http://127.0.0.1:3000',
     'http://127.0.0.1:5173',
   ];
-  if (process.env.FRONTEND_URL) {
-    process.env.FRONTEND_URL.split(',').forEach((u) => {
-      const trimmed = u.trim().replace(/\/+$/, '');
-      if (trimmed && !allowedOrigins.includes(trimmed)) {
-        allowedOrigins.push(trimmed);
-      }
-    });
-  }
+  const customOrigins = [process.env.FRONTEND_URL, process.env.ADMIN_URL, process.env.ALLOWED_ORIGINS];
+  customOrigins.forEach((envVal) => {
+    if (envVal) {
+      envVal.split(',').forEach((u) => {
+        const trimmed = u.trim().replace(/\/+$/, '');
+        if (trimmed && !allowedOrigins.includes(trimmed)) {
+          allowedOrigins.push(trimmed);
+        }
+      });
+    }
+  });
 
   // Check Firebase Firestore connectivity
   try {
@@ -73,7 +76,7 @@ async function startServer() {
     }
 
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, x-admin-token');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
 
     if (req.method === 'OPTIONS') {

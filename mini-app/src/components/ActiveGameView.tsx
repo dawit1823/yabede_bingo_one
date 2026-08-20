@@ -1,11 +1,11 @@
 import React from 'react';
 import { Socket } from 'socket.io-client';
-import { BingoRoom, BingoTicket, ChatMessage, UserProfile, WinningPattern, RoomStats } from '../types';
+import { BingoRoom, BingoTicket, ChatMessage, UserProfile, WinningPattern, RoomStats } from '@shared/types';
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
 import { audioEngine, getAmharicNumberText } from '../lib/audioEngine';
-import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds } from '../lib/bingoUtils';
-import { apiUrl } from '../lib/apiConfig';
-import { logger } from '../lib/logger';
+import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds } from '@shared/bingoUtils';
+import { apiUrl } from '@shared/apiConfig';
+import { logger } from '@shared/logger';
 import confetti from 'canvas-confetti';
 import { MessageSquare, Send, Sparkles, Trophy, Volume2, CheckCircle2, AlertCircle, History, RefreshCw, ChevronDown, ChevronUp, Grid } from 'lucide-react';
 

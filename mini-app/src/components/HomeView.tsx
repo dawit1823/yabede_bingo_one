@@ -1,16 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { BingoRoom, UserProfile, PrivateGroup, GroupInvitation } from '../types';
-import { getRemainingSeconds } from '../lib/bingoUtils';
+import { BingoRoom, UserProfile, PrivateGroup, GroupInvitation } from '@shared/types';
+import { getRemainingSeconds } from '@shared/bingoUtils';
 import { triggerHaptic } from '../lib/telegramSDK';
-import { apiUrl } from '../lib/apiConfig';
+import { apiUrl } from '@shared/apiConfig';
 import {
-  Play,
-  Users,
-  Trophy,
-  Sparkles,
-  Gift,
   Zap,
-  ShieldCheck,
   Coins,
   PlusCircle,
   KeyRound,
@@ -19,7 +13,8 @@ import {
   CheckCircle2,
   XCircle,
   ArrowRight,
-  RefreshCw
+  RefreshCw,
+  Sparkles,
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -42,14 +37,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
   user,
   onJoinRoom,
   onSelectRoom,
-  onNavigateTab,
   onCreatePrivateGroup,
   onJoinPrivateGroupCode,
   onOpenPrivateGroupLobby,
   onRefreshRooms,
   language,
-  onlineUsersCount = 1,
-  isLoggedIn = false,
 }) => {
   const [activeMode, setActiveMode] = useState<'public' | 'private'>('public');
   const [myPrivateGroups, setMyPrivateGroups] = useState<PrivateGroup[]>([]);
@@ -232,95 +224,95 @@ export const HomeView: React.FC<HomeViewProps> = ({
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
               {publicRooms.map((room, idx) => {
-              const isPlaying = room.status === 'PLAYING';
+                const isPlaying = room.status === 'PLAYING';
 
-              return (
-                <div
-                  key={room.id || `room-${idx}`}
-                  onClick={() => {
-                    if (onJoinRoom) {
-                      onJoinRoom(room, 0);
-                    }
-                    triggerHaptic('medium');
-                  }}
-                  className="bg-slate-900 border border-slate-800 hover:border-amber-500/40 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-xl transition hover:shadow-amber-500/5 group relative overflow-hidden flex flex-col justify-between cursor-pointer"
-                >
-                  <div className="flex items-start justify-between gap-2 sm:gap-3">
-                    <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-xl sm:text-2xl group-hover:scale-105 transition-transform shrink-0">
-                        {room.icon}
+                return (
+                  <div
+                    key={room.id || `room-${idx}`}
+                    onClick={() => {
+                      if (onJoinRoom) {
+                        onJoinRoom(room, 0);
+                      }
+                      triggerHaptic('medium');
+                    }}
+                    className="bg-slate-900 border border-slate-800 hover:border-amber-500/40 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-xl transition hover:shadow-amber-500/5 group relative overflow-hidden flex flex-col justify-between cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between gap-2 sm:gap-3">
+                      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-xl sm:text-2xl group-hover:scale-105 transition-transform shrink-0">
+                          {room.icon}
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="text-sm sm:text-base font-extrabold text-white group-hover:text-amber-400 transition-colors truncate">
+                            {room.name}
+                          </h4>
+                          <p className="text-[11px] sm:text-xs text-slate-400 truncate">{room.description}</p>
+                          {room.gameReferenceId && (
+                            <div className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[9px] sm:text-[10px] font-mono font-bold text-amber-400 truncate max-w-[140px] sm:max-w-xs">
+                              Ref: {room.gameReferenceId}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <h4 className="text-sm sm:text-base font-extrabold text-white group-hover:text-amber-400 transition-colors truncate">
-                          {room.name}
-                        </h4>
-                        <p className="text-[11px] sm:text-xs text-slate-400 truncate">{room.description}</p>
-                        {room.gameReferenceId && (
-                          <div className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[9px] sm:text-[10px] font-mono font-bold text-amber-400 truncate max-w-[140px] sm:max-w-xs">
-                            Ref: {room.gameReferenceId}
-                          </div>
-                        )}
+
+                      <span
+                        className={`px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wide border shrink-0 ${
+                          isPlaying
+                            ? 'bg-red-500/10 text-red-400 border-red-500/30 animate-pulse'
+                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                        }`}
+                      >
+                        {isPlaying ? 'LIVE DRAWING' : `COUNTDOWN ${getRemainingSeconds(room)}s`}
+                      </span>
+                    </div>
+
+                    {/* Details */}
+                    <div className="grid grid-cols-3 gap-1.5 sm:gap-2 bg-slate-950/60 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 my-3 sm:my-4 border border-slate-800/80 text-center">
+                      <div>
+                        <span className="text-[9px] sm:text-[10px] text-slate-400 block">Ticket Price</span>
+                        <span className="text-xs sm:text-sm font-extrabold text-emerald-400">
+                          {room.ticketPrice} Birr
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="text-[9px] sm:text-[10px] text-slate-400 block">Prize Pool</span>
+                        <span className="text-xs sm:text-sm font-extrabold text-amber-400 truncate block">
+                          {(room.prizePool ?? 0).toLocaleString()} Birr
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="text-[9px] sm:text-[10px] text-slate-400 block">Players</span>
+                        <span className="text-xs sm:text-sm font-extrabold text-slate-200">
+                          {room.activePlayersCount}
+                        </span>
                       </div>
                     </div>
 
-                    <span
-                      className={`px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wide border shrink-0 ${
-                        isPlaying
-                          ? 'bg-red-500/10 text-red-400 border-red-500/30 animate-pulse'
-                          : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                      }`}
-                    >
-                      {isPlaying ? 'LIVE DRAWING' : `COUNTDOWN ${getRemainingSeconds(room)}s`}
-                    </span>
-                  </div>
-
-                  {/* Details */}
-                  <div className="grid grid-cols-3 gap-1.5 sm:gap-2 bg-slate-950/60 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 my-3 sm:my-4 border border-slate-800/80 text-center">
-                    <div>
-                      <span className="text-[9px] sm:text-[10px] text-slate-400 block">Ticket Price</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-emerald-400">
-                        {room.ticketPrice} Birr
-                      </span>
-                    </div>
-
-                    <div>
-                      <span className="text-[9px] sm:text-[10px] text-slate-400 block">Prize Pool</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-amber-400 truncate block">
-                        {(room.prizePool ?? 0).toLocaleString()} Birr
-                      </span>
-                    </div>
-
-                    <div>
-                      <span className="text-[9px] sm:text-[10px] text-slate-400 block">Players</span>
-                      <span className="text-xs sm:text-sm font-extrabold text-slate-200">
-                        {room.activePlayersCount}
-                      </span>
+                    {/* Select Card Action Button */}
+                    <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onSelectRoom) {
+                            onSelectRoom(room);
+                          }
+                          triggerHaptic('heavy');
+                        }}
+                        className="w-full min-h-[44px] py-2.5 sm:py-3 px-3 rounded-xl sm:rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:brightness-110 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20 active:scale-95 transition"
+                      >
+                        <Coins className="w-4 h-4" />
+                        <span>{language === 'am' ? 'ካርድ ይምረጡ' : 'Select Bingo Card'}</span>
+                      </button>
                     </div>
                   </div>
-
-                  {/* Select Card Action Button */}
-                  <div className="mt-1" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (onSelectRoom) {
-                          onSelectRoom(room);
-                        }
-                        triggerHaptic('heavy');
-                      }}
-                      className="w-full min-h-[44px] py-2.5 sm:py-3 px-3 rounded-xl sm:rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:brightness-110 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20 active:scale-95 transition"
-                    >
-                      <Coins className="w-4 h-4" />
-                      <span>{language === 'am' ? 'ካርድ ይምረጡ' : 'Select Bingo Card'}</span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    )}
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* PRIVATE GROUP BINGO TAB CONTENT */}
       {activeMode === 'private' && (

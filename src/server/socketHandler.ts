@@ -54,7 +54,6 @@ export function broadcastCardUpdate(
 }
 
 export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
-  const envFrontend = process.env.FRONTEND_URL || '';
   const allowedOrigins = [
     'https://melodic-ganache-8bad94.netlify.app',
     'http://localhost:3000',
@@ -63,14 +62,17 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
     'http://127.0.0.1:5173',
   ];
 
-  if (envFrontend) {
-    envFrontend.split(',').forEach((url) => {
-      const clean = url.trim().replace(/\/+$/, '');
-      if (clean && !allowedOrigins.includes(clean)) {
-        allowedOrigins.push(clean);
-      }
-    });
-  }
+  const envOrigins = [process.env.FRONTEND_URL, process.env.ADMIN_URL, process.env.ALLOWED_ORIGINS];
+  envOrigins.forEach((envVal) => {
+    if (envVal) {
+      envVal.split(',').forEach((url) => {
+        const clean = url.trim().replace(/\/+$/, '');
+        if (clean && !allowedOrigins.includes(clean)) {
+          allowedOrigins.push(clean);
+        }
+      });
+    }
+  });
 
   const io = new SocketIOServer(httpServer, {
     cors: {

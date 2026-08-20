@@ -22,8 +22,21 @@ import { emailService } from './emailService.js';
 import { broadcastCardUpdate, getIO } from './socketHandler.js';
 import { ticketManager } from './engine/TicketManager.js';
 import { firestoreGuard } from './firestoreGuard.js';
+import { requireAdminAuth } from './middleware/adminAuthMiddleware.js';
 
 export const apiRouter = Router();
+
+// Middleware: Strictly enforce Firebase Admin Authentication on all privileged /admin/* routes
+apiRouter.use('/admin', (req, res, next) => {
+  if (
+    req.path === '/auth/status' ||
+    req.path.startsWith('/auth/login') ||
+    req.path.startsWith('/auth/forgot-password')
+  ) {
+    return next();
+  }
+  return requireAdminAuth(req, res, next);
+});
 
 // --- SUPERADMIN AUTHENTICATION (dawitsolomon1823@gmail.com) ---
 apiRouter.get('/admin/auth/status', (req: Request, res: Response) => {
@@ -685,6 +698,11 @@ apiRouter.post('/admin/deposits/verify', (req: Request, res: Response) => {
   try {
     if (action === 'APPROVE') {
       const result = db.approveDeposit(depositId, adminId, clientIp);
+      const io = getIO();
+      if (io && result.user) {
+        io.emit('wallet:updated', { userId: result.user.id, newBalance: result.user.walletBalance, bonusBalance: result.user.bonusBalance });
+        io.emit('user:balance_updated', { userId: result.user.id, newBalance: result.user.walletBalance, bonusBalance: result.user.bonusBalance });
+      }
       res.json({ success: true, deposit: result.deposit, user: result.user });
     } else if (action === 'REJECT') {
       const dep = db.rejectDeposit(depositId, reason, adminId, clientIp);
@@ -728,6 +746,14 @@ apiRouter.post('/admin/withdrawals/process', (req: Request, res: Response) => {
 
   try {
     const updatedReq = db.processWithdrawal(withdrawalId, Boolean(approve), reason, adminId, clientIp);
+    const io = getIO();
+    if (io) {
+      const user = db.getUserById(updatedReq.userId);
+      if (user) {
+        io.emit('wallet:updated', { userId: user.id, newBalance: user.walletBalance, bonusBalance: user.bonusBalance });
+        io.emit('user:balance_updated', { userId: user.id, newBalance: user.walletBalance, bonusBalance: user.bonusBalance });
+      }
+    }
     res.json({ success: true, withdrawal: updatedReq });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -842,6 +868,12 @@ apiRouter.post('/admin/users/adjust-balance', (req: Request, res: Response) => {
       `Admin Balance Adjustment: ${reason || 'Manual Credit/Debit'}`,
       `ADM-${Date.now()}`
     );
+
+    const io = getIO();
+    if (io && result.user) {
+      io.emit('wallet:updated', { userId: result.user.id, newBalance: result.user.walletBalance, bonusBalance: result.user.bonusBalance });
+      io.emit('user:balance_updated', { userId: result.user.id, newBalance: result.user.walletBalance, bonusBalance: result.user.bonusBalance });
+    }
 
     db.logAudit(adminId, 'MANUAL_BALANCE_ADJUST', userId, `Amount: ${amount}, Reason: ${reason}`, reason, clientIp);
     res.json({ success: true, user: result.user });
@@ -1042,6 +1074,12 @@ apiRouter.post('/admin/rooms/update', (req: Request, res: Response) => {
     await adminDb.collection('rooms').doc(roomId).set(room, { merge: true });
   });
 
+  const io = getIO();
+  if (io) {
+    io.emit('room:updated', { room });
+    io.emit('rooms:updated', { rooms: Array.from(db.rooms.values()) });
+  }
+
   db.logAudit(adminId, 'UPDATE_ROOM', roomId, `Updated room configuration for ${room.name}`, 'Room Config', clientIp);
   res.json({ success: true, room });
 });
@@ -1055,6 +1093,11 @@ apiRouter.post('/admin/games/action', async (req: Request, res: Response) => {
       if (action === 'CANCEL') {
         const grp = db.cancelPrivateGroupGame(gameId, adminId, reason || 'Cancelled by SuperAdministrator');
         db.logAudit(adminId, 'CANCEL_PRIVATE_GAME', gameId, `Cancelled group game ${gameId}`, reason, clientIp);
+        const io = getIO();
+        if (io) {
+          io.to(gameId).to(`private_grp_${gameId}`).emit('private_group:cancelled', { groupId: gameId, reason });
+          io.to(gameId).to(`private_grp_${gameId}`).emit('private_group:updated', { group: grp.group, members: db.groupMembers.get(gameId) || [] });
+        }
         res.json({ success: true, group: grp });
         return;
       }
@@ -1084,6 +1127,12 @@ apiRouter.post('/admin/games/action', async (req: Request, res: Response) => {
           });
         });
 
+        const io = getIO();
+        if (io) {
+          io.emit('room:updated', { room });
+          io.emit('rooms:updated', { rooms: Array.from(db.rooms.values()) });
+        }
+
         db.logAudit(adminId, 'RESTART_COUNTDOWN', gameId, `Restarted countdown for ${room.name}`, 'Manual Restart', clientIp);
         res.json({ success: true, room });
         return;
@@ -1092,6 +1141,13 @@ apiRouter.post('/admin/games/action', async (req: Request, res: Response) => {
         room.currentBall = null;
         room.drawnBalls = [];
         db.rooms.set(gameId, room);
+
+        const io = getIO();
+        if (io) {
+          io.emit('room:updated', { room });
+          io.emit('rooms:updated', { rooms: Array.from(db.rooms.values()) });
+        }
+
         db.logAudit(adminId, 'CANCEL_GAME', gameId, `Cancelled game in ${room.name}`, reason, clientIp);
         res.json({ success: true, room });
         return;
@@ -1254,13 +1310,18 @@ apiRouter.post('/admin/tickets/cancel', async (req: Request, res: Response) => {
 
     // Refund user if applicable
     if (ticket.purchasePrice > 0) {
-      db.updateWalletBalance(
+      const refundResult = db.updateWalletBalance(
         ticket.userId,
         ticket.purchasePrice,
         'ADMIN_ADJUSTMENT',
         `Admin Refund for cancelled Bingo Card #${ticket.cardNumber} in ${ticket.roomId}`,
         `REFUND-${ticket.id}`
       );
+      const io = getIO();
+      if (io && refundResult.user) {
+        io.emit('wallet:updated', { userId: refundResult.user.id, newBalance: refundResult.user.walletBalance, bonusBalance: refundResult.user.bonusBalance });
+        io.emit('user:balance_updated', { userId: refundResult.user.id, newBalance: refundResult.user.walletBalance, bonusBalance: refundResult.user.bonusBalance });
+      }
     }
 
     db.logAudit(adminId, 'CANCEL_TICKET', ticketId, `Cancelled ticket #${ticket.cardNumber} for @${ticket.username}`, reason, clientIp);

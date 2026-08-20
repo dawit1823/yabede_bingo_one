@@ -938,7 +938,7 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen ${
+      className={`min-h-screen min-h-[100dvh] w-full max-w-full overflow-x-hidden flex flex-col ${
         theme === 'golden'
           ? 'theme-golden bg-[#150d0a] text-amber-50'
           : theme === 'light'
@@ -976,7 +976,7 @@ export default function App() {
       />
 
       {/* Page Views Content Container */}
-      <main className="max-w-3xl mx-auto px-2.5 sm:px-4 pt-3 sm:pt-5 w-full min-w-0">
+      <main className="max-w-3xl mx-auto px-2.5 sm:px-4 pt-3 sm:pt-5 w-full min-w-0 flex-1">
         {isMaintenanceMode && currentUser.role !== 'ADMIN' && activeTab !== 'admin' ? (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-5 shadow-2xl my-8">
             <div className="w-20 h-20 mx-auto bg-amber-500/10 border-2 border-amber-500/40 rounded-3xl flex items-center justify-center text-amber-400 shadow-xl animate-pulse">

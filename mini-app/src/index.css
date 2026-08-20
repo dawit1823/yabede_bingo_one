@@ -85,11 +85,7 @@ html, body {
   background: rgba(245, 158, 11, 0.8);
 }
 
-/* ==========================================================================
-   GOLDEN HOUR & THEME CUSTOMIZATIONS
-   ========================================================================== */
-
-/* Golden Hour Theme (Warm Sunset-Inspired Palette) */
+/* Golden Hour Theme */
 .theme-golden {
   background-color: #150d0a !important;
   background-image: radial-gradient(ellipse at 50% 0%, #3a1c10 0%, #1c0e09 50%, #100705 100%) !important;
@@ -173,5 +169,3 @@ html, body {
 .theme-light .text-slate-400 {
   color: #475569 !important;
 }
-
-
