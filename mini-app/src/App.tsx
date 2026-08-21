@@ -159,14 +159,14 @@ export default function App() {
     const initData = window.Telegram?.WebApp?.initData || '';
 
     if (initData) {
-      fetch(apiUrl('/api/auth/telegram-webapp-validate'), {
+      fetch(apiUrl('/api/auth/telegram'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ initData }),
       })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.authenticated && data.user) {
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && (data.authenticated || data.success) && data.user) {
             setCurrentUser(data.user);
             setIsLoggedIn(true);
             setTgAuthStatus('authenticated');
@@ -174,14 +174,28 @@ export default function App() {
               localStorage.setItem('ahun_jwt_token', data.token);
               localStorage.setItem('ahun_user_id', data.user.id);
             }
+          } else if (
+            res.status === 503 ||
+            data.error === 'FIRESTORE_QUOTA_EXCEEDED' ||
+            (data.message && data.message.toLowerCase().includes('quota'))
+          ) {
+            setTgAuthStatus('auth_error');
+            setTgAuthErrorMessage(
+              data.message || 'Database quota limit reached. Please try again in a few moments.'
+            );
+          } else if (res.status === 401 || data.error === 'INVALID_SIGNATURE') {
+            setTgAuthStatus('auth_error');
+            setTgAuthErrorMessage(
+              data.message || 'Telegram WebApp authentication signature check failed. Please open from Telegram.'
+            );
           } else {
             setTgAuthStatus('auth_error');
-            setTgAuthErrorMessage(data.error || 'Authentication signature check failed');
+            setTgAuthErrorMessage(data.message || data.error || 'Authentication service error');
           }
         })
-        .catch(() => {
+        .catch((netErr) => {
           setTgAuthStatus('auth_error');
-          setTgAuthErrorMessage('Could not connect to authentication service');
+          setTgAuthErrorMessage('Could not connect to authentication service: ' + (netErr?.message || 'Network error'));
         });
     } else {
       setTgAuthStatus('outside_telegram');
@@ -200,6 +214,9 @@ export default function App() {
     newSocket.on('connect', () => {
       logger.info('Connected to Ahun Bingo backend Socket.IO');
       newSocket.emit('users:get_online_count');
+      if (currentUser?.id) {
+        newSocket.emit('user:register', { userId: currentUser.id });
+      }
     });
 
     newSocket.on('presence:online_count', (data: { count: number }) => {
@@ -209,7 +226,7 @@ export default function App() {
     });
 
     newSocket.on('rooms:updated', (data: { rooms: BingoRoom[] }) => {
-      if (data && data.rooms) {
+      if (data && data.rooms && Array.isArray(data.rooms)) {
         setRooms(data.rooms);
         setActiveRoom((prev) => {
           if (!prev) return null;
@@ -256,10 +273,29 @@ export default function App() {
     newSocket.on('game:winner', (data: { roomId: string; winners: any[]; prizeAmount: number; pattern: string }) => {
       audioEngine.playWin();
       triggerHaptic('heavy');
+      if (data.winners && data.winners.length > 0) {
+        const myWin = data.winners.find((w: any) => w.userId === currentUser.id);
+        if (myWin) {
+          setWinNotification({
+            title: language === 'am' ? '🎉 እንኳን ደስ አለዎት! አሸንፈዋል!' : '🎉 Congratulations! You Won!',
+            message: language === 'am' ? `በቢንጎ ጨዋታ ${data.prizeAmount || myWin.prizeAmount || 0} ብር አሸንፈዋል!` : `You won ${data.prizeAmount || myWin.prizeAmount || 0} Birr in Bingo!`,
+            prizeAmount: data.prizeAmount || myWin.prizeAmount || 0,
+            roomName: activeRoom?.name || 'Bingo Game',
+          });
+        }
+      }
+    });
+
+    newSocket.on('game:reset', (data: { roomId: string; room?: BingoRoom }) => {
+      if (data?.room) {
+        setRooms((prev) => prev.map((r) => (r.id === data.room!.id ? data.room! : r)));
+        setActiveRoom((prev) => (prev && prev.id === data.room!.id ? data.room! : prev));
+      }
+      setUserTickets([]);
     });
 
     newSocket.on('system:maintenance_mode', (data: { enabled: boolean }) => {
-      setIsMaintenanceMode(data.enabled);
+      setIsMaintenanceMode(Boolean(data.enabled));
     });
 
     newSocket.on('settings:updated', (data: { settings?: any; registrationBonusCredit?: number }) => {
@@ -271,30 +307,46 @@ export default function App() {
       }
     });
 
+    newSocket.on('bonus:updated', (data: { bonusCredit?: number; registrationBonusCredit?: number }) => {
+      if (typeof data?.registrationBonusCredit === 'number') {
+        setRegistrationBonusCredit(data.registrationBonusCredit);
+      }
+    });
+
     newSocket.on('wallet:updated', (data: { userId: string; newBalance?: number; bonusBalance?: number }) => {
-      setCurrentUser((prev) => {
-        if (prev && prev.id === data.userId) {
-          return {
-            ...prev,
-            walletBalance: data.newBalance !== undefined ? data.newBalance : prev.walletBalance,
-            bonusBalance: data.bonusBalance !== undefined ? data.bonusBalance : prev.bonusBalance,
-          };
-        }
-        return prev;
-      });
+      if (data && data.userId === currentUser.id) {
+        setCurrentUser((prev) => ({
+          ...prev,
+          walletBalance: typeof data.newBalance === 'number' ? data.newBalance : prev.walletBalance,
+          bonusBalance: typeof data.bonusBalance === 'number' ? data.bonusBalance : prev.bonusBalance,
+        }));
+        // Refresh transaction list
+        fetch(apiUrl(`/api/wallet/transactions?userId=${currentUser.id}`))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((tData) => {
+            if (tData?.transactions) setTransactions(tData.transactions);
+          })
+          .catch(() => {});
+      }
     });
 
     newSocket.on('user:balance_updated', (data: { userId: string; newBalance?: number; bonusBalance?: number }) => {
-      setCurrentUser((prev) => {
-        if (prev && prev.id === data.userId) {
-          return {
-            ...prev,
-            walletBalance: data.newBalance !== undefined ? data.newBalance : prev.walletBalance,
-            bonusBalance: data.bonusBalance !== undefined ? data.bonusBalance : prev.bonusBalance,
-          };
-        }
-        return prev;
-      });
+      if (data && data.userId === currentUser.id) {
+        setCurrentUser((prev) => ({
+          ...prev,
+          walletBalance: typeof data.newBalance === 'number' ? data.newBalance : prev.walletBalance,
+          bonusBalance: typeof data.bonusBalance === 'number' ? data.bonusBalance : prev.bonusBalance,
+        }));
+      }
+    });
+
+    newSocket.on('ticket:bought', (data: { roomId: string; ticket: BingoTicket; userId: string }) => {
+      if (data && data.userId === currentUser.id && data.ticket) {
+        setUserTickets((prev) => {
+          const exists = prev.some((t) => t.id === data.ticket.id);
+          return exists ? prev.map((t) => (t.id === data.ticket.id ? data.ticket : t)) : [...prev, data.ticket];
+        });
+      }
     });
 
     setSocket(newSocket);
@@ -302,7 +354,7 @@ export default function App() {
     return () => {
       newSocket.disconnect();
     };
-  }, [language]);
+  }, [language, currentUser.id]);
 
   // Fetch initial rooms, wallet transactions, leaderboard
   const refreshRooms = useCallback(() => {

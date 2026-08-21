@@ -2,7 +2,7 @@ import React from 'react';
 import { UserProfile } from '../types';
 import { triggerHaptic } from '../lib/telegramSDK';
 import { audioEngine } from '../lib/audioEngine';
-import { Wallet, Volume2, VolumeX, PlusCircle, Shield, Award, Sunset, Moon, Sun, ChevronDown, Sparkles, Check } from 'lucide-react';
+import { Wallet, Volume2, VolumeX, PlusCircle, Award, Sunset, Moon, Sun, ChevronDown, Sparkles, Check } from 'lucide-react';
 
 export type ThemeMode = 'dark' | 'golden' | 'light';
 
@@ -11,7 +11,6 @@ interface HeaderBarProps {
   isLoggedIn?: boolean;
   registrationBonusCredit?: number;
   onOpenDeposit: () => void;
-  onOpenAdmin?: () => void;
   onOpenAuth?: () => void;
   language: 'en' | 'am';
   theme?: ThemeMode;
@@ -23,7 +22,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   isLoggedIn = true,
   registrationBonusCredit,
   onOpenDeposit,
-  onOpenAdmin,
   onOpenAuth,
   language,
   theme = 'dark',

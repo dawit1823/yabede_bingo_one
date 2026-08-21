@@ -1,9 +1,11 @@
 /**
  * Production API & Socket Configuration
  * Reads from environment variables (VITE_API_URL / VITE_SOCKET_URL)
- * for cross-domain static frontends (e.g. Netlify) communicating with the Render backend,
+ * for cross-domain static frontends (e.g. Cloudflare Workers) communicating with the Render backend,
  * while automatically falling back to relative paths in local/preview environments.
  */
+
+const DEFAULT_RENDER_BACKEND = 'https://yabede-bingo-one.onrender.com';
 
 const getEnvVar = (key: string): string => {
   if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
@@ -27,15 +29,18 @@ const isLocalOrPreviewEnvironment = (): boolean => {
   );
 };
 
-// Base Backend URLs from environment variables
-export const VITE_API_URL = getEnvVar('VITE_API_URL').replace(/\/+$/, '');
-export const VITE_SOCKET_URL =
-  getEnvVar('VITE_SOCKET_URL').replace(/\/+$/, '') || VITE_API_URL;
+// Base Backend URLs from environment variables (falling back to production Render backend in cross-origin production)
+const rawApiUrl = getEnvVar('VITE_API_URL').replace(/\/+$/, '');
+const rawSocketUrl = getEnvVar('VITE_SOCKET_URL').replace(/\/+$/, '');
+
+export const VITE_API_URL = rawApiUrl;
+export const VITE_SOCKET_URL = rawSocketUrl || rawApiUrl;
 
 /**
  * Resolves full API endpoint URL
  * - When VITE_API_URL is configured: returns 'https://<RENDER-BACKEND-URL>/api/...'
  * - In local dev / AI Studio preview (without custom VITE_API_URL): returns relative path '/api/...'
+ * - In production static deployment: returns 'https://yabede-bingo-one.onrender.com/api/...'
  */
 export function apiUrl(path: string): string {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
@@ -45,19 +50,15 @@ export function apiUrl(path: string): string {
   if (isLocalOrPreviewEnvironment()) {
     return cleanPath;
   }
-  // If running on Netlify without VITE_API_URL configured at build time, log an actionable warning
-  if (typeof window !== 'undefined' && window.location.hostname.includes('netlify.app')) {
-    console.error(
-      `[API Routing Warning] VITE_API_URL is not set. Requests to '${cleanPath}' will fail because Netlify does not host the backend API.`
-    );
-  }
-  return cleanPath;
+  // Production fallback to the Render backend
+  return `${DEFAULT_RENDER_BACKEND}${cleanPath}`;
 }
 
 /**
  * Resolves Socket.IO server connection URL
  * - When VITE_SOCKET_URL is configured: returns 'https://<RENDER-BACKEND-URL>'
  * - In local dev / AI Studio preview: returns same-origin or relative
+ * - In production static deployment: returns 'https://yabede-bingo-one.onrender.com'
  */
 export function getSocketUrl(): string {
   if (VITE_SOCKET_URL) {
@@ -66,6 +67,7 @@ export function getSocketUrl(): string {
   if (isLocalOrPreviewEnvironment()) {
     return typeof window !== 'undefined' ? window.location.origin : '';
   }
-  return '';
+  return DEFAULT_RENDER_BACKEND;
 }
+
 

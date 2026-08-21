@@ -13,13 +13,15 @@ async function startServer() {
 
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-  const FRONTEND_URL = process.env.FRONTEND_URL || 'https://melodic-ganache-8bad94.netlify.app';
+  const FRONTEND_URL = process.env.FRONTEND_URL || 'https://yabede-bingo-mini-app.dawitsolomon1823.workers.dev';
+  const ADMIN_URL = process.env.ADMIN_URL || 'https://yabede-bingo-admin.dawitsolomon1823.workers.dev';
   const firebaseProjectId = process.env.FIREBASE_PROJECT_ID || config.projectId || 'exalted-strata-468319-j8';
   const firestoreDatabaseId = process.env.FIREBASE_FIRESTORE_DATABASE_ID || config.firestoreDatabaseId || 'ai-studio-ahunbingotelegra-e5b271a0-ddaa-40da-8f1e-b1ac2490e1df';
 
   // Allowed origins list
   const allowedOrigins = [
-    'https://melodic-ganache-8bad94.netlify.app',
+    'https://yabede-bingo-mini-app.dawitsolomon1823.workers.dev',
+    'https://yabede-bingo-admin.dawitsolomon1823.workers.dev',
     'http://localhost:3000',
     'http://localhost:5173',
     'http://127.0.0.1:3000',
@@ -62,7 +64,8 @@ async function startServer() {
     if (origin) {
       if (
         allowedOrigins.includes(origin) ||
-        origin.endsWith('.netlify.app') ||
+        origin.endsWith('.workers.dev') ||
+        origin.endsWith('.pages.dev') ||
         origin.includes('localhost') ||
         origin.includes('127.0.0.1') ||
         origin.includes('run.app')

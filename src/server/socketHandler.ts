@@ -55,7 +55,8 @@ export function broadcastCardUpdate(
 
 export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
   const allowedOrigins = [
-    'https://melodic-ganache-8bad94.netlify.app',
+    'https://yabede-bingo-mini-app.dawitsolomon1823.workers.dev',
+    'https://yabede-bingo-admin.dawitsolomon1823.workers.dev',
     'http://localhost:3000',
     'http://localhost:5173',
     'http://127.0.0.1:3000',
@@ -81,9 +82,10 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
         if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
           return callback(null, true);
         }
-        // Allow netlify apps and development hosts automatically
+        // Allow cloudflare workers apps and development hosts automatically
         if (
-          origin.endsWith('.netlify.app') ||
+          origin.endsWith('.workers.dev') ||
+          origin.endsWith('.pages.dev') ||
           origin.includes('localhost') ||
           origin.includes('127.0.0.1') ||
           origin.includes('run.app')

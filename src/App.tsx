@@ -1,22 +1,17 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
-import { db as firestoreDb } from './lib/firebase';
 import { initTelegramApp, triggerHaptic } from './lib/telegramSDK';
 import { audioEngine } from './lib/audioEngine';
 import { logger } from './lib/logger';
 import {
-  AuditLog,
   BingoRoom,
   BingoTicket,
   ChatMessage,
   LeaderboardEntry,
   PaymentProviderType,
   ReferralStat,
-  SystemMetrics,
   UserProfile,
   WalletTransaction,
-  WithdrawalRequest,
 } from './types';
 
 // Components
@@ -30,8 +25,6 @@ import { WalletView } from './components/WalletView';
 import { BonusesView } from './components/BonusesView';
 import { LeaderboardView } from './components/LeaderboardView';
 import { GameHistoryView } from './components/GameHistoryView';
-import { AdminDashboard } from './components/AdminDashboard';
-import { AdminLoginModal } from './components/AdminLoginModal';
 import { DocsView } from './components/DocsView';
 import { AuthModal } from './components/AuthModal';
 import { CreatePrivateGroupModal } from './components/CreatePrivateGroupModal';
@@ -83,25 +76,6 @@ const DEMO_USERS: UserProfile[] = [
     totalDeposited: 2000,
     totalWithdrawn: 800,
   },
-  {
-    id: 'usr_admin',
-    telegramId: 99999999,
-    username: 'yabede_admin',
-    firstName: 'Yabede',
-    lastName: 'Manager',
-    photoUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-    language: 'en',
-    referralCode: 'YABEDEVIP',
-    walletBalance: 25000,
-    bonusBalance: 5000,
-    vipLevel: 5,
-    status: 'ACTIVE',
-    createdAt: new Date().toISOString(),
-    totalWins: 142,
-    totalGamesPlayed: 320,
-    totalDeposited: 30000,
-    totalWithdrawn: 5000,
-  },
 ];
 
 export default function App() {
@@ -134,15 +108,6 @@ export default function App() {
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [referralStat, setReferralStat] = useState<ReferralStat | undefined>();
-
-  // Admin States
-  const [adminMetrics, setAdminMetrics] = useState<SystemMetrics | null>(null);
-  const [pendingWithdrawals, setPendingWithdrawals] = useState<WithdrawalRequest[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
-    return Boolean(sessionStorage.getItem('ahun_admin_token'));
-  });
-  const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
 
   // Card Selection Grid State
   const [selectedCardRoom, setSelectedCardRoom] = useState<BingoRoom | null>(null);
@@ -574,31 +539,56 @@ export default function App() {
       }
     });
 
+    newSocket.on('wallet:updated', (data: { userId: string; newBalance?: number; bonusBalance?: number }) => {
+      if (data && data.userId === currentUser.id) {
+        setCurrentUser((prev) => ({
+          ...prev,
+          walletBalance: typeof data.newBalance === 'number' ? data.newBalance : prev.walletBalance,
+          bonusBalance: typeof data.bonusBalance === 'number' ? data.bonusBalance : prev.bonusBalance,
+        }));
+        // Refresh transaction history when wallet updates
+        fetch(apiUrl(`/api/wallet/transactions?userId=${currentUser.id}`))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((tData) => {
+            if (tData?.transactions) setTransactions(tData.transactions);
+          })
+          .catch(() => {});
+      }
+    });
+
+    newSocket.on('user:balance_updated', (data: { userId: string; newBalance?: number; bonusBalance?: number }) => {
+      if (data && data.userId === currentUser.id) {
+        setCurrentUser((prev) => ({
+          ...prev,
+          walletBalance: typeof data.newBalance === 'number' ? data.newBalance : prev.walletBalance,
+          bonusBalance: typeof data.bonusBalance === 'number' ? data.bonusBalance : prev.bonusBalance,
+        }));
+      }
+    });
+
+    newSocket.on('settings:updated', () => {
+      fetchData();
+    });
+
+    newSocket.on('rooms:updated', (data: { rooms: BingoRoom[] }) => {
+      if (data && data.rooms && Array.isArray(data.rooms)) {
+        setRooms(data.rooms);
+      }
+    });
+
+    newSocket.on('room:updated', (data: { room: BingoRoom }) => {
+      if (data && data.room) {
+        setRooms((prev) => prev.map((r) => (r.id === data.room.id ? data.room : r)));
+        setActiveRoom((prev) => (prev && prev.id === data.room.id ? data.room : prev));
+      }
+    });
+
     setSocket(newSocket);
 
     return () => {
       newSocket.disconnect();
     };
   }, [currentUser.id]);
-
-  // Real-time Firestore synchronization for settings
-  useEffect(() => {
-    const unsubSettings = onSnapshot(
-      doc(firestoreDb, 'settings', 'platformConfig'),
-      (snapshot) => {
-        if (snapshot.exists()) {
-          fetchData();
-        }
-      },
-      (err) => {
-        logger.debug('Firestore settings sync snapshot notice:', err.message);
-      }
-    );
-
-    return () => {
-      unsubSettings();
-    };
-  }, []);
 
   // Client-side 1-second ticker recalculating remaining time from endsAt
   useEffect(() => {
@@ -673,17 +663,6 @@ export default function App() {
         const lData = await lbRes.json();
         setLeaderboard(lData.leaderboard);
       }
-
-      // Admin Metrics
-      if (currentUser.id === 'usr_admin') {
-        const admRes = await fetch(apiUrl('/api/admin/metrics'));
-        if (admRes.ok) {
-          const aData = await admRes.json();
-          setAdminMetrics(aData.metrics);
-          setPendingWithdrawals(aData.pendingWithdrawals);
-          setAuditLogs(aData.auditLogs);
-        }
-      }
     } catch {
       // Fallback
     }
@@ -691,32 +670,6 @@ export default function App() {
 
   useEffect(() => {
     fetchData();
-
-    // Persistent User & Transaction Ledger Firestore Listeners
-    const unsubscribeUser = onSnapshot(
-      doc(firestoreDb, 'users', currentUser.id),
-      (docSnap) => {
-        if (docSnap.exists()) {
-          setCurrentUser({ id: docSnap.id, ...(docSnap.data() as UserProfile) });
-        }
-      },
-      (err) => logger.debug('User snapshot listener note:', err.message)
-    );
-
-    const qTx = query(collection(firestoreDb, 'transactions'), where('userId', '==', currentUser.id));
-    const unsubscribeTx = onSnapshot(
-      qTx,
-      (snapshot) => {
-        const txList: WalletTransaction[] = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as WalletTransaction) }));
-        setTransactions(txList);
-      },
-      (err) => logger.debug('Transactions snapshot listener note:', err.message)
-    );
-
-    return () => {
-      unsubscribeUser();
-      unsubscribeTx();
-    };
   }, [currentUser.id]);
 
   // Actions
@@ -819,46 +772,7 @@ export default function App() {
     }
   };
 
-  // Admin Actions
-  const handleProcessWithdrawal = async (withdrawalId: string, approve: boolean) => {
-    try {
-      await fetch(apiUrl('/api/admin/withdrawals/process'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ withdrawalId, approve, adminId: currentUser.id }),
-      });
-      await fetchData();
-    } catch (err) {
-      console.warn('Withdrawal processing note:', err);
-    }
-  };
-
-  const handleSearchUsers = async (query: string): Promise<UserProfile[]> => {
-    try {
-      const res = await fetch(apiUrl(`/api/admin/users?q=${encodeURIComponent(query)}`));
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.users || [];
-    } catch (err) {
-      console.warn('Search users note:', err);
-      return [];
-    }
-  };
-
-  const handleAdjustBalance = async (userId: string, amount: number, reason: string) => {
-    try {
-      await fetch(apiUrl('/api/admin/users/adjust-balance'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, amount, reason, adminId: currentUser.id }),
-      });
-      await fetchData();
-    } catch (err) {
-      console.warn('Adjust balance note:', err);
-    }
-  };
-
-  if (tgAuthStatus === 'outside_telegram' && activeTab !== 'admin' && !import.meta.env.DEV) {
+  if (tgAuthStatus === 'outside_telegram' && !import.meta.env.DEV) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 relative overflow-hidden">
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -886,20 +800,13 @@ export default function App() {
             >
               <span>🎮 Open Telegram Bot (@yabede_bingo_bot)</span>
             </a>
-
-            <button
-              onClick={() => setActiveTab('admin')}
-              className="w-full py-2.5 px-4 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-300 transition-colors"
-            >
-              🔑 Administrator Access
-            </button>
           </div>
         </div>
       </div>
     );
   }
 
-  if (tgAuthStatus === 'auth_error' && activeTab !== 'admin') {
+  if (tgAuthStatus === 'auth_error') {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 relative overflow-hidden">
         <div className="max-w-md w-full bg-slate-900/90 border border-red-500/30 rounded-3xl p-6 md:p-8 text-center shadow-2xl backdrop-blur-xl relative z-10 space-y-6">
@@ -923,13 +830,6 @@ export default function App() {
             >
               <span>🔄 Re-open from Telegram Bot</span>
             </a>
-
-            <button
-              onClick={() => setActiveTab('admin')}
-              className="w-full py-2 px-4 rounded-xl bg-slate-800 text-xs text-slate-400 hover:text-white transition"
-            >
-              Administrator Panel
-            </button>
           </div>
         </div>
       </div>
@@ -968,7 +868,6 @@ export default function App() {
         isLoggedIn={isLoggedIn}
         registrationBonusCredit={registrationBonusCredit}
         onOpenDeposit={() => setActiveTab('wallet')}
-        onOpenAdmin={() => setActiveTab('admin')}
         onOpenAuth={() => setIsAuthOpen(true)}
         language={language}
         theme={theme}
@@ -977,7 +876,7 @@ export default function App() {
 
       {/* Page Views Content Container */}
       <main className="max-w-3xl mx-auto px-2.5 sm:px-4 pt-3 sm:pt-5 w-full min-w-0 flex-1">
-        {isMaintenanceMode && currentUser.role !== 'ADMIN' && activeTab !== 'admin' ? (
+        {isMaintenanceMode ? (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-5 shadow-2xl my-8">
             <div className="w-20 h-20 mx-auto bg-amber-500/10 border-2 border-amber-500/40 rounded-3xl flex items-center justify-center text-amber-400 shadow-xl animate-pulse">
               <Wrench className="w-10 h-10" />
@@ -988,12 +887,6 @@ export default function App() {
                 The platform is currently undergoing scheduled maintenance and system optimization. All active game rooms and wallet services will resume shortly.
               </p>
             </div>
-            <button
-              onClick={() => setActiveTab('admin')}
-              className="px-6 py-2.5 rounded-2xl bg-amber-500 text-slate-950 font-black text-xs hover:bg-amber-400 transition"
-            >
-              Admin Portal Access
-            </button>
           </div>
         ) : (
           <>
@@ -1133,33 +1026,6 @@ export default function App() {
               <LeaderboardView entries={leaderboard} language={language} />
             )}
 
-            {activeTab === 'admin' && (
-              isAdminAuthenticated ? (
-                <AdminDashboard
-                  metrics={adminMetrics}
-                  pendingWithdrawals={pendingWithdrawals}
-                  onProcessWithdrawal={handleProcessWithdrawal}
-                  onSearchUsers={handleSearchUsers}
-                  onAdjustBalance={handleAdjustBalance}
-                  auditLogs={auditLogs}
-                  onLogout={() => {
-                    sessionStorage.removeItem('ahun_admin_token');
-                    setIsAdminAuthenticated(false);
-                    setActiveTab('home');
-                  }}
-                />
-              ) : (
-                <AdminLoginModal
-                  isOpen={true}
-                  onClose={() => setActiveTab('home')}
-                  onAdminAuthSuccess={(token) => {
-                    setIsAdminAuthenticated(true);
-                  }}
-                  language={language}
-                />
-              )
-            )}
-
             {activeTab === 'docs' && <DocsView />}
           </>
         )}
@@ -1172,7 +1038,6 @@ export default function App() {
         activeTab={activeTab}
         onChangeTab={setActiveTab}
         hasActiveGameRoom={Boolean(activeRoom)}
-        isAdmin={currentUser.id === 'usr_admin'}
         language={language}
       />
 

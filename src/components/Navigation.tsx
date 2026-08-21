@@ -7,7 +7,6 @@ import {
   Wallet,
   Gift,
   Trophy,
-  ShieldAlert,
   FileText,
   Menu,
   X,
@@ -15,13 +14,12 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-export type TabType = 'home' | 'active_game' | 'history' | 'wallet' | 'bonuses' | 'leaderboard' | 'admin' | 'docs';
+export type TabType = 'home' | 'active_game' | 'history' | 'wallet' | 'bonuses' | 'leaderboard' | 'docs';
 
 interface NavigationProps {
   activeTab: TabType;
   onChangeTab: (tab: TabType) => void;
   hasActiveGameRoom?: boolean;
-  isAdmin?: boolean;
   language: 'en' | 'am';
 }
 
@@ -29,7 +27,6 @@ export const Navigation: React.FC<NavigationProps> = ({
   activeTab,
   onChangeTab,
   hasActiveGameRoom = false,
-  isAdmin: _isAdmin = false,
   language,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -74,12 +71,6 @@ export const Navigation: React.FC<NavigationProps> = ({
       label: language === 'am' ? 'የጨዋታ ታሪክ' : 'Game History',
       description: language === 'am' ? 'ያለፉ ጨዋታዎች እና ትኬቶች' : 'Past Rounds & Result Verification',
       icon: History,
-    },
-    {
-      id: 'admin' as TabType,
-      label: language === 'am' ? 'አድሚን ፖርታል' : 'Admin Portal',
-      description: language === 'am' ? 'የስርዓት ቁጥጥር' : 'Platform Control & Metrics',
-      icon: ShieldAlert,
     },
     {
       id: 'docs' as TabType,

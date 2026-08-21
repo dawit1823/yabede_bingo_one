@@ -54,14 +54,16 @@ export async function requireAdminAuth(
     // 2. Authorize admin identity
     const email = (decoded.email || '').toLowerCase().trim();
     const isFixedSuperAdmin = email === AdminService.FIXED_ADMIN_EMAIL.toLowerCase();
+    const cachedAdmin = adminService.getAdminProfile();
+    const isCachedAdmin = cachedAdmin && cachedAdmin.email.toLowerCase() === email;
     const hasAdminClaim =
       decoded.admin === true ||
       decoded.role === 'SuperAdmin' ||
       decoded.role === 'ADMIN';
 
-    // Verify status in Firestore 'admins' collection
+    // Verify status in Firestore 'admins' collection ONLY if not already authorized in-memory/token
     let isDbAdmin = false;
-    if (email) {
+    if (!isFixedSuperAdmin && !isCachedAdmin && !hasAdminClaim && email) {
       try {
         const adminDoc = await adminDb.collection('admins').doc(email).get();
         if (adminDoc.exists && adminDoc.data()?.accountStatus === 'ACTIVE') {
@@ -72,7 +74,7 @@ export async function requireAdminAuth(
       }
     }
 
-    if (!isFixedSuperAdmin && !hasAdminClaim && !isDbAdmin) {
+    if (!isFixedSuperAdmin && !isCachedAdmin && !hasAdminClaim && !isDbAdmin) {
       res.status(403).json({
         error: 'Forbidden: You do not have permission to access administrator resources.',
         code: 'auth/unauthorized',

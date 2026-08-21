@@ -275,7 +275,7 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
       res.status(400).json({
         success: false,
         error: 'MISSING_INIT_DATA',
-        message: 'Telegram initData string is required for real Telegram Mini App authentication',
+        message: 'Telegram initData string is required for Telegram authentication',
       });
       return;
     }
@@ -285,7 +285,8 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
     if (!verification.valid || !verification.user) {
       res.status(401).json({
         success: false,
-        error: verification.error || 'UNAUTHORIZED',
+        authenticated: false,
+        error: verification.error || 'INVALID_SIGNATURE',
         message: verification.message || 'Telegram WebApp authentication signature verification failed',
       });
       return;
@@ -297,36 +298,57 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
     // Look up existing Telegram user or auto-register in Firestore & memory
     let user = db.getUserByTelegramId(telegramId);
 
-    if (!user) {
-      // Query Firestore as fallback if not in memory cache
-      const firestoreUser = await userRepository.getUserByTelegramId(telegramId);
-      if (firestoreUser) {
-        user = firestoreUser;
-        db.saveUser(user);
+    try {
+      if (!user) {
+        // Query Firestore as fallback if not in memory cache
+        const firestoreUser = await userRepository.getUserByTelegramId(telegramId);
+        if (firestoreUser) {
+          user = firestoreUser;
+          db.saveUser(user);
+        }
       }
-    }
 
-    if (!user) {
-      // Auto-register new Telegram user in Firestore & memory
-      user = db.findOrCreateTelegramUser({
-        id: telegramId,
-        first_name: tgUser.first_name,
-        last_name: tgUser.last_name,
-        username: tgUser.username,
-        language_code: tgUser.language_code,
-        photo_url: tgUser.photo_url,
-      });
+      if (!user) {
+        // Auto-register new Telegram user in Firestore & memory
+        user = db.findOrCreateTelegramUser({
+          id: telegramId,
+          first_name: tgUser.first_name,
+          last_name: tgUser.last_name,
+          username: tgUser.username,
+          language_code: tgUser.language_code,
+          photo_url: tgUser.photo_url,
+        });
 
-      await userRepository.saveUser(user);
-    } else {
-      // Update profile details for existing user
-      user.firstName = tgUser.first_name || user.firstName;
-      if (tgUser.last_name !== undefined) user.lastName = tgUser.last_name;
-      if (tgUser.username !== undefined) user.username = tgUser.username;
-      if (tgUser.photo_url) user.photoUrl = tgUser.photo_url;
-      user.lastLogin = new Date().toISOString();
-      db.saveUser(user);
-      await userRepository.saveUser(user);
+        await userRepository.saveUser(user);
+      } else {
+        // Update profile details for existing user
+        user.firstName = tgUser.first_name || user.firstName;
+        if (tgUser.last_name !== undefined) user.lastName = tgUser.last_name;
+        if (tgUser.username !== undefined) user.username = tgUser.username;
+        if (tgUser.photo_url) user.photoUrl = tgUser.photo_url;
+        user.lastLogin = new Date().toISOString();
+        db.saveUser(user);
+        await userRepository.saveUser(user);
+      }
+    } catch (dbError: any) {
+      const errMsg = (dbError?.message || '').toLowerCase();
+      const isQuotaError =
+        errMsg.includes('quota') ||
+        errMsg.includes('resource_exhausted') ||
+        errMsg.includes('limit') ||
+        dbError?.code === 8 ||
+        dbError?.code === 'resource-exhausted';
+
+      if (isQuotaError) {
+        res.status(503).json({
+          success: false,
+          authenticated: false,
+          error: 'FIRESTORE_QUOTA_EXCEEDED',
+          message: 'Firestore quota limit temporarily exceeded. Please try again shortly.',
+        });
+        return;
+      }
+      throw dbError;
     }
 
     // Issue JWT token signed with JWT_SECRET
@@ -338,17 +360,72 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
+      authenticated: true,
       registered: true,
       token,
       user,
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || 'Telegram auth failed' });
+    const errMsg = (err?.message || '').toLowerCase();
+    const isQuotaError =
+      errMsg.includes('quota') ||
+      errMsg.includes('resource_exhausted') ||
+      err?.code === 8 ||
+      err?.code === 'resource-exhausted';
+
+    if (isQuotaError) {
+      res.status(503).json({
+        success: false,
+        authenticated: false,
+        error: 'FIRESTORE_QUOTA_EXCEEDED',
+        message: 'Firestore database quota limit reached. Please try again shortly.',
+      });
+      return;
+    }
+
+    res.status(500).json({
+      success: false,
+      authenticated: false,
+      error: 'SERVER_ERROR',
+      message: err.message || 'Telegram auth processing error',
+    });
   }
 };
 
 apiRouter.post('/auth/telegram', handleTelegramAuth);
 apiRouter.post('/auth/telegram-login', handleTelegramAuth);
+apiRouter.post('/auth/telegram-webapp-validate', handleTelegramAuth);
+
+// Get tickets purchased by a specific user for a room or all active
+apiRouter.get('/user/tickets', (req: Request, res: Response) => {
+  const userId = req.query.userId as string;
+  const roomId = req.query.roomId as string;
+  if (!userId) {
+    res.status(400).json({ error: 'userId is required' });
+    return;
+  }
+
+  const allTickets = Array.from(db.tickets.values());
+  const userTickets = allTickets.filter(
+    (t) => t.userId === userId && (!roomId || t.roomId === roomId) && t.status === 'ACTIVE'
+  );
+  res.json({ success: true, tickets: userTickets });
+});
+
+apiRouter.get('/rooms/:roomId/my-tickets', (req: Request, res: Response) => {
+  const { roomId } = req.params;
+  const userId = req.query.userId as string;
+  if (!userId) {
+    res.status(400).json({ error: 'userId is required' });
+    return;
+  }
+
+  const allTickets = Array.from(db.tickets.values());
+  const userTickets = allTickets.filter(
+    (t) => t.userId === userId && t.roomId === roomId && t.status === 'ACTIVE'
+  );
+  res.json({ success: true, roomId, tickets: userTickets });
+});
 
 // --- TELEGRAM BOT WEBHOOK & SIMULATOR ENDPOINTS ---
 apiRouter.post('/telegram/webhook', async (req: Request, res: Response) => {
@@ -716,6 +793,11 @@ apiRouter.post('/admin/deposits/verify', (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
+});
+
+apiRouter.get('/admin/withdrawals/pending', (req: Request, res: Response) => {
+  const pending = db.withdrawals.filter((w) => w.status === 'PENDING');
+  res.json({ requests: pending });
 });
 
 apiRouter.get('/admin/withdrawals', (req: Request, res: Response) => {
@@ -1174,31 +1256,24 @@ apiRouter.get('/admin/tickets', async (req: Request, res: Response) => {
   try {
     let allTickets = Array.from(db.tickets.values());
 
-    // Query Firestore collection if in-memory db.tickets is empty or needs complete sync
+    // Query Firestore collection ONLY if in-memory db.tickets is empty
     if (allTickets.length === 0) {
-      try {
-        const ticketsSnap = await adminDb.collection('tickets').orderBy('boughtAt', 'desc').get();
+      await firestoreGuard.safeRead('tickets', 'getAdminTickets', async () => {
+        const ticketsSnap = await adminDb
+          .collection('tickets')
+          .orderBy('boughtAt', 'desc')
+          .limit(100)
+          .get()
+          .catch(async () => adminDb.collection('tickets').limit(100).get());
+
         ticketsSnap.forEach((docSnap) => {
           const tkt = docSnap.data() as BingoTicket;
           if (tkt && tkt.id) {
             db.tickets.set(tkt.id, tkt);
           }
         });
-        allTickets = Array.from(db.tickets.values());
-      } catch (err) {
-        try {
-          const ticketsSnap = await adminDb.collection('tickets').get();
-          ticketsSnap.forEach((docSnap) => {
-            const tkt = docSnap.data() as BingoTicket;
-            if (tkt && tkt.id) {
-              db.tickets.set(tkt.id, tkt);
-            }
-          });
-          allTickets = Array.from(db.tickets.values());
-        } catch (innerErr) {
-          console.warn('Error fetching tickets from Firestore:', innerErr);
-        }
-      }
+      }, null);
+      allTickets = Array.from(db.tickets.values());
     }
 
     // Enhance tickets with username fallback & winning status for UI mapping
@@ -1348,18 +1423,20 @@ apiRouter.get('/admin/winners', async (req: Request, res: Response) => {
     });
   }
 
-  // Load from Firestore to guarantee full historical persistence
-  try {
-    const wSnap = await adminDb.collection('winners').get();
-    if (!wSnap.empty) {
-      wSnap.docs.forEach((doc) => {
-        const w = doc.data() as GameWinner;
-        if (w && w.id) winnersMap.set(w.id, w);
+  // Load from Firestore only if in-memory cache is empty
+  if (winnersMap.size === 0) {
+    await firestoreGuard.safeRead('winners', 'getAdminWinners', async () => {
+      const wSnap = await adminDb.collection('winners').orderBy('wonAt', 'desc').limit(100).get().catch(async () => {
+        return adminDb.collection('winners').limit(100).get();
       });
-      db.winners = Array.from(winnersMap.values());
-    }
-  } catch (err) {
-    console.warn('⚡ [Winners API] Firestore winners fetch warning:', err);
+      if (!wSnap.empty) {
+        wSnap.docs.forEach((doc) => {
+          const w = doc.data() as GameWinner;
+          if (w && w.id) winnersMap.set(w.id, w);
+        });
+        db.winners = Array.from(winnersMap.values());
+      }
+    }, null);
   }
 
   let winners = Array.from(winnersMap.values());
@@ -1700,54 +1777,58 @@ apiRouter.get('/admin/reports', async (req: Request, res: Response) => {
   let allWinners = db.winners || [];
   let gameHistory = db.gameHistoryRecords || [];
 
-  // Parallel Firestore batch load to ensure full data sync for reports
+  // Load from Firestore only if in-memory datasets are empty
   try {
-    const [uSnap, txSnap, tktSnap, wSnap, ghSnap, depSnap, wdSnap] = await Promise.all([
-      adminDb.collection('users').get().catch(() => null),
-      adminDb.collection('transactions').get().catch(() => null),
-      adminDb.collection('tickets').get().catch(() => null),
-      adminDb.collection('winners').get().catch(() => null),
-      adminDb.collection('gameHistory').get().catch(() => null),
-      adminDb.collection('deposits').get().catch(() => null),
-      adminDb.collection('withdrawals').get().catch(() => null),
-    ]);
+    if (allUsers.length === 0 || allTransactions.length === 0) {
+      await firestoreGuard.safeRead('reports', 'getReportDataSync', async () => {
+        const [uSnap, txSnap, tktSnap, wSnap, ghSnap, depSnap, wdSnap] = await Promise.all([
+          allUsers.length === 0 ? adminDb.collection('users').limit(100).get().catch(() => null) : null,
+          allTransactions.length === 0 ? adminDb.collection('transactions').limit(200).get().catch(() => null) : null,
+          allTickets.length === 0 ? adminDb.collection('tickets').limit(200).get().catch(() => null) : null,
+          allWinners.length === 0 ? adminDb.collection('winners').limit(100).get().catch(() => null) : null,
+          gameHistory.length === 0 ? adminDb.collection('gameHistory').limit(100).get().catch(() => null) : null,
+          allDeposits.length === 0 ? adminDb.collection('deposits').limit(100).get().catch(() => null) : null,
+          allWithdrawals.length === 0 ? adminDb.collection('withdrawals').limit(100).get().catch(() => null) : null,
+        ]);
 
-    if (uSnap && !uSnap.empty) {
-      uSnap.docs.forEach((d) => {
-        const u = d.data() as UserProfile;
-        if (u && u.id) db.users.set(u.id, u);
-      });
-      allUsers = db.getAllUsers();
-    }
-    if (txSnap && !txSnap.empty) {
-      db.transactions = txSnap.docs.map((d) => d.data() as WalletTransaction);
-      allTransactions = db.transactions;
-    }
-    if (tktSnap && !tktSnap.empty) {
-      tktSnap.docs.forEach((d) => {
-        const t = d.data() as BingoTicket;
-        if (t && t.id) db.tickets.set(t.id, t);
-      });
-      allTickets = Array.from(db.tickets.values());
-    }
-    if (wSnap && !wSnap.empty) {
-      db.winners = wSnap.docs.map((d) => d.data() as GameWinner);
-      allWinners = db.winners;
-    }
-    if (ghSnap && !ghSnap.empty) {
-      db.gameHistoryRecords = ghSnap.docs.map((d) => d.data() as GameHistoryRecord);
-      gameHistory = db.gameHistoryRecords;
-    }
-    if (depSnap && !depSnap.empty) {
-      db.deposits = depSnap.docs.map((d) => d.data() as DepositRequest);
-      allDeposits = db.deposits;
-    }
-    if (wdSnap && !wdSnap.empty) {
-      db.withdrawals = wdSnap.docs.map((d) => d.data() as WithdrawalRequest);
-      allWithdrawals = db.withdrawals;
+        if (uSnap && !uSnap.empty) {
+          uSnap.docs.forEach((d) => {
+            const u = d.data() as UserProfile;
+            if (u && u.id) db.users.set(u.id, u);
+          });
+          allUsers = db.getAllUsers();
+        }
+        if (txSnap && !txSnap.empty) {
+          db.transactions = txSnap.docs.map((d) => d.data() as WalletTransaction);
+          allTransactions = db.transactions;
+        }
+        if (tktSnap && !tktSnap.empty) {
+          tktSnap.docs.forEach((d) => {
+            const t = d.data() as BingoTicket;
+            if (t && t.id) db.tickets.set(t.id, t);
+          });
+          allTickets = Array.from(db.tickets.values());
+        }
+        if (wSnap && !wSnap.empty) {
+          db.winners = wSnap.docs.map((d) => d.data() as GameWinner);
+          allWinners = db.winners;
+        }
+        if (ghSnap && !ghSnap.empty) {
+          db.gameHistoryRecords = ghSnap.docs.map((d) => d.data() as GameHistoryRecord);
+          gameHistory = db.gameHistoryRecords;
+        }
+        if (depSnap && !depSnap.empty) {
+          db.deposits = depSnap.docs.map((d) => d.data() as DepositRequest);
+          allDeposits = db.deposits;
+        }
+        if (wdSnap && !wdSnap.empty) {
+          db.withdrawals = wdSnap.docs.map((d) => d.data() as WithdrawalRequest);
+          allWithdrawals = db.withdrawals;
+        }
+      }, null);
     }
   } catch (err) {
-    console.warn('⚡ [Reports] Firestore batch sync warning:', err);
+    console.warn('Reports Firestore sync error (using in-memory cache):', err);
   }
 
   // Safe timestamp parser helper
