@@ -747,7 +747,13 @@ export class AdminService {
       parsedSettings.platformFeePercent = Math.max(0, 100 - Number(parsedSettings.prizePercentage));
     }
 
-    const combined = { ...this.systemSettings, ...parsedSettings };
+    const combined = {
+      ...this.systemSettings,
+      ...parsedSettings,
+      version: (this.systemSettings.version || 0) + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy,
+    };
     const validation = this.validateSystemSettings(combined);
     if (!validation.valid) {
       return { success: false, settings: this.systemSettings, error: validation.error };

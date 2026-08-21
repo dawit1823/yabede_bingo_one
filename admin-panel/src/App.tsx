@@ -360,6 +360,7 @@ export default function AdminApp() {
         onAdjustBalance={handleAdjustBalance}
         auditLogs={auditLogs}
         onLogout={handleLogout}
+        socket={socket}
       />
     </div>
   );

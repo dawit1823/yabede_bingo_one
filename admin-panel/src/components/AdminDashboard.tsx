@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { io, Socket } from 'socket.io-client';
 import {
   AuditLog,
   DepositRequest,
@@ -13,7 +14,7 @@ import {
 } from '@shared/types';
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramMock';
 import { generateCardMatrixByNumber, formatCardNumber } from '@shared/bingoUtils';
-import { apiUrl } from '@shared/apiConfig';
+import { apiUrl, getSocketUrl } from '@shared/apiConfig';
 import { adminFetch } from '../lib/adminApi';
 import {
   ShieldCheck,
@@ -77,6 +78,7 @@ interface AdminDashboardProps {
   onAdjustBalance: (userId: string, amount: number, reason: string) => Promise<void>;
   auditLogs: AuditLog[];
   onLogout?: () => void;
+  socket?: Socket | null;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -87,6 +89,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onAdjustBalance,
   auditLogs: initialAuditLogs,
   onLogout,
+  socket: propSocket,
 }) => {
   const [activeTab, setActiveTab] = useState<
     | 'overview'
@@ -503,11 +506,299 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  // Comprehensive Real-Time Socket.IO Synchronization
+  useEffect(() => {
+    let socket = propSocket;
+    let createdInternalSocket = false;
+
+    if (!socket) {
+      const socketUrl = getSocketUrl();
+      socket = io(socketUrl, {
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 15,
+        reconnectionDelay: 1000,
+      });
+      createdInternalSocket = true;
+    }
+
+    const onConnect = () => {
+      console.log('[Admin Live Socket] Connected to game engine and state synchronization stream');
+      socket?.emit('settings:get');
+      fetchAdminData();
+    };
+
+    const onMetricsUpdated = (data: SystemMetrics) => {
+      if (data) setDashboardMetrics(data);
+    };
+
+    const onRoomUpdated = (data: { room: BingoRoom }) => {
+      if (data?.room) {
+        setStandardRooms((prev) => {
+          const idx = prev.findIndex((r) => r.id === data.room.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = { ...next[idx], ...data.room };
+            return next;
+          }
+          return [...prev, data.room];
+        });
+      }
+    };
+
+    const onRoomsUpdated = (data: { rooms: BingoRoom[] }) => {
+      if (Array.isArray(data?.rooms)) {
+        setStandardRooms(data.rooms);
+      }
+    };
+
+    const onRoomCountdown = (data: {
+      roomId: string;
+      seconds: number;
+      status: string;
+      startedAt?: string;
+      endsAt?: string;
+    }) => {
+      if (data?.roomId) {
+        setStandardRooms((prev) =>
+          prev.map((r) =>
+            r.id === data.roomId
+              ? {
+                  ...r,
+                  countdownSeconds: data.seconds,
+                  status: (data.status as any) || r.status,
+                  startedAt: data.startedAt || r.startedAt,
+                  endsAt: data.endsAt || r.endsAt,
+                }
+              : r
+          )
+        );
+      }
+    };
+
+    const onBallDrawn = (data: { roomId: string; ball: number; drawnBalls: number[] }) => {
+      if (data?.roomId) {
+        setStandardRooms((prev) =>
+          prev.map((r) =>
+            r.id === data.roomId
+              ? {
+                  ...r,
+                  currentBall: data.ball,
+                  drawnBalls: data.drawnBalls || (r.drawnBalls ? [...r.drawnBalls, data.ball] : [data.ball]),
+                }
+              : r
+          )
+        );
+      }
+    };
+
+    const onWinner = (data: { winner?: GameWinner; winners?: GameWinner[]; room?: BingoRoom }) => {
+      const incomingWinners = data.winners || (data.winner ? [data.winner] : []);
+      if (incomingWinners.length > 0) {
+        setAllWinnersList((prev) => {
+          const map = new Map(prev.map((w) => [w.id, w]));
+          incomingWinners.forEach((w: any) => map.set(w.id, w));
+          return Array.from(map.values()).sort(
+            (a, b) => new Date(b.wonAt || b.createdAt || 0).getTime() - new Date(a.wonAt || a.createdAt || 0).getTime()
+          );
+        });
+      }
+      if (data.room) {
+        setStandardRooms((prev) =>
+          prev.map((r) => (r.id === data.room!.id ? { ...r, ...data.room } : r))
+        );
+      }
+    };
+
+    const onCardUpdated = (data: { roomId: string; cardNumber: number; reservation: any; action: string; room?: BingoRoom }) => {
+      if (data.room) {
+        setStandardRooms((prev) =>
+          prev.map((r) => (r.id === data.room!.id ? { ...r, ...data.room } : r))
+        );
+      }
+    };
+
+    const onTicketEvent = (data: { ticket?: BingoTicket; tickets?: BingoTicket[] }) => {
+      const incomingTickets = data.tickets || (data.ticket ? [data.ticket] : []);
+      if (incomingTickets.length > 0) {
+        setAllTicketsList((prev) => {
+          const map = new Map(prev.map((t) => [t.id, t]));
+          incomingTickets.forEach((t: any) => map.set(t.id, t));
+          return Array.from(map.values()).sort(
+            (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+          );
+        });
+      }
+    };
+
+    const onDepositCreatedOrUpdated = (data: { deposit: DepositRequest }) => {
+      if (data?.deposit) {
+        setDeposits((prev) => {
+          const idx = prev.findIndex((d) => d.id === data.deposit.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = data.deposit;
+            return next;
+          }
+          return [data.deposit, ...prev];
+        });
+      }
+    };
+
+    const onWithdrawalCreatedOrUpdated = (data: { withdrawal: WithdrawalRequest }) => {
+      if (data?.withdrawal) {
+        setWithdrawals((prev) => {
+          const idx = prev.findIndex((w) => w.id === data.withdrawal.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = data.withdrawal;
+            return next;
+          }
+          return [data.withdrawal, ...prev];
+        });
+      }
+    };
+
+    const onUserCreatedOrUpdated = (data: { user: UserProfile }) => {
+      if (data?.user) {
+        setAllUsersList((prev) => {
+          const idx = prev.findIndex((u) => u.id === data.user.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = { ...next[idx], ...data.user };
+            return next;
+          }
+          return [data.user, ...prev];
+        });
+      }
+    };
+
+    const onWalletUpdated = (data: { userId: string; newBalance?: number; bonusBalance?: number }) => {
+      if (data?.userId) {
+        setAllUsersList((prev) =>
+          prev.map((u) =>
+            u.id === data.userId
+              ? {
+                  ...u,
+                  walletBalance: typeof data.newBalance === 'number' ? data.newBalance : u.walletBalance,
+                  bonusBalance: typeof data.bonusBalance === 'number' ? data.bonusBalance : u.bonusBalance,
+                }
+              : u
+          )
+        );
+      }
+    };
+
+    const onSettingsUpdated = (data: { settings?: any; bonusPrograms?: any[]; history?: any[] }) => {
+      if (data?.settings && !isSettingsDirtyRef.current) {
+        setPlatformSettings(data.settings);
+      }
+      if (data?.bonusPrograms) {
+        setBonusPrograms(data.bonusPrograms);
+      }
+      if (data?.history) {
+        setSettingsHistoryList(data.history);
+      }
+    };
+
+    const onPrivateGroupUpdated = (data: { group: any }) => {
+      if (data?.group) {
+        setAdminPrivateGroups((prev) => {
+          const idx = prev.findIndex((g) => g.id === data.group.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = { ...next[idx], ...data.group };
+            return next;
+          }
+          return [data.group, ...prev];
+        });
+      }
+    };
+
+    const onAuditLog = (data: { log?: AuditLog; auditLog?: AuditLog }) => {
+      const log = data.log || data.auditLog;
+      if (log) {
+        setAuditLogs((prev) => [log, ...prev]);
+      }
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('metrics:updated', onMetricsUpdated);
+    socket.on('room:updated', onRoomUpdated);
+    socket.on('rooms:updated', onRoomsUpdated);
+    socket.on('room:countdown', onRoomCountdown);
+    socket.on('game:countdown', onRoomCountdown);
+    socket.on('ball:drawn', onBallDrawn);
+    socket.on('game:ball_drawn', onBallDrawn);
+    socket.on('game:winner', onWinner);
+    socket.on('card:updated', onCardUpdated);
+    socket.on('card:reservation_updated', onCardUpdated);
+    socket.on('ticket:bought', onTicketEvent);
+    socket.on('ticket:created', onTicketEvent);
+    socket.on('ticket:updated', onTicketEvent);
+    socket.on('ticket:cancelled', onTicketEvent);
+    socket.on('deposit:created', onDepositCreatedOrUpdated);
+    socket.on('deposit:updated', onDepositCreatedOrUpdated);
+    socket.on('withdrawal:created', onWithdrawalCreatedOrUpdated);
+    socket.on('withdrawal:updated', onWithdrawalCreatedOrUpdated);
+    socket.on('user:created', onUserCreatedOrUpdated);
+    socket.on('user:registered', onUserCreatedOrUpdated);
+    socket.on('user:updated', onUserCreatedOrUpdated);
+    socket.on('wallet:updated', onWalletUpdated);
+    socket.on('user:balance_updated', onWalletUpdated);
+    socket.on('settings:updated', onSettingsUpdated);
+    socket.on('private_group:updated', onPrivateGroupUpdated);
+    socket.on('private_group:started', onPrivateGroupUpdated);
+    socket.on('private_group:winner', onPrivateGroupUpdated);
+    socket.on('private_group:closed', onPrivateGroupUpdated);
+    socket.on('private_group:cancelled', onPrivateGroupUpdated);
+    socket.on('audit:log', onAuditLog);
+    socket.on('audit:new', onAuditLog);
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('metrics:updated', onMetricsUpdated);
+      socket.off('room:updated', onRoomUpdated);
+      socket.off('rooms:updated', onRoomsUpdated);
+      socket.off('room:countdown', onRoomCountdown);
+      socket.off('game:countdown', onRoomCountdown);
+      socket.off('ball:drawn', onBallDrawn);
+      socket.off('game:ball_drawn', onBallDrawn);
+      socket.off('game:winner', onWinner);
+      socket.off('card:updated', onCardUpdated);
+      socket.off('card:reservation_updated', onCardUpdated);
+      socket.off('ticket:bought', onTicketEvent);
+      socket.off('ticket:created', onTicketEvent);
+      socket.off('ticket:updated', onTicketEvent);
+      socket.off('ticket:cancelled', onTicketEvent);
+      socket.off('deposit:created', onDepositCreatedOrUpdated);
+      socket.off('deposit:updated', onDepositCreatedOrUpdated);
+      socket.off('withdrawal:created', onWithdrawalCreatedOrUpdated);
+      socket.off('withdrawal:updated', onWithdrawalCreatedOrUpdated);
+      socket.off('user:created', onUserCreatedOrUpdated);
+      socket.off('user:registered', onUserCreatedOrUpdated);
+      socket.off('user:updated', onUserCreatedOrUpdated);
+      socket.off('wallet:updated', onWalletUpdated);
+      socket.off('user:balance_updated', onWalletUpdated);
+      socket.off('settings:updated', onSettingsUpdated);
+      socket.off('private_group:updated', onPrivateGroupUpdated);
+      socket.off('private_group:started', onPrivateGroupUpdated);
+      socket.off('private_group:winner', onPrivateGroupUpdated);
+      socket.off('private_group:closed', onPrivateGroupUpdated);
+      socket.off('private_group:cancelled', onPrivateGroupUpdated);
+      socket.off('audit:log', onAuditLog);
+      socket.off('audit:new', onAuditLog);
+
+      if (createdInternalSocket) {
+        socket.disconnect();
+      }
+    };
+  }, [propSocket]);
+
   useEffect(() => {
     fetchAdminData();
     const interval = setInterval(() => {
       fetchAdminData();
-    }, 12000);
+    }, 45000);
     return () => clearInterval(interval);
   }, [
     activeTab,

@@ -699,6 +699,14 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
       note,
     });
 
+    const io = getIO();
+    if (io) {
+      io.emit('deposit:created', { deposit });
+      io.emit('deposit:updated', { deposit });
+      io.emit('deposits:pending', { count: db.deposits.filter((d) => d.status === 'PENDING').length });
+      adminService.getDashboardMetrics().then((m) => io.emit('metrics:updated', m)).catch(() => {});
+    }
+
     res.json({
       success: true,
       message: 'Your payment request has been submitted and is awaiting administrator verification.',
@@ -728,6 +736,14 @@ apiRouter.post('/wallet/withdraw', (req: Request, res: Response) => {
       amount: Number(amount),
       note,
     });
+
+    const io = getIO();
+    if (io) {
+      io.emit('withdrawal:created', { withdrawal });
+      io.emit('withdrawal:updated', { withdrawal });
+      io.emit('withdrawals:pending', { requests: db.withdrawals.filter((w) => w.status === 'PENDING') });
+      adminService.getDashboardMetrics().then((m) => io.emit('metrics:updated', m)).catch(() => {});
+    }
 
     res.json({
       success: true,
@@ -773,23 +789,35 @@ apiRouter.post('/admin/deposits/verify', (req: Request, res: Response) => {
   const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
 
   try {
+    let depositResult: any = null;
+    let userResult: any = null;
+
     if (action === 'APPROVE') {
       const result = db.approveDeposit(depositId, adminId, clientIp);
+      depositResult = result.deposit;
+      userResult = result.user;
       const io = getIO();
       if (io && result.user) {
         io.emit('wallet:updated', { userId: result.user.id, newBalance: result.user.walletBalance, bonusBalance: result.user.bonusBalance });
         io.emit('user:balance_updated', { userId: result.user.id, newBalance: result.user.walletBalance, bonusBalance: result.user.bonusBalance });
       }
-      res.json({ success: true, deposit: result.deposit, user: result.user });
     } else if (action === 'REJECT') {
-      const dep = db.rejectDeposit(depositId, reason, adminId, clientIp);
-      res.json({ success: true, deposit: dep });
+      depositResult = db.rejectDeposit(depositId, reason, adminId, clientIp);
     } else if (action === 'REQUEST_INFO') {
-      const dep = db.requestDepositInfo(depositId, adminNote, adminId, clientIp);
-      res.json({ success: true, deposit: dep });
+      depositResult = db.requestDepositInfo(depositId, adminNote, adminId, clientIp);
     } else {
       res.status(400).json({ error: 'Invalid verification action' });
+      return;
     }
+
+    const io = getIO();
+    if (io) {
+      io.emit('deposit:updated', { deposit: depositResult });
+      io.emit('deposits:pending', { count: db.deposits.filter((d) => d.status === 'PENDING').length });
+      adminService.getDashboardMetrics().then((m) => io.emit('metrics:updated', m)).catch(() => {});
+    }
+
+    res.json({ success: true, deposit: depositResult, user: userResult });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -835,6 +863,9 @@ apiRouter.post('/admin/withdrawals/process', (req: Request, res: Response) => {
         io.emit('wallet:updated', { userId: user.id, newBalance: user.walletBalance, bonusBalance: user.bonusBalance });
         io.emit('user:balance_updated', { userId: user.id, newBalance: user.walletBalance, bonusBalance: user.bonusBalance });
       }
+      io.emit('withdrawal:updated', { withdrawal: updatedReq });
+      io.emit('withdrawals:pending', { requests: db.withdrawals.filter((w) => w.status === 'PENDING') });
+      adminService.getDashboardMetrics().then((m) => io.emit('metrics:updated', m)).catch(() => {});
     }
     res.json({ success: true, withdrawal: updatedReq });
   } catch (err: any) {

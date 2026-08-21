@@ -428,3 +428,50 @@ export interface SystemMetrics {
   redisClusterStatus?: string;
   lastLedgerAuditTimestamp?: string;
 }
+
+export interface SystemSettingsConfig {
+  version?: number;
+  updatedAt?: string;
+  updatedBy?: string;
+
+  // Game Settings
+  countdownDurationSeconds: number;
+  ballDrawIntervalSeconds: number;
+  resultScreenDurationSeconds: number;
+  maxCardsPerPlayer: number;
+  maxPlayers: number;
+  minPlayers: number;
+  autoRestartGame: boolean;
+  autoResetCards: boolean;
+  prizePercentage: number;
+  platformFeePercent: number;
+  allowSpectators: boolean;
+  cardReservationTimeoutSeconds: number;
+  winningPatterns: string[];
+  privateGroupMaxPlayers: number;
+  privateGroupMaxTicketsPerPlayer: number;
+
+  // Wallet Settings
+  minDepositBirr: number;
+  maxDepositBirr: number;
+  minWithdrawalBirr: number;
+  maxWithdrawalBirr: number;
+  autoApproveDeposits: boolean;
+  autoApproveWithdrawals: boolean;
+
+  // Referral Settings
+  referralRewardBirr: number;
+  welcomeBonusBirr: number;
+  maxReferralBonusBirr: number;
+
+  // Security Settings
+  maintenanceMode: boolean;
+  enableRegistration: boolean;
+  enableLogin: boolean;
+  enableWithdrawals: boolean;
+  enableDeposits: boolean;
+
+  // Platform defaults
+  ticketPrices: number[];
+  announcements?: { id: string; title: string; message: string; createdAt: string }[];
+}
