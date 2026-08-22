@@ -27,6 +27,7 @@ import {
   CheckCircle,
   XCircle,
   PlusCircle,
+  Plus,
   Image as ImageIcon,
   Edit,
   Trash2,
@@ -366,6 +367,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [adjustAmount, setAdjustAmount] = useState<number>(100);
   const [adjustReason, setAdjustReason] = useState<string>('VIP Bonus Adjustment');
 
+  const [creatingUserModal, setCreatingUserModal] = useState<boolean>(false);
+  const [newUserData, setNewUserData] = useState<{
+    username: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    password?: string;
+    initialBalance: number;
+    role: string;
+  }>({
+    username: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
+    password: '',
+    initialBalance: 100,
+    role: 'USER',
+  });
+
   const [editingPaymentMethod, setEditingPaymentMethod] = useState<Partial<PaymentMethodConfig> | null>(null);
   const [creatingNewRoom, setCreatingNewRoom] = useState<boolean>(false);
   const [roomFormData, setRoomFormData] = useState<any>({
@@ -598,7 +618,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const map = new Map(prev.map((w) => [w.id, w]));
           incomingWinners.forEach((w: any) => map.set(w.id, w));
           return Array.from(map.values()).sort(
-            (a, b) => new Date(b.wonAt || b.createdAt || 0).getTime() - new Date(a.wonAt || a.createdAt || 0).getTime()
+            (a: any, b: any) => new Date(b.wonAt || b.createdAt || 0).getTime() - new Date(a.wonAt || a.createdAt || 0).getTime()
           );
         });
       }
@@ -624,7 +644,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const map = new Map(prev.map((t) => [t.id, t]));
           incomingTickets.forEach((t: any) => map.set(t.id, t));
           return Array.from(map.values()).sort(
-            (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+            (a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
           );
         });
       }
@@ -1002,6 +1022,39 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setResetUserPasswordInput('');
     } catch (err: any) {
       alert(err.message || 'Password reset failed');
+    }
+  };
+
+  const handleCreateUserSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserData.username && !newUserData.phone) {
+      alert('Username or phone number is required');
+      return;
+    }
+    try {
+      const res = await adminFetch(apiUrl('/api/admin/users/create'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUserData),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create user');
+      triggerNotificationHaptic('success');
+      alert(`✅ Player @${data.user.username} registered successfully!`);
+      setCreatingUserModal(false);
+      setNewUserData({
+        username: '',
+        firstName: '',
+        lastName: '',
+        phone: '',
+        password: '',
+        initialBalance: 100,
+        role: 'USER',
+      });
+      fetchAdminData();
+    } catch (err: any) {
+      triggerNotificationHaptic('error');
+      alert(err.message || 'Failed to register player');
     }
   };
 
@@ -1511,11 +1564,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {activeTab === 'users' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-sm font-black text-white flex items-center gap-2">
                   <Users className="w-4 h-4 text-amber-400" />
                   <span>Registered Players Directory ({filteredUsers.length})</span>
                 </h3>
+                <button
+                  onClick={() => setCreatingUserModal(true)}
+                  className="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] flex items-center gap-1 transition shadow"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Register Player</span>
+                </button>
+                <button
+                  onClick={() => fetchAdminData()}
+                  className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] flex items-center gap-1 border border-slate-700 transition"
+                  title="Refresh player directory from database"
+                >
+                  <RefreshCw className="w-3 h-3 text-amber-400" />
+                  <span>Sync</span>
+                </button>
                 <button
                   onClick={exportUsersCSV}
                   className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] flex items-center gap-1 border border-slate-700"
@@ -1551,76 +1619,91 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[10px] border-b border-slate-800">
-                  <tr>
-                    <th className="p-3">Player</th>
-                    <th className="p-3">Phone</th>
-                    <th className="p-3">Wallet</th>
-                    <th className="p-3">Bonus</th>
-                    <th className="p-3">Games / Wins</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {filteredUsers.map((usr) => (
-                    <tr key={usr.id} className="hover:bg-slate-800/40">
-                      <td className="p-3 cursor-pointer" onClick={() => handleOpenUserDetailModal(usr.id)}>
-                        <div className="font-extrabold text-white hover:text-amber-400 transition flex items-center gap-1.5">
-                          <span>@{usr.username}</span>
-                          <Eye className="w-3 h-3 text-slate-500" />
-                        </div>
-                        <div className="text-[10px] text-slate-400">{usr.firstName} {usr.lastName || ''}</div>
-                      </td>
-                      <td className="p-3 font-mono">{usr.phone || 'N/A'}</td>
-                      <td className="p-3 font-bold text-emerald-400">{usr.walletBalance} Birr</td>
-                      <td className="p-3 font-bold text-amber-400">{usr.bonusBalance} Birr</td>
-                      <td className="p-3 font-mono text-[11px]">{usr.totalGamesPlayed || 0} / <span className="text-amber-400 font-bold">{usr.totalWins || 0}</span></td>
-                      <td className="p-3">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            usr.status === 'ACTIVE'
-                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                              : 'bg-red-500/20 text-red-400 border border-red-500/40'
-                          }`}
-                        >
-                          {usr.status}
-                        </span>
-                      </td>
-                      <td className="p-3 flex items-center gap-1.5 flex-wrap">
-                        <button
-                          onClick={() => setAdjustingUser(usr)}
-                          className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold text-[10px]"
-                        >
-                          Credit/Debit
-                        </button>
-                        <button
-                          onClick={() => setUserResetPasswordModal(usr)}
-                          className="px-2 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold text-[10px]"
-                        >
-                          Reset PIN
-                        </button>
-                        {usr.status === 'ACTIVE' ? (
-                          <button
-                            onClick={() => handleUserStatusChange(usr.id, 'SUSPENDED')}
-                            className="px-2 py-1 rounded-lg bg-red-500/20 text-red-300 border border-red-500/40 font-bold text-[10px]"
-                          >
-                            Suspend
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleUserStatusChange(usr.id, 'ACTIVE')}
-                            className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-[10px]"
-                          >
-                            Activate
-                          </button>
-                        )}
-                      </td>
+              {filteredUsers.length === 0 ? (
+                <div className="text-center py-12 bg-slate-950/50 rounded-2xl border border-slate-800/80 space-y-3">
+                  <Users className="w-10 h-10 text-slate-600 mx-auto" />
+                  <p className="text-sm font-bold text-slate-300">No registered players match your current filter</p>
+                  <p className="text-xs text-slate-500">Try adjusting your search criteria or register a new player account directly.</p>
+                  <button
+                    onClick={() => setCreatingUserModal(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs hover:bg-amber-400 transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Register New Player</span>
+                  </button>
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[10px] border-b border-slate-800">
+                    <tr>
+                      <th className="p-3">Player</th>
+                      <th className="p-3">Phone</th>
+                      <th className="p-3">Wallet</th>
+                      <th className="p-3">Bonus</th>
+                      <th className="p-3">Games / Wins</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {filteredUsers.map((usr) => (
+                      <tr key={usr.id} className="hover:bg-slate-800/40">
+                        <td className="p-3 cursor-pointer" onClick={() => handleOpenUserDetailModal(usr.id)}>
+                          <div className="font-extrabold text-white hover:text-amber-400 transition flex items-center gap-1.5">
+                            <span>@{usr.username}</span>
+                            <Eye className="w-3 h-3 text-slate-500" />
+                          </div>
+                          <div className="text-[10px] text-slate-400">{usr.firstName} {usr.lastName || ''}</div>
+                        </td>
+                        <td className="p-3 font-mono">{usr.phone || 'N/A'}</td>
+                        <td className="p-3 font-bold text-emerald-400">{usr.walletBalance} Birr</td>
+                        <td className="p-3 font-bold text-amber-400">{usr.bonusBalance} Birr</td>
+                        <td className="p-3 font-mono text-[11px]">{usr.totalGamesPlayed || 0} / <span className="text-amber-400 font-bold">{usr.totalWins || 0}</span></td>
+                        <td className="p-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              usr.status === 'ACTIVE'
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                : 'bg-red-500/20 text-red-400 border border-red-500/40'
+                            }`}
+                          >
+                            {usr.status}
+                          </span>
+                        </td>
+                        <td className="p-3 flex items-center gap-1.5 flex-wrap">
+                          <button
+                            onClick={() => setAdjustingUser(usr)}
+                            className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold text-[10px]"
+                          >
+                            Credit/Debit
+                          </button>
+                          <button
+                            onClick={() => setUserResetPasswordModal(usr)}
+                            className="px-2 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold text-[10px]"
+                          >
+                            Reset PIN
+                          </button>
+                          {usr.status === 'ACTIVE' ? (
+                            <button
+                              onClick={() => handleUserStatusChange(usr.id, 'SUSPENDED')}
+                              className="px-2 py-1 rounded-lg bg-red-500/20 text-red-300 border border-red-500/40 font-bold text-[10px]"
+                            >
+                              Suspend
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleUserStatusChange(usr.id, 'ACTIVE')}
+                              className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-[10px]"
+                            >
+                              Activate
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         )}
@@ -4126,6 +4209,110 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
                 <button type="submit" className="flex-1 py-2 rounded-xl bg-amber-500 text-slate-950 font-black text-xs">
                   Reset Password
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE NEW USER MODAL */}
+      {creatingUserModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-black text-white flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-amber-400" />
+                <span>Register New Player Account</span>
+              </h3>
+              <button onClick={() => setCreatingUserModal(false)} className="text-slate-500 hover:text-white text-xs">
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateUserSubmit} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-slate-400 block font-bold mb-1">Username *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. abebe_bingo"
+                    value={newUserData.username}
+                    onChange={(e) => setNewUserData({ ...newUserData, username: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 block font-bold mb-1">Phone Number</label>
+                  <input
+                    type="text"
+                    placeholder="0911223344"
+                    value={newUserData.phone}
+                    onChange={(e) => setNewUserData({ ...newUserData, phone: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-slate-400 block font-bold mb-1">First Name</label>
+                  <input
+                    type="text"
+                    placeholder="Abebe"
+                    value={newUserData.firstName}
+                    onChange={(e) => setNewUserData({ ...newUserData, firstName: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 block font-bold mb-1">Last Name</label>
+                  <input
+                    type="text"
+                    placeholder="Bekele"
+                    value={newUserData.lastName}
+                    onChange={(e) => setNewUserData({ ...newUserData, lastName: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] text-slate-400 block font-bold mb-1">Initial Balance (Birr)</label>
+                  <input
+                    type="number"
+                    value={newUserData.initialBalance}
+                    onChange={(e) => setNewUserData({ ...newUserData, initialBalance: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-emerald-400 font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 block font-bold mb-1">Password/PIN (Optional)</label>
+                  <input
+                    type="password"
+                    placeholder="e.g. 123456"
+                    value={newUserData.password}
+                    onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCreatingUserModal(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs hover:bg-amber-400 transition"
+                >
+                  Create & Save Player
                 </button>
               </div>
             </form>

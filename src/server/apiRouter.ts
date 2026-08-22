@@ -15,7 +15,7 @@ const JWT_SECRET = 'yabede_bingo_super_secret_jwt_key_2026';
 import { generateCardMatrixByNumber } from '../lib/bingoUtils.js';
 import { clearAndResetAllBingoGames } from './bingoEngine.js';
 import { paymentRegistry } from './paymentProviders.js';
-import { PaymentMethodConfig, UserProfile, BingoRoom, BingoTicket, WalletTransaction, GameWinner, GameHistoryRecord, DepositRequest, WithdrawalRequest, PrivateGroup, GroupMember } from '../types.js';
+import { PaymentMethodConfig, UserProfile, BingoRoom, BingoTicket, WalletTransaction, GameWinner, GameHistoryRecord, DepositRequest, WithdrawalRequest, PrivateGroup, GroupMember, PhoneUserAuth } from '../types.js';
 import { telegramBot } from './telegramBot.js';
 import { adminService, AdminService } from './adminService.js';
 import { emailService } from './emailService.js';
@@ -953,20 +953,105 @@ apiRouter.post('/admin/announcements', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.get('/admin/users', (req: Request, res: Response) => {
-  const query = ((req.query.q as string) || '').toLowerCase();
-  let users = Array.from(db.users.values());
+apiRouter.get('/admin/users', async (req: Request, res: Response) => {
+  try {
+    // Ensure all users from Firestore and memory are synchronized
+    await db.syncUsersFromFirestore();
 
-  if (query) {
-    users = users.filter(
-      (u) =>
-        (u.username || '').toLowerCase().includes(query) ||
-        (u.firstName || '').toLowerCase().includes(query) ||
-        (u.id || '').includes(query)
-    );
+    const query = ((req.query.q as string) || '').toLowerCase().trim();
+    const statusFilter = (req.query.status as string) || 'ALL';
+
+    let users = Array.from(db.users.values());
+
+    if (statusFilter && statusFilter !== 'ALL') {
+      users = users.filter((u) => u.status === statusFilter);
+    }
+
+    if (query) {
+      users = users.filter((u) => {
+        return (
+          (u.username || '').toLowerCase().includes(query) ||
+          (u.firstName || '').toLowerCase().includes(query) ||
+          (u.lastName || '').toLowerCase().includes(query) ||
+          (u.phone || '').toLowerCase().includes(query) ||
+          (u.referralCode || '').toLowerCase().includes(query) ||
+          (u.id || '').toLowerCase().includes(query)
+        );
+      });
+    }
+
+    // Sort newest players first
+    users.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+    res.json({ success: true, users, total: users.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch registered users' });
   }
+});
 
-  res.json({ users });
+apiRouter.post('/admin/users/create', async (req: Request, res: Response) => {
+  const { username, firstName, lastName, phone, password, initialBalance = 100, role = 'USER', adminId = 'usr_admin' } = req.body;
+  const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+  try {
+    if (!phone && !username) {
+      res.status(400).json({ error: 'Username or phone is required' });
+      return;
+    }
+
+    const regBonus = adminService.getRegistrationBonusAmount();
+    const userId = `usr_m_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const referralCode = `REF${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const newUser: UserProfile = {
+      id: userId,
+      telegramId: 0,
+      phone: phone ? db.normalizePhone(phone) : undefined,
+      username: username || `user_${Date.now().toString().slice(-4)}`,
+      firstName: firstName || '',
+      lastName: lastName || '',
+      photoUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${userId}`,
+      language: 'am',
+      referralCode,
+      walletBalance: Number(initialBalance) || 0,
+      bonusBalance: regBonus,
+      vipLevel: 1,
+      status: 'ACTIVE',
+      role: role === 'ADMIN' ? 'ADMIN' : 'USER',
+      createdAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+      totalWins: 0,
+      totalGamesPlayed: 0,
+      totalDeposited: Number(initialBalance) || 0,
+      totalWithdrawn: 0,
+    };
+
+    if (password && newUser.phone) {
+      const passwordHash = db.hashPassword(password);
+      const auth: PhoneUserAuth = {
+        phone: newUser.phone,
+        passwordHash,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        activeSessions: [],
+      };
+      db.phoneUserAuthMap.set(userId, auth);
+      adminDb.collection('userAuth').doc(userId).set(auth).catch(console.error);
+    }
+
+    db.saveUser(newUser);
+
+    const io = getIO();
+    if (io) {
+      io.emit('user:created', { user: newUser });
+      io.emit('user:registered', { user: newUser });
+    }
+
+    await adminService.logAction('USER_CREATE', 'SUCCESS', `Admin manually registered user @${newUser.username}`, clientIp, undefined, undefined, userId);
+    res.json({ success: true, user: newUser });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 apiRouter.post('/admin/users/adjust-balance', (req: Request, res: Response) => {
@@ -995,9 +1080,21 @@ apiRouter.post('/admin/users/adjust-balance', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.get('/admin/users/:userId', (req: Request, res: Response) => {
+apiRouter.get('/admin/users/:userId', async (req: Request, res: Response) => {
   const userId = req.params.userId;
-  const user = db.getUserById(userId);
+  let user = db.getUserById(userId);
+
+  if (!user) {
+    try {
+      const doc = await adminDb.collection('users').doc(userId).get();
+      if (doc.exists) {
+        user = doc.data() as UserProfile;
+        db.users.set(user.id, user);
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   if (!user) {
     res.status(404).json({ error: 'User not found' });
@@ -2495,30 +2592,13 @@ apiRouter.get('/bingo/room-status/:roomId', async (req: Request, res: Response) 
     let myTickets: BingoTicket[] = [];
     if (userId) {
       const userIdStr = String(userId);
-      const memoryTickets = Array.from(db.tickets.values()).filter(
+      myTickets = Array.from(db.tickets.values()).filter(
         (t) =>
           t.roomId === roomId &&
           t.userId === userIdStr &&
           t.status === 'ACTIVE' &&
           (!room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId)
       );
-
-      const ticketsSnap = await adminDb
-        .collection('tickets')
-        .where('roomId', '==', roomId)
-        .where('userId', '==', userIdStr)
-        .where('status', '==', 'ACTIVE')
-        .get();
-
-      const fsTickets = ticketsSnap.docs
-        .map((d) => d.data() as BingoTicket)
-        .filter((t) => !room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId);
-
-      const ticketMap = new Map<string, BingoTicket>();
-      memoryTickets.forEach((t) => ticketMap.set(t.id, t));
-      fsTickets.forEach((t) => ticketMap.set(t.id, t));
-
-      myTickets = Array.from(ticketMap.values());
     }
 
     res.json({

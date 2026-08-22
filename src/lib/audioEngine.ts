@@ -6,14 +6,34 @@ class SoundEngine {
   private ctx: AudioContext | null = null;
   private soundEnabled: boolean = true;
   private cachedVoices: SpeechSynthesisVoice[] = [];
+  private isUnlocked: boolean = false;
 
   constructor() {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      this.loadVoices();
-      window.speechSynthesis.onvoiceschanged = () => {
+    if (typeof window !== 'undefined') {
+      if ('speechSynthesis' in window) {
         this.loadVoices();
-      };
+        window.speechSynthesis.onvoiceschanged = () => {
+          this.loadVoices();
+        };
+      }
+      this.attachGestureListeners();
     }
+  }
+
+  private attachGestureListeners() {
+    if (typeof window === 'undefined') return;
+    const unlockHandler = () => {
+      this.unlockAudio();
+      if (this.isUnlocked) {
+        ['touchstart', 'touchend', 'pointerdown', 'click', 'keydown'].forEach((evt) => {
+          window.removeEventListener(evt, unlockHandler);
+        });
+      }
+    };
+
+    ['touchstart', 'touchend', 'pointerdown', 'click', 'keydown'].forEach((evt) => {
+      window.addEventListener(evt, unlockHandler, { passive: true, once: false });
+    });
   }
 
   private loadVoices() {
@@ -31,7 +51,7 @@ class SoundEngine {
       }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      this.ctx.resume().catch(() => {});
     }
     return this.ctx;
   }
@@ -42,9 +62,23 @@ class SoundEngine {
   }
 
   public unlockAudio() {
-    this.getContext();
+    const ctx = this.getContext();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().then(() => {
+        this.isUnlocked = true;
+      }).catch(() => {});
+    } else if (ctx && ctx.state === 'running') {
+      this.isUnlocked = true;
+    }
+
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       this.loadVoices();
+      // Prime TTS on mobile
+      try {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+      } catch {}
     }
   }
 

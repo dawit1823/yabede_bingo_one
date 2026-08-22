@@ -449,11 +449,13 @@ export class TicketManager {
   public async clearTicketsForRoom(roomId: string): Promise<void> {
     logger.debug(`[TicketManager] Resetting in-memory tickets & reservations for room ${roomId}`);
 
-    // 1. Mark in-memory active tickets as COMPLETED so they are excluded from the new round
-    for (const [id, ticket] of db.tickets.entries()) {
+    // 1. Mark in-memory active tickets as COMPLETED with winningStatus LOST so they are excluded from the new round
+    for (const ticket of db.tickets.values()) {
       if (ticket.roomId === roomId && ticket.status === 'ACTIVE') {
         ticket.status = 'COMPLETED';
-        db.tickets.delete(id);
+        if (!(ticket as any).winningStatus) {
+          (ticket as any).winningStatus = 'LOST';
+        }
       }
     }
 

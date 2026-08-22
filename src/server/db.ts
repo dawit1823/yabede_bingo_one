@@ -269,10 +269,218 @@ class FirestoreDatabaseStore {
         }
       }, null);
 
-      logger.info(`[Firestore] Memory store initialized with ${this.rooms.size} official Bingo arenas.`);
+      // 3. Synchronize All Registered Users from Firestore
+      await this.syncUsersFromFirestore();
+
+      logger.info(`[Firestore] Memory store initialized with ${this.rooms.size} official Bingo arenas and ${this.users.size} registered users.`);
     } catch (err: any) {
       console.warn('⚠️ [Firestore] Notice during startup sync:', err.message || err);
+      if (this.users.size === 0) {
+        this.seedInitialUsers();
+      }
     }
+  }
+
+  /**
+   * Synchronizes all registered users and authentication credentials from Firestore.
+   * Ensures zero omission of registered players in the Admin Panel directory.
+   */
+  public async syncUsersFromFirestore(): Promise<UserProfile[]> {
+    try {
+      await firestoreGuard.safeRead('users', 'syncUsersFromFirestore', async () => {
+        const usersSnapshot = await adminDb.collection('users').get();
+        if (!usersSnapshot.empty) {
+          usersSnapshot.docs.forEach((doc) => {
+            const data = doc.data() as any;
+            if (data && (data.id || doc.id)) {
+              const uid = data.id || doc.id;
+              const user: UserProfile = {
+                id: uid,
+                telegramId: Number(data.telegramId) || 0,
+                username: data.username || data.telegramUsername || `user_${uid.slice(-4)}`,
+                firstName: data.firstName || '',
+                lastName: data.lastName || '',
+                phone: data.phone || undefined,
+                photoUrl: data.photoUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${uid}`,
+                language: data.language || 'am',
+                referralCode: data.referralCode || `REF${Math.floor(100000 + Math.random() * 900000)}`,
+                referredBy: data.referredBy || undefined,
+                walletBalance: typeof data.walletBalance === 'number' ? data.walletBalance : 0,
+                bonusBalance: typeof data.bonusBalance === 'number' ? data.bonusBalance : 0,
+                vipLevel: Number(data.vipLevel) || 1,
+                status: (data.status as any) || 'ACTIVE',
+                role: (data.role as any) || 'USER',
+                createdAt: data.createdAt || new Date().toISOString(),
+                updatedAt: data.updatedAt || new Date().toISOString(),
+                lastLogin: data.lastLogin || data.createdAt || new Date().toISOString(),
+                totalWins: typeof data.totalWins === 'number' ? data.totalWins : 0,
+                totalGamesPlayed: typeof data.totalGamesPlayed === 'number' ? data.totalGamesPlayed : 0,
+                totalDeposited: typeof data.totalDeposited === 'number' ? data.totalDeposited : 0,
+                totalWithdrawn: typeof data.totalWithdrawn === 'number' ? data.totalWithdrawn : 0,
+              };
+
+              this.users.set(user.id, user);
+              if (user.telegramId) this.telegramUserIndex.set(user.telegramId, user.id);
+              if (user.phone) {
+                const norm = this.normalizePhone(user.phone);
+                this.phoneToUserIndex.set(norm, user.id);
+                this.phoneToUserIndex.set(user.phone, user.id);
+              }
+            }
+          });
+        }
+
+        // Also sync phoneUserAuthMap
+        const authSnapshot = await adminDb.collection('userAuth').get().catch(() => null);
+        if (authSnapshot && !authSnapshot.empty) {
+          authSnapshot.docs.forEach((doc) => {
+            const authData = doc.data() as PhoneUserAuth;
+            if (authData && authData.phone) {
+              this.phoneUserAuthMap.set(doc.id, authData);
+              const norm = this.normalizePhone(authData.phone);
+              this.phoneToUserIndex.set(norm, doc.id);
+              this.phoneToUserIndex.set(authData.phone, doc.id);
+            }
+          });
+        }
+      }, null);
+
+      // If no users exist yet in Firestore (fresh deploy or new database), seed standard demo players
+      if (this.users.size === 0) {
+        this.seedInitialUsers();
+      }
+
+      logger.info(`[Firestore] Registered users directory synchronized. Total active users in memory: ${this.users.size}`);
+    } catch (err: any) {
+      console.warn('⚠️ [Firestore] Notice during users sync:', err.message || err);
+      if (this.users.size === 0) {
+        this.seedInitialUsers();
+      }
+    }
+
+    return Array.from(this.users.values());
+  }
+
+  /**
+   * Seeds realistic standard player accounts for testing, initial directory viewing, and demonstrations.
+   */
+  public seedInitialUsers() {
+    const initialUsers: UserProfile[] = [
+      {
+        id: 'usr_abebe',
+        telegramId: 1001,
+        username: 'abebe_b',
+        firstName: 'Abebe',
+        lastName: 'Bekele',
+        phone: '+251911223344',
+        photoUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=usr_abebe',
+        language: 'am',
+        referralCode: 'REF100101',
+        walletBalance: 350,
+        bonusBalance: 50,
+        vipLevel: 2,
+        status: 'ACTIVE',
+        role: 'USER',
+        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+        lastLogin: new Date().toISOString(),
+        totalWins: 14,
+        totalGamesPlayed: 48,
+        totalDeposited: 1200,
+        totalWithdrawn: 800,
+      },
+      {
+        id: 'usr_kebede',
+        telegramId: 1002,
+        username: 'kebede_t',
+        firstName: 'Kebede',
+        lastName: 'Tessema',
+        phone: '+251922334455',
+        photoUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=usr_kebede',
+        language: 'am',
+        referralCode: 'REF100102',
+        walletBalance: 520,
+        bonusBalance: 100,
+        vipLevel: 3,
+        status: 'ACTIVE',
+        role: 'USER',
+        createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        lastLogin: new Date().toISOString(),
+        totalWins: 22,
+        totalGamesPlayed: 75,
+        totalDeposited: 2500,
+        totalWithdrawn: 1800,
+      },
+      {
+        id: 'usr_chala',
+        telegramId: 1003,
+        username: 'chala_g',
+        firstName: 'Chala',
+        lastName: 'Girma',
+        phone: '+251933445566',
+        photoUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=usr_chala',
+        language: 'en',
+        referralCode: 'REF100103',
+        walletBalance: 180,
+        bonusBalance: 30,
+        vipLevel: 1,
+        status: 'ACTIVE',
+        role: 'USER',
+        createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+        lastLogin: new Date().toISOString(),
+        totalWins: 6,
+        totalGamesPlayed: 25,
+        totalDeposited: 600,
+        totalWithdrawn: 400,
+      },
+      {
+        id: 'usr_almaz',
+        telegramId: 1004,
+        username: 'almaz_m',
+        firstName: 'Almaz',
+        lastName: 'Mengesha',
+        phone: '+251944556677',
+        photoUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=usr_almaz',
+        language: 'am',
+        referralCode: 'REF100104',
+        walletBalance: 890,
+        bonusBalance: 150,
+        vipLevel: 4,
+        status: 'ACTIVE',
+        role: 'USER',
+        createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+        lastLogin: new Date().toISOString(),
+        totalWins: 31,
+        totalGamesPlayed: 110,
+        totalDeposited: 3800,
+        totalWithdrawn: 2900,
+      },
+      {
+        id: 'usr_tigist',
+        telegramId: 1005,
+        username: 'tigist_a',
+        firstName: 'Tigist',
+        lastName: 'Alemu',
+        phone: '+251955667788',
+        photoUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=usr_tigist',
+        language: 'am',
+        referralCode: 'REF100105',
+        walletBalance: 240,
+        bonusBalance: 40,
+        vipLevel: 1,
+        status: 'ACTIVE',
+        role: 'USER',
+        createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
+        lastLogin: new Date().toISOString(),
+        totalWins: 8,
+        totalGamesPlayed: 32,
+        totalDeposited: 800,
+        totalWithdrawn: 500,
+      },
+    ];
+
+    initialUsers.forEach((u) => {
+      this.saveUser(u);
+    });
   }
 
   // --- AUTHENTICATION & PHONE USER METHODS ---

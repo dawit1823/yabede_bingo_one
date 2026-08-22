@@ -65,6 +65,26 @@ export class PrizeCalculator {
       room.platformFee = 0;
       room.ticketsSold = 0;
       room.lastWinners = [];
+
+      // Finalize all round tickets as LOST
+      if (confirmedTickets.length > 0) {
+        const nowIso = new Date().toISOString();
+        const batch = adminDb.batch();
+        for (const tkt of confirmedTickets) {
+          tkt.status = 'COMPLETED';
+          (tkt as any).winningStatus = 'LOST';
+          (tkt as any).prizeWon = 0;
+          batch.set(
+            adminDb.collection('tickets').doc(tkt.id),
+            { status: 'COMPLETED', winningStatus: 'LOST', prizeWon: 0, updatedAt: nowIso },
+            { merge: true }
+          );
+        }
+        firestoreGuard.safeWrite('tickets', 'finalizeNoWinnerTickets', async () => {
+          await batch.commit();
+        }, false).catch(console.warn);
+      }
+
       logger.info(`[GAME] Game finalized with no payouts (ticketsSold=${ticketsSold}, winners=${winners?.length || 0}) room=${room.id} gameRef=${gameRef}`);
       return { calculatedWinners: [], transactions: [] };
     }
@@ -157,6 +177,8 @@ export class PrizeCalculator {
       const tkt = db.tickets.get(winner.ticketId);
       if (tkt) {
         tkt.status = 'BINGO_CLAIMED';
+        (tkt as any).winningStatus = 'WON';
+        (tkt as any).prizeWon = prizePerWinner;
       }
 
       // Debit platform / credit winner wallet in memory
@@ -201,6 +223,27 @@ export class PrizeCalculator {
       );
       batch.set(adminDb.collection('transactions').doc(tx.id), tx);
       batch.set(adminDb.collection('winners').doc(`win_${room.id}_${winner.userId}_${Date.now()}`), winnerWithPrize);
+    }
+
+    // 4. Finalize all tickets for this round as WON or LOST (never left PENDING)
+    const validWinnerTicketIds = new Set(validWinners.map((w) => w.ticketId));
+    for (const tkt of confirmedTickets) {
+      if (!validWinnerTicketIds.has(tkt.id)) {
+        tkt.status = 'COMPLETED';
+        (tkt as any).winningStatus = 'LOST';
+        (tkt as any).prizeWon = 0;
+        batch.set(
+          adminDb.collection('tickets').doc(tkt.id),
+          { status: 'COMPLETED', winningStatus: 'LOST', prizeWon: 0, updatedAt: nowIso },
+          { merge: true }
+        );
+      } else {
+        batch.set(
+          adminDb.collection('tickets').doc(tkt.id),
+          { status: 'BINGO_CLAIMED', winningStatus: 'WON', prizeWon: prizePerWinner, updatedAt: nowIso },
+          { merge: true }
+        );
+      }
     }
 
     // Update room object in memory

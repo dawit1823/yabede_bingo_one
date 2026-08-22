@@ -750,7 +750,7 @@ export class AdminService {
     const combined = {
       ...this.systemSettings,
       ...parsedSettings,
-      version: (this.systemSettings.version || 0) + 1,
+      version: ((this.systemSettings as any).version || 0) + 1,
       updatedAt: new Date().toISOString(),
       updatedBy,
     };

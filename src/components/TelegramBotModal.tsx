@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiUrl } from '../lib/apiConfig';
-import { Bot, Send, Smartphone, ShieldCheck, Check, Key, User, HelpCircle, X, RefreshCw } from 'lucide-react';
+import { Bot, Send, Smartphone, ShieldCheck, Check, Key, User, HelpCircle, X, RefreshCw, ExternalLink } from 'lucide-react';
 import { triggerHaptic } from '../lib/telegramSDK';
 import { UserProfile } from '../types';
 
@@ -157,6 +157,9 @@ export const TelegramBotModal: React.FC<TelegramBotModalProps> = ({
     }
 
     if (btn.url) {
+      if (typeof window !== 'undefined') {
+        window.open(btn.url, '_blank', 'noopener,noreferrer');
+      }
       onClose();
       return;
     }
@@ -201,6 +204,16 @@ export const TelegramBotModal: React.FC<TelegramBotModalProps> = ({
           </div>
 
           <div className="flex items-center gap-1">
+            <a
+              href="https://t.me/yabede_bingo_bot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 text-sky-400 hover:text-sky-300 hover:bg-slate-800 rounded-xl transition flex items-center gap-1 text-[11px] font-bold"
+              title="Open in Telegram App"
+            >
+              <ExternalLink className="w-4 h-4" />
+              <span className="hidden sm:inline">Open in App</span>
+            </a>
             <button
               onClick={() => {
                 setMessages([]);

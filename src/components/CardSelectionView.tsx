@@ -148,7 +148,7 @@ const BingoCardGrid = React.memo<BingoCardGridProps>(
     onToggleCard,
   }) => {
     return (
-      <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2.5 max-h-[calc(100vh-280px)] sm:max-h-[calc(100vh-320px)] min-h-[300px] overflow-y-auto pr-1 pb-32 sm:pb-36 scroll-smooth">
+      <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2.5 max-h-[calc(100vh-280px)] sm:max-h-[calc(100vh-300px)] min-h-[320px] overflow-y-auto pr-1 pb-6 scroll-smooth">
         {filteredCards.map((num) => {
           const res = reservations[num];
           const isOptimistic = optimisticSelections.has(num);
@@ -170,236 +170,11 @@ const BingoCardGrid = React.memo<BingoCardGridProps>(
   }
 );
 
-// Selected Card Compact Preview Item for horizontal scrollable selection strip
-const SelectedCardPreviewItem = React.memo<{
-  cardNumber: number;
-  status: 'SOLD' | 'RESERVED' | 'OPTIMISTIC';
-  ticketPrice: number;
-  onDeselect: (num: number) => void;
-  isToggling: boolean;
-  language: 'en' | 'am';
-}>(({ cardNumber, status, ticketPrice, onDeselect, isToggling, language }) => {
-  const matrix = useMemo(() => generateCardMatrixByNumber(cardNumber), [cardNumber]);
-
-  const isConfirmed = status === 'SOLD';
-  const isOptimistic = status === 'OPTIMISTIC';
-
-  return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, scale: 0.8, y: 15 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.8, y: 15 }}
-      transition={{ duration: 0.2, ease: 'easeOut' }}
-      className={`border-2 rounded-2xl p-2.5 min-w-[150px] max-w-[160px] shrink-0 snap-center shadow-xl flex flex-col justify-between gap-1.5 relative transition-colors ${
-        isConfirmed
-          ? 'bg-slate-900 border-emerald-500 shadow-emerald-950/40'
-          : isOptimistic
-          ? 'bg-slate-900 border-amber-400 animate-pulse'
-          : 'bg-slate-900 border-emerald-400/80'
-      }`}
-    >
-      {/* Top Header */}
-      <div className="flex items-center justify-between gap-1 border-b border-slate-800 pb-1">
-        <div className="flex flex-col">
-          <span className="text-[11px] font-black text-emerald-400 leading-tight">
-            Card {formatCardNumber(cardNumber)}
-          </span>
-          <span className="text-[9px] font-bold text-amber-300 font-mono">
-            {ticketPrice} Birr
-          </span>
-        </div>
-
-        <button
-          disabled={isToggling}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDeselect(cardNumber);
-          }}
-          className="p-1 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/40 border border-red-500/30 transition text-[10px] font-bold shrink-0 active:scale-95 disabled:opacity-50 cursor-pointer"
-          title="Deselect Card"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      {/* Selection Status Badge */}
-      <div className="flex items-center justify-between text-[8px] font-black uppercase">
-        <span
-          className={`px-1.5 py-0.5 rounded-full flex items-center gap-1 border ${
-            isConfirmed
-              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-              : isOptimistic
-              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-              : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-          }`}
-        >
-          {isConfirmed ? (
-            <>
-              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" />
-              <span>{language === 'am' ? 'የተረጋገጠ' : 'CONFIRMED'}</span>
-            </>
-          ) : isOptimistic ? (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping inline-block" />
-              <span>{language === 'am' ? 'በመምረጥ ላይ...' : 'SELECTING...'}</span>
-            </>
-          ) : (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-              <span>{language === 'am' ? 'የተመረጠ' : 'SELECTED'}</span>
-            </>
-          )}
-        </span>
-      </div>
-
-      {/* Mini 5x5 Grid Preview */}
-      <div className="grid grid-cols-5 gap-0.5 text-center text-[7px] font-mono font-black">
-        {['B', 'I', 'N', 'G', 'O'].map((l, idx) => (
-          <div key={idx} className="text-amber-400 font-sans text-[7px] font-black">
-            {l}
-          </div>
-        ))}
-        {matrix.map((row, rIdx) =>
-          row.map((cell, cIdx) => (
-            <div
-              key={`${rIdx}-${cIdx}`}
-              className={`p-0.5 rounded text-[7px] ${
-                cell === 'FREE'
-                  ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40 font-black'
-                  : 'bg-slate-800 text-slate-200'
-              }`}
-            >
-              {cell === 'FREE' ? '★' : cell}
-            </div>
-          ))
-        )}
-      </div>
-    </motion.div>
-  );
-});
-
 export interface SelectedCardData {
   cardNumber: number;
   status: 'SOLD' | 'RESERVED' | 'OPTIMISTIC';
   time: number;
 }
-
-interface SelectedCardsPanelProps {
-  mySelectedCards: SelectedCardData[];
-  liveRoom: BingoRoom;
-  togglingCard: number | null;
-  language: 'en' | 'am';
-  onDeselectCard: (num: number) => void;
-  onEnterGame?: () => void;
-  onBack: () => void;
-  horizontalScrollRef: React.RefObject<HTMLDivElement | null>;
-}
-
-export const SelectedCardsPanel: React.FC<SelectedCardsPanelProps> = React.memo(({
-  mySelectedCards,
-  liveRoom,
-  togglingCard,
-  language,
-  onDeselectCard,
-  onEnterGame,
-  onBack,
-  horizontalScrollRef,
-}) => {
-  const totalPrice = mySelectedCards.length * (liveRoom.ticketPrice || 0);
-
-  if (mySelectedCards.length === 0) {
-    return (
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-3 pb-safe shadow-lg">
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-3 text-xs text-slate-400 px-1">
-          <div className="flex items-center gap-2">
-            <Grid className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="font-semibold text-slate-300 text-[11px] sm:text-xs">
-              {language === 'am'
-                ? 'ምንም ካርድ አልተመረጠም • ለመምረጥ ከላይ ያሉትን ካርዶች ይንኩ'
-                : 'No cards selected • Tap any available card above to select'}
-            </span>
-          </div>
-          <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg shrink-0">
-            {liveRoom.ticketPrice || 0} Birr / Card
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-xl border-t-2 border-emerald-500/50 p-3 sm:p-4 pb-safe shadow-[0_-12px_40px_rgba(0,0,0,0.85)]">
-      <div className="max-w-3xl mx-auto space-y-2.5">
-        {/* Header */}
-        <div className="flex items-center justify-between text-xs font-black text-slate-200 px-1">
-          <div className="flex items-center gap-2">
-            <div className="p-1 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-              <Trophy className="w-3.5 h-3.5" />
-            </div>
-            <div>
-              <span className="text-emerald-400 font-black text-xs sm:text-sm">
-                {language === 'am' ? 'የተመረጡ ካርዶች' : 'Selected Cards'} ({mySelectedCards.length})
-              </span>
-              <span className="text-[10px] text-slate-400 block font-normal">
-                {totalPrice} Birr Total
-              </span>
-            </div>
-          </div>
-
-          <span className="text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-full font-bold">
-            {language === 'am' ? 'ለማስወገድ X ይጫኑ' : 'Tap X to deselect'}
-          </span>
-        </div>
-
-        {/* Horizontal Scrollable Selected Cards List with Motion Animations */}
-        <div
-          ref={horizontalScrollRef}
-          className="flex gap-2.5 overflow-x-auto pb-1.5 pt-0.5 px-0.5 snap-x snap-mandatory touch-pan-x scroll-smooth no-scrollbar"
-        >
-          <AnimatePresence mode="popLayout">
-            {mySelectedCards.map((card) => (
-              <SelectedCardPreviewItem
-                key={card.cardNumber}
-                cardNumber={card.cardNumber}
-                status={card.status}
-                ticketPrice={liveRoom.ticketPrice || 0}
-                onDeselect={onDeselectCard}
-                isToggling={togglingCard === card.cardNumber}
-                language={language}
-              />
-            ))}
-          </AnimatePresence>
-        </div>
-
-        {/* Enter Game Arena / Confirm Button */}
-        <button
-          onClick={() => {
-            if (onEnterGame) {
-              onEnterGame();
-            } else {
-              onBack();
-            }
-          }}
-          className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-white font-black text-xs sm:text-sm shadow-2xl border border-emerald-300 flex items-center justify-between hover:brightness-110 active:scale-[0.98] transition cursor-pointer"
-        >
-          <div className="flex items-center gap-2.5">
-            <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
-            <span>
-              {language === 'am'
-                ? `${mySelectedCards.length} ካርድ ${mySelectedCards.length > 1 ? 'ዎች' : ''} ተመርጠዋል • ወደ ጨዋታው ግባ`
-                : `${mySelectedCards.length} Card${mySelectedCards.length > 1 ? 's' : ''} Selected • Enter Game Arena`}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5 bg-slate-950/40 px-3 py-1 rounded-xl text-amber-300 text-xs font-black border border-amber-400/30">
-            <span>{language === 'am' ? 'ጀምር' : 'JOIN'}</span>
-            <ArrowLeft className="w-4 h-4 rotate-180" />
-          </div>
-        </button>
-      </div>
-    </div>
-  );
-});
 
 export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
   room,
@@ -870,11 +645,7 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
   const totalPrice = mySelectedCards.length * (liveRoom.ticketPrice || 0);
 
   return (
-    <div
-      className={`space-y-4 transition-all duration-300 relative ${
-        mySelectedCards.length > 0 ? 'pb-64 sm:pb-72' : 'pb-24'
-      }`}
-    >
+    <div className="space-y-4 transition-all duration-300 relative pb-8">
       {/* Header Bar with Refresh Button */}
       <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl">
         <button
@@ -917,6 +688,33 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Quick Enter Game Header Bar if cards are selected */}
+      {mySelectedCards.length > 0 && (
+        <div className="bg-emerald-950/90 border-2 border-emerald-500/60 rounded-2xl p-3 px-4 flex items-center justify-between shadow-lg animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-emerald-400 shrink-0" />
+            <div>
+              <span className="text-xs font-black text-emerald-300">
+                {language === 'am' ? 'የተመረጡ ካርዶች:' : 'Selected Cards:'} {mySelectedCards.length}
+              </span>
+              <span className="text-[10px] text-slate-300 ml-2 font-mono">
+                ({totalPrice} Birr)
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              if (onEnterGame) onEnterGame();
+              else onBack();
+            }}
+            className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center gap-1.5 active:scale-95 cursor-pointer shadow-md"
+          >
+            <span>{language === 'am' ? 'ወደ ጨዋታው ግባ' : 'Enter Arena'}</span>
+            <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
+          </button>
+        </div>
+      )}
 
       {/* Synchronization Indicator */}
       {isSyncing && (
@@ -1062,18 +860,6 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
           onToggleCard={handleToggleCard}
         />
       </div>
-
-      {/* Fixed Bottom Selected Cards Panel */}
-      <SelectedCardsPanel
-        mySelectedCards={mySelectedCards}
-        liveRoom={liveRoom}
-        togglingCard={togglingCard}
-        language={language}
-        onDeselectCard={handleToggleCard}
-        onEnterGame={onEnterGame}
-        onBack={onBack}
-        horizontalScrollRef={horizontalScrollRef}
-      />
     </div>
   );
 };
