@@ -902,6 +902,126 @@ export class AdminService {
       lastLedgerAuditTimestamp: new Date().toISOString(),
     };
   }
+
+  /**
+   * SuperAdmin Controlled Full Data Reset
+   * Permanently wipes application test/generated data from Firestore and memory.
+   * STRICTLY PROTECTS:
+   * - SuperAdmin auth & admin document in 'admins'
+   * - System configuration in 'settings' (platformConfig, bonusConfigs, paymentMethods)
+   * - Firebase Auth credentials
+   * - Indexes
+   */
+  public async resetAllApplicationData(
+    confirmationPhrase: string,
+    adminEmail: string,
+    ipAddress?: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    deletedCounts: Record<string, number>;
+    preservedItems: string[];
+    officialRooms: string[];
+    timestamp: string;
+  }> {
+    if (confirmationPhrase !== 'RESET ALL DATA') {
+      throw new Error('Invalid confirmation phrase. You must enter "RESET ALL DATA" exactly.');
+    }
+
+    if (adminEmail.toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
+      throw new Error('Permission denied: Only the primary Super Administrator (dawitsolomon1823@gmail.com) can execute a full system reset.');
+    }
+
+    console.warn(`🚨 [SUPERADMIN] Initiating controlled full data reset requested by ${adminEmail} (IP: ${ipAddress})`);
+
+    const collectionsToReset = [
+      'users',
+      'userAuth',
+      'wallets',
+      'tickets',
+      'gameHistory',
+      'winners',
+      'transactions',
+      'deposits',
+      'withdrawals',
+      'payments',
+      'groupGames',
+      'groupMembers',
+      'groupInvitations',
+      'groupMessages',
+      'chatMessages',
+      'notifications',
+      'referrals',
+      'userActivities',
+    ];
+
+    const deletedCounts: Record<string, number> = {};
+
+    // Helper to batch delete all documents in a collection
+    const deleteEntireCollection = async (collectionName: string): Promise<number> => {
+      let count = 0;
+      try {
+        let hasMore = true;
+        while (hasMore) {
+          const snap = await adminDb.collection(collectionName).limit(300).get();
+          if (snap.empty) {
+            hasMore = false;
+            break;
+          }
+          const batch = adminDb.batch();
+          snap.docs.forEach((doc) => batch.delete(doc.ref));
+          await batch.commit();
+          count += snap.size;
+          if (snap.size < 300) {
+            hasMore = false;
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[Data Reset] Collection ${collectionName} deletion note:`, err.message || err);
+      }
+      return count;
+    };
+
+    // 1. Delete each collection from Firestore
+    for (const coll of collectionsToReset) {
+      const numDeleted = await deleteEntireCollection(coll);
+      deletedCounts[coll] = numDeleted;
+    }
+
+    // 2. Wipe memory store
+    db.resetAllData();
+
+    // 3. Recreate default official rooms in memory & Firestore
+    const officialRooms = db.recreateOfficialRooms();
+
+    // 4. Ensure SuperAdmin admin account and system configurations remain intact
+    await this.initializeSuperAdmin();
+
+    const timestamp = new Date().toISOString();
+
+    // 5. Audit log the reset
+    await this.logAction(
+      'SUPERADMIN_FULL_DATA_RESET',
+      'SUCCESS',
+      `Full system data reset executed. Wiped ${Object.values(deletedCounts).reduce((a, b) => a + b, 0)} test documents across ${collectionsToReset.length} collections. Official rooms re-initialized.`,
+      ipAddress
+    );
+
+    return {
+      success: true,
+      message: 'All application test data has been safely reset and official Bingo rooms re-initialized from zero.',
+      deletedCounts,
+      preservedItems: [
+        `SuperAdmin Account (${AdminService.FIXED_ADMIN_EMAIL})`,
+        'Firebase Authentication Admin Credentials',
+        'System Settings (platformConfig, bonusConfigs)',
+        'Payment Methods (Telebirr, CBE, etc.)',
+        'Database Schema & Indexes',
+      ],
+      officialRooms: officialRooms.map((r) => r.name || r.id),
+      timestamp,
+    };
+  }
 }
 
 export const adminService = new AdminService();

@@ -69,7 +69,16 @@ import {
   Activity,
   AlertTriangle,
   History,
+  Flame,
+  SlidersHorizontal,
+  Layers,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
+import { useTableData } from '../hooks/useTableData';
+import { TablePagination, TableSortHeader } from './TablePagination';
+import { BatchActionBar, BatchAction } from './BatchActionBar';
+import { SystemResetModal } from './SystemResetModal';
 
 interface AdminDashboardProps {
   metrics: SystemMetrics | null;
@@ -198,9 +207,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [ticketEndDate, setTicketEndDate] = useState<string>('');
 
   // Settings State & Confirmation
-  const [settingsCategoryTab, setSettingsCategoryTab] = useState<'game' | 'wallet' | 'referral' | 'security'>('game');
+  const [settingsCategoryTab, setSettingsCategoryTab] = useState<'game' | 'wallet' | 'referral' | 'security' | 'maintenance'>('game');
   const [showSettingsConfirmModal, setShowSettingsConfirmModal] = useState<boolean>(false);
   const [settingsHistoryList, setSettingsHistoryList] = useState<any[]>([]);
+  const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
 
   // Reports Filters
   const [reportStartDate, setReportStartDate] = useState<string>('');
@@ -1335,6 +1345,381 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return true;
   });
 
+  // Table Data Hooks with Sorting, Pagination & Batch Multi-Selection
+  const usersTable = useTableData(filteredUsers, { defaultSortKey: 'createdAt', defaultSortDir: 'desc', initialPageSize: 25 });
+  const depositsTable = useTableData(deposits, { defaultSortKey: 'createdAt', defaultSortDir: 'desc', initialPageSize: 25 });
+  const withdrawalsTable = useTableData(withdrawals, { defaultSortKey: 'createdAt', defaultSortDir: 'desc', initialPageSize: 25 });
+  const ticketsTable = useTableData(allTicketsList, { defaultSortKey: 'boughtAt', defaultSortDir: 'desc', initialPageSize: 25 });
+  const winnersTable = useTableData(allWinnersList, { defaultSortKey: 'wonAt', defaultSortDir: 'desc', initialPageSize: 25 });
+  const walletTable = useTableData(allTransactions, { defaultSortKey: 'createdAt', defaultSortDir: 'desc', initialPageSize: 25 });
+  const auditTable = useTableData(filteredAuditLogs, { defaultSortKey: 'timestamp', defaultSortDir: 'desc', initialPageSize: 25 });
+
+  // Batch Operations Handlers
+  const handleBatchUserStatus = async (userIds: string[], status: 'ACTIVE' | 'SUSPENDED' | 'BANNED') => {
+    try {
+      const res = await adminFetch(apiUrl('/api/admin/batch/users/status'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds, status }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Batch status update failed');
+      triggerNotificationHaptic('success');
+      alert(`✅ Updated status to ${status} for ${data.updatedCount} users!`);
+      usersTable.clearSelection();
+      fetchAdminData();
+    } catch (err: any) {
+      triggerNotificationHaptic('error');
+      alert(err.message || 'Batch update failed');
+    }
+  };
+
+  const handleBatchUserBalance = async (userIds: string[], formValues?: Record<string, any>) => {
+    const amount = Number(formValues?.amount || 0);
+    const reason = formValues?.reason || 'Batch Admin Balance Adjustment';
+    if (!amount || isNaN(amount)) {
+      alert('Please enter a valid amount');
+      return;
+    }
+    try {
+      const res = await adminFetch(apiUrl('/api/admin/batch/users/adjust-balance'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds, amount, reason }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Batch balance adjustment failed');
+      triggerNotificationHaptic('success');
+      alert(`✅ Adjusted balance by ${amount} Birr for ${data.adjustedCount} users!`);
+      usersTable.clearSelection();
+      fetchAdminData();
+    } catch (err: any) {
+      triggerNotificationHaptic('error');
+      alert(err.message || 'Batch adjustment failed');
+    }
+  };
+
+  const handleBatchDeleteUsers = async (userIds: string[]) => {
+    try {
+      const res = await adminFetch(apiUrl('/api/admin/batch/users/delete'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Batch user deletion failed');
+      triggerNotificationHaptic('success');
+      alert(`✅ Permanently deleted ${data.deletedCount} user accounts and their associated ledgers.`);
+      usersTable.clearSelection();
+      fetchAdminData();
+    } catch (err: any) {
+      triggerNotificationHaptic('error');
+      alert(err.message || 'Batch delete failed');
+    }
+  };
+
+  const handleBatchCancelTickets = async (ticketIds: string[], formValues?: Record<string, any>) => {
+    const reason = formValues?.reason || 'Batch Admin Ticket Cancellation';
+    try {
+      const res = await adminFetch(apiUrl('/api/admin/batch/tickets/cancel'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketIds, reason }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Batch ticket cancellation failed');
+      triggerNotificationHaptic('success');
+      alert(`✅ Cancelled and refunded ${data.cancelledCount} tickets!`);
+      ticketsTable.clearSelection();
+      fetchAdminData();
+    } catch (err: any) {
+      triggerNotificationHaptic('error');
+      alert(err.message || 'Batch cancellation failed');
+    }
+  };
+
+  const handleBatchDeleteTickets = async (ticketIds: string[]) => {
+    try {
+      const res = await adminFetch(apiUrl('/api/admin/batch/tickets/delete'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketIds }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Batch ticket deletion failed');
+      triggerNotificationHaptic('success');
+      alert(`✅ Deleted ${data.deletedCount} ticket records.`);
+      ticketsTable.clearSelection();
+      fetchAdminData();
+    } catch (err: any) {
+      triggerNotificationHaptic('error');
+      alert(err.message || 'Batch delete failed');
+    }
+  };
+
+  const handleBatchApproveDeposits = async (depositIds: string[]) => {
+    let successCount = 0;
+    for (const depId of depositIds) {
+      try {
+        const res = await adminFetch(apiUrl('/api/admin/deposits/verify'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depositId: depId, action: 'APPROVE', adminId: 'usr_admin' }),
+        });
+        if (res.ok) successCount++;
+      } catch {}
+    }
+    triggerNotificationHaptic('success');
+    alert(`✅ Approved and credited ${successCount} deposit(s)!`);
+    depositsTable.clearSelection();
+    fetchAdminData();
+  };
+
+  const handleBatchRejectDeposits = async (depositIds: string[], formValues?: Record<string, any>) => {
+    const reason = formValues?.reason || 'Batch rejected by admin';
+    let count = 0;
+    for (const depId of depositIds) {
+      try {
+        const res = await adminFetch(apiUrl('/api/admin/deposits/verify'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depositId: depId, action: 'REJECT', reason, adminId: 'usr_admin' }),
+        });
+        if (res.ok) count++;
+      } catch {}
+    }
+    triggerNotificationHaptic('success');
+    alert(`✅ Rejected ${count} deposit request(s).`);
+    depositsTable.clearSelection();
+    fetchAdminData();
+  };
+
+  const handleBatchApproveWithdrawals = async (withdrawalIds: string[]) => {
+    let count = 0;
+    for (const wId of withdrawalIds) {
+      try {
+        const res = await adminFetch(apiUrl('/api/admin/withdrawals/process'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ withdrawalId: wId, action: 'APPROVE', adminId: 'usr_admin' }),
+        });
+        if (res.ok) count++;
+      } catch {}
+    }
+    triggerNotificationHaptic('success');
+    alert(`✅ Approved and marked paid for ${count} withdrawal request(s)!`);
+    withdrawalsTable.clearSelection();
+    fetchAdminData();
+  };
+
+  const handleBatchRejectWithdrawals = async (withdrawalIds: string[], formValues?: Record<string, any>) => {
+    const reason = formValues?.reason || 'Batch rejected by admin';
+    let count = 0;
+    for (const wId of withdrawalIds) {
+      try {
+        const res = await adminFetch(apiUrl('/api/admin/withdrawals/process'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ withdrawalId: wId, action: 'REJECT', rejectionReason: reason, adminId: 'usr_admin' }),
+        });
+        if (res.ok) count++;
+      } catch {}
+    }
+    triggerNotificationHaptic('success');
+    alert(`✅ Rejected ${count} withdrawal request(s) and refunded balances.`);
+    withdrawalsTable.clearSelection();
+    fetchAdminData();
+  };
+
+  const handleBatchDeleteAuditLogs = async (logIds: string[]) => {
+    try {
+      const res = await adminFetch(apiUrl('/api/admin/batch/audit/delete'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ logIds }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Batch audit log deletion failed');
+      triggerNotificationHaptic('success');
+      alert(`✅ Deleted ${data.deletedCount} audit log records.`);
+      auditTable.clearSelection();
+      fetchAdminData();
+    } catch (err: any) {
+      triggerNotificationHaptic('error');
+      alert(err.message || 'Batch delete failed');
+    }
+  };
+
+  // Batch action configurations
+  const userBatchActions: BatchAction[] = [
+    {
+      id: 'activate',
+      label: 'Activate',
+      variant: 'success',
+      icon: <CheckCircle className="w-3.5 h-3.5" />,
+      requireConfirmation: true,
+      confirmTitle: 'Activate Selected Users',
+      confirmMessage: 'Set account status to ACTIVE for all selected players?',
+      onExecute: async (ids) => handleBatchUserStatus(ids, 'ACTIVE'),
+    },
+    {
+      id: 'suspend',
+      label: 'Suspend',
+      variant: 'warning',
+      icon: <AlertTriangle className="w-3.5 h-3.5" />,
+      requireConfirmation: true,
+      confirmTitle: 'Suspend Selected Users',
+      confirmMessage: 'Suspend game participation for all selected players?',
+      onExecute: async (ids) => handleBatchUserStatus(ids, 'SUSPENDED'),
+    },
+    {
+      id: 'ban',
+      label: 'Ban',
+      variant: 'danger',
+      icon: <Ban className="w-3.5 h-3.5" />,
+      requireConfirmation: true,
+      confirmTitle: 'Ban Selected Users',
+      confirmMessage: 'Permanently block platform access for all selected players?',
+      onExecute: async (ids) => handleBatchUserStatus(ids, 'BANNED'),
+    },
+    {
+      id: 'adjust_balance',
+      label: 'Adjust Balance',
+      variant: 'primary',
+      icon: <Coins className="w-3.5 h-3.5" />,
+      confirmTitle: 'Batch Adjust Player Balances',
+      inputs: [
+        {
+          id: 'amount',
+          label: 'Amount in Birr (+ for credit, - for debit)',
+          type: 'number',
+          placeholder: 'e.g. 50 or -20',
+          required: true,
+        },
+        {
+          id: 'reason',
+          label: 'Adjustment Reason / Note',
+          type: 'text',
+          placeholder: 'e.g. Promotional Bonus or Ledger Correction',
+          defaultValue: 'Batch Admin Balance Adjustment',
+        },
+      ],
+      onExecute: async (ids, values) => handleBatchUserBalance(ids, values),
+    },
+    {
+      id: 'delete',
+      label: 'Delete Users',
+      variant: 'danger',
+      icon: <Trash2 className="w-3.5 h-3.5" />,
+      requireConfirmation: true,
+      confirmTitle: 'Permanently Delete Selected Users',
+      confirmMessage: 'Are you sure you want to permanently delete these users and their wallet ledgers? This cannot be undone.',
+      onExecute: async (ids) => handleBatchDeleteUsers(ids),
+    },
+  ];
+
+  const depositBatchActions: BatchAction[] = [
+    {
+      id: 'approve',
+      label: 'Approve & Credit',
+      variant: 'success',
+      icon: <CheckCircle className="w-3.5 h-3.5" />,
+      requireConfirmation: true,
+      confirmTitle: 'Approve Selected Deposits',
+      confirmMessage: 'Verify receipts and credit wallets for all selected deposits?',
+      onExecute: async (ids) => handleBatchApproveDeposits(ids),
+    },
+    {
+      id: 'reject',
+      label: 'Reject Deposits',
+      variant: 'danger',
+      icon: <XCircle className="w-3.5 h-3.5" />,
+      confirmTitle: 'Reject Selected Deposits',
+      inputs: [
+        {
+          id: 'reason',
+          label: 'Rejection Reason',
+          type: 'text',
+          defaultValue: 'Invalid payment slip or reference code mismatch.',
+          required: true,
+        },
+      ],
+      onExecute: async (ids, values) => handleBatchRejectDeposits(ids, values),
+    },
+  ];
+
+  const withdrawalBatchActions: BatchAction[] = [
+    {
+      id: 'approve',
+      label: 'Approve & Pay',
+      variant: 'success',
+      icon: <CheckCircle className="w-3.5 h-3.5" />,
+      requireConfirmation: true,
+      confirmTitle: 'Approve Selected Withdrawals',
+      confirmMessage: 'Confirm payouts processed and mark selected withdrawals as APPROVED?',
+      onExecute: async (ids) => handleBatchApproveWithdrawals(ids),
+    },
+    {
+      id: 'reject',
+      label: 'Reject & Refund',
+      variant: 'danger',
+      icon: <XCircle className="w-3.5 h-3.5" />,
+      confirmTitle: 'Reject Selected Withdrawals',
+      inputs: [
+        {
+          id: 'reason',
+          label: 'Rejection Reason',
+          type: 'text',
+          defaultValue: 'Bank account details verification failed.',
+          required: true,
+        },
+      ],
+      onExecute: async (ids, values) => handleBatchRejectWithdrawals(ids, values),
+    },
+  ];
+
+  const ticketBatchActions: BatchAction[] = [
+    {
+      id: 'cancel',
+      label: 'Cancel & Refund',
+      variant: 'warning',
+      icon: <AlertTriangle className="w-3.5 h-3.5" />,
+      confirmTitle: 'Batch Cancel & Refund Tickets',
+      inputs: [
+        {
+          id: 'reason',
+          label: 'Cancellation Reason',
+          type: 'text',
+          defaultValue: 'Admin Batch Ticket Cancellation & Refund',
+        },
+      ],
+      onExecute: async (ids, values) => handleBatchCancelTickets(ids, values),
+    },
+    {
+      id: 'delete',
+      label: 'Delete Records',
+      variant: 'danger',
+      icon: <Trash2 className="w-3.5 h-3.5" />,
+      requireConfirmation: true,
+      confirmTitle: 'Permanently Delete Selected Tickets',
+      confirmMessage: 'Permanently delete selected ticket records from database?',
+      onExecute: async (ids) => handleBatchDeleteTickets(ids),
+    },
+  ];
+
+  const auditBatchActions: BatchAction[] = [
+    {
+      id: 'delete',
+      label: 'Delete Selected Logs',
+      variant: 'danger',
+      icon: <Trash2 className="w-3.5 h-3.5" />,
+      requireConfirmation: true,
+      confirmTitle: 'Delete Audit Logs',
+      confirmMessage: 'Permanently remove selected audit log entries?',
+      onExecute: async (ids) => handleBatchDeleteAuditLogs(ids),
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row gap-4 pb-20">
       {/* SIDEBAR NAVIGATION */}
@@ -1618,8 +2003,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
+            {/* Users Batch Action Bar */}
+            <BatchActionBar
+              selectedIds={Array.from(usersTable.selectedIds)}
+              selectedCount={usersTable.selectedCount}
+              totalVisibleCount={usersTable.paginatedData.length}
+              totalFilteredCount={usersTable.totalCount}
+              isAllVisibleSelected={usersTable.isAllVisibleSelected}
+              onSelectAllFiltered={usersTable.selectAllFiltered}
+              onClearSelection={usersTable.clearSelection}
+              actions={userBatchActions}
+            />
+
             <div className="overflow-x-auto">
-              {filteredUsers.length === 0 ? (
+              {usersTable.totalCount === 0 ? (
                 <div className="text-center py-12 bg-slate-950/50 rounded-2xl border border-slate-800/80 space-y-3">
                   <Users className="w-10 h-10 text-slate-600 mx-auto" />
                   <p className="text-sm font-bold text-slate-300">No registered players match your current filter</p>
@@ -1633,76 +2030,107 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
                 </div>
               ) : (
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[10px] border-b border-slate-800">
-                    <tr>
-                      <th className="p-3">Player</th>
-                      <th className="p-3">Phone</th>
-                      <th className="p-3">Wallet</th>
-                      <th className="p-3">Bonus</th>
-                      <th className="p-3">Games / Wins</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {filteredUsers.map((usr) => (
-                      <tr key={usr.id} className="hover:bg-slate-800/40">
-                        <td className="p-3 cursor-pointer" onClick={() => handleOpenUserDetailModal(usr.id)}>
-                          <div className="font-extrabold text-white hover:text-amber-400 transition flex items-center gap-1.5">
-                            <span>@{usr.username}</span>
-                            <Eye className="w-3 h-3 text-slate-500" />
-                          </div>
-                          <div className="text-[10px] text-slate-400">{usr.firstName} {usr.lastName || ''}</div>
-                        </td>
-                        <td className="p-3 font-mono">{usr.phone || 'N/A'}</td>
-                        <td className="p-3 font-bold text-emerald-400">{usr.walletBalance} Birr</td>
-                        <td className="p-3 font-bold text-amber-400">{usr.bonusBalance} Birr</td>
-                        <td className="p-3 font-mono text-[11px]">{usr.totalGamesPlayed || 0} / <span className="text-amber-400 font-bold">{usr.totalWins || 0}</span></td>
-                        <td className="p-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              usr.status === 'ACTIVE'
-                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                                : 'bg-red-500/20 text-red-400 border border-red-500/40'
-                            }`}
-                          >
-                            {usr.status}
-                          </span>
-                        </td>
-                        <td className="p-3 flex items-center gap-1.5 flex-wrap">
-                          <button
-                            onClick={() => setAdjustingUser(usr)}
-                            className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold text-[10px]"
-                          >
-                            Credit/Debit
-                          </button>
-                          <button
-                            onClick={() => setUserResetPasswordModal(usr)}
-                            className="px-2 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold text-[10px]"
-                          >
-                            Reset PIN
-                          </button>
-                          {usr.status === 'ACTIVE' ? (
-                            <button
-                              onClick={() => handleUserStatusChange(usr.id, 'SUSPENDED')}
-                              className="px-2 py-1 rounded-lg bg-red-500/20 text-red-300 border border-red-500/40 font-bold text-[10px]"
-                            >
-                              Suspend
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleUserStatusChange(usr.id, 'ACTIVE')}
-                              className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-[10px]"
-                            >
-                              Activate
-                            </button>
-                          )}
-                        </td>
+                <>
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[10px] border-b border-slate-800">
+                      <tr>
+                        <th className="p-3 w-10 text-center">
+                          <input
+                            type="checkbox"
+                            checked={usersTable.isAllVisibleSelected}
+                            onChange={usersTable.toggleSelectAllVisible}
+                            className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500/40 w-4 h-4 cursor-pointer"
+                          />
+                        </th>
+                        <TableSortHeader label="Player" sortKeyName="username" currentSortKey={usersTable.sortKey} currentSortDir={usersTable.sortDir} onSort={usersTable.handleSort} />
+                        <TableSortHeader label="Phone" sortKeyName="phone" currentSortKey={usersTable.sortKey} currentSortDir={usersTable.sortDir} onSort={usersTable.handleSort} />
+                        <TableSortHeader label="Wallet" sortKeyName="walletBalance" currentSortKey={usersTable.sortKey} currentSortDir={usersTable.sortDir} onSort={usersTable.handleSort} />
+                        <TableSortHeader label="Bonus" sortKeyName="bonusBalance" currentSortKey={usersTable.sortKey} currentSortDir={usersTable.sortDir} onSort={usersTable.handleSort} />
+                        <TableSortHeader label="Games / Wins" sortKeyName="totalGamesPlayed" currentSortKey={usersTable.sortKey} currentSortDir={usersTable.sortDir} onSort={usersTable.handleSort} />
+                        <TableSortHeader label="Status" sortKeyName="status" currentSortKey={usersTable.sortKey} currentSortDir={usersTable.sortDir} onSort={usersTable.handleSort} />
+                        <th className="p-3">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {usersTable.paginatedData.map((usr) => {
+                        const isSelected = usersTable.isSelected(usr.id);
+                        return (
+                          <tr key={usr.id} className={`hover:bg-slate-800/40 transition ${isSelected ? 'bg-amber-500/5' : ''}`}>
+                            <td className="p-3 w-10 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => usersTable.toggleSelect(usr.id)}
+                                className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500/40 w-4 h-4 cursor-pointer"
+                              />
+                            </td>
+                            <td className="p-3 cursor-pointer" onClick={() => handleOpenUserDetailModal(usr.id)}>
+                              <div className="font-extrabold text-white hover:text-amber-400 transition flex items-center gap-1.5">
+                                <span>@{usr.username}</span>
+                                <Eye className="w-3 h-3 text-slate-500" />
+                              </div>
+                              <div className="text-[10px] text-slate-400">{usr.firstName} {usr.lastName || ''}</div>
+                            </td>
+                            <td className="p-3 font-mono">{usr.phone || 'N/A'}</td>
+                            <td className="p-3 font-bold text-emerald-400">{usr.walletBalance} Birr</td>
+                            <td className="p-3 font-bold text-amber-400">{usr.bonusBalance} Birr</td>
+                            <td className="p-3 font-mono text-[11px]">{usr.totalGamesPlayed || 0} / <span className="text-amber-400 font-bold">{usr.totalWins || 0}</span></td>
+                            <td className="p-3">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  usr.status === 'ACTIVE'
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                                    : 'bg-red-500/20 text-red-400 border border-red-500/40'
+                                }`}
+                              >
+                                {usr.status}
+                              </span>
+                            </td>
+                            <td className="p-3 flex items-center gap-1.5 flex-wrap">
+                              <button
+                                onClick={() => setAdjustingUser(usr)}
+                                className="px-2 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold text-[10px]"
+                              >
+                                Credit/Debit
+                              </button>
+                              <button
+                                onClick={() => setUserResetPasswordModal(usr)}
+                                className="px-2 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold text-[10px]"
+                              >
+                                Reset PIN
+                              </button>
+                              {usr.status === 'ACTIVE' ? (
+                                <button
+                                  onClick={() => handleUserStatusChange(usr.id, 'SUSPENDED')}
+                                  className="px-2 py-1 rounded-lg bg-red-500/20 text-red-300 border border-red-500/40 font-bold text-[10px]"
+                                >
+                                  Suspend
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleUserStatusChange(usr.id, 'ACTIVE')}
+                                  className="px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold text-[10px]"
+                                >
+                                  Activate
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+
+                  {/* Users Pagination */}
+                  <TablePagination
+                    currentPage={usersTable.currentPage}
+                    totalPages={usersTable.totalPages}
+                    pageSize={usersTable.pageSize}
+                    totalCount={usersTable.totalCount}
+                    onPageChange={usersTable.setCurrentPage}
+                    onPageSizeChange={usersTable.setPageSize}
+                  />
+                </>
               )}
             </div>
           </div>
@@ -1989,37 +2417,66 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
+            {/* Tickets Batch Action Bar */}
+            <BatchActionBar
+              selectedIds={Array.from(ticketsTable.selectedIds)}
+              selectedCount={ticketsTable.selectedCount}
+              totalVisibleCount={ticketsTable.paginatedData.length}
+              totalFilteredCount={ticketsTable.totalCount}
+              isAllVisibleSelected={ticketsTable.isAllVisibleSelected}
+              onSelectAllFiltered={ticketsTable.selectAllFiltered}
+              onClearSelection={ticketsTable.clearSelection}
+              actions={ticketBatchActions}
+            />
+
             {/* Tickets Table */}
             <div className="overflow-x-auto rounded-2xl border border-slate-800">
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[10px] border-b border-slate-800">
                   <tr>
-                    <th className="p-3">Ticket ID</th>
-                    <th className="p-3">Game Ref ID</th>
-                    <th className="p-3">Room</th>
-                    <th className="p-3">Player</th>
-                    <th className="p-3">Card #</th>
-                    <th className="p-3">Price</th>
-                    <th className="p-3">Purchase Date</th>
-                    <th className="p-3">Round Status</th>
-                    <th className="p-3">Winning Status</th>
-                    <th className="p-3">Prize Won</th>
+                    <th className="p-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={ticketsTable.isAllVisibleSelected}
+                        onChange={ticketsTable.toggleSelectAllVisible}
+                        className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500/40 w-4 h-4 cursor-pointer"
+                      />
+                    </th>
+                    <TableSortHeader label="Ticket ID" sortKeyName="id" currentSortKey={ticketsTable.sortKey} currentSortDir={ticketsTable.sortDir} onSort={ticketsTable.handleSort} />
+                    <TableSortHeader label="Game Ref ID" sortKeyName="gameReferenceId" currentSortKey={ticketsTable.sortKey} currentSortDir={ticketsTable.sortDir} onSort={ticketsTable.handleSort} />
+                    <TableSortHeader label="Room" sortKeyName="roomId" currentSortKey={ticketsTable.sortKey} currentSortDir={ticketsTable.sortDir} onSort={ticketsTable.handleSort} />
+                    <TableSortHeader label="Player" sortKeyName="username" currentSortKey={ticketsTable.sortKey} currentSortDir={ticketsTable.sortDir} onSort={ticketsTable.handleSort} />
+                    <TableSortHeader label="Card #" sortKeyName="cardNumber" currentSortKey={ticketsTable.sortKey} currentSortDir={ticketsTable.sortDir} onSort={ticketsTable.handleSort} />
+                    <TableSortHeader label="Price" sortKeyName="purchasePrice" currentSortKey={ticketsTable.sortKey} currentSortDir={ticketsTable.sortDir} onSort={ticketsTable.handleSort} />
+                    <TableSortHeader label="Purchase Date" sortKeyName="boughtAt" currentSortKey={ticketsTable.sortKey} currentSortDir={ticketsTable.sortDir} onSort={ticketsTable.handleSort} />
+                    <TableSortHeader label="Round Status" sortKeyName="status" currentSortKey={ticketsTable.sortKey} currentSortDir={ticketsTable.sortDir} onSort={ticketsTable.handleSort} />
+                    <TableSortHeader label="Winning Status" sortKeyName="winningStatus" currentSortKey={ticketsTable.sortKey} currentSortDir={ticketsTable.sortDir} onSort={ticketsTable.handleSort} />
+                    <TableSortHeader label="Prize Won" sortKeyName="prizeWon" currentSortKey={ticketsTable.sortKey} currentSortDir={ticketsTable.sortDir} onSort={ticketsTable.handleSort} />
                     <th className="p-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 bg-slate-950/40">
-                  {allTicketsList.length === 0 ? (
+                  {ticketsTable.totalCount === 0 ? (
                     <tr>
-                      <td colSpan={11} className="p-6 text-center text-slate-500 italic">
+                      <td colSpan={12} className="p-6 text-center text-slate-500 italic">
                         No tickets matching the current filter criteria found.
                       </td>
                     </tr>
                   ) : (
-                    allTicketsList.map((tkt) => {
+                    ticketsTable.paginatedData.map((tkt) => {
                       const roomObj = standardRooms.find((r) => r.id === tkt.roomId);
                       const roomName = roomObj ? roomObj.name : tkt.roomId;
+                      const isSelected = ticketsTable.isSelected(tkt.id);
                       return (
-                        <tr key={tkt.id} className="hover:bg-slate-800/40 transition">
+                        <tr key={tkt.id} className={`hover:bg-slate-800/40 transition ${isSelected ? 'bg-amber-500/5' : ''}`}>
+                          <td className="p-3 w-10 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => ticketsTable.toggleSelect(tkt.id)}
+                              className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500/40 w-4 h-4 cursor-pointer"
+                            />
+                          </td>
                           <td className="p-3 font-mono text-[10px] text-slate-400">{tkt.id}</td>
                           <td className="p-3 font-mono text-[10px] text-amber-400 font-bold">{tkt.gameReferenceId || 'N/A'}</td>
                           <td className="p-3 text-[11px] font-bold text-slate-200">{roomName}</td>
@@ -2086,6 +2543,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   )}
                 </tbody>
               </table>
+
+              {/* Tickets Pagination */}
+              <TablePagination
+                currentPage={ticketsTable.currentPage}
+                totalPages={ticketsTable.totalPages}
+                pageSize={ticketsTable.pageSize}
+                totalCount={ticketsTable.totalCount}
+                onPageChange={ticketsTable.setCurrentPage}
+                onPageSizeChange={ticketsTable.setPageSize}
+              />
             </div>
           </div>
         )}
@@ -2220,24 +2687,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[10px] border-b border-slate-800">
                   <tr>
-                    <th className="p-3">Reference</th>
-                    <th className="p-3">User</th>
-                    <th className="p-3">Type</th>
-                    <th className="p-3">Amount</th>
-                    <th className="p-3">Balance After</th>
+                    <TableSortHeader label="Reference" sortKeyName="reference" currentSortKey={walletTable.sortKey} currentSortDir={walletTable.sortDir} onSort={walletTable.handleSort} />
+                    <TableSortHeader label="User" sortKeyName="userId" currentSortKey={walletTable.sortKey} currentSortDir={walletTable.sortDir} onSort={walletTable.handleSort} />
+                    <TableSortHeader label="Type" sortKeyName="type" currentSortKey={walletTable.sortKey} currentSortDir={walletTable.sortDir} onSort={walletTable.handleSort} />
+                    <TableSortHeader label="Amount" sortKeyName="amount" currentSortKey={walletTable.sortKey} currentSortDir={walletTable.sortDir} onSort={walletTable.handleSort} />
+                    <TableSortHeader label="Balance After" sortKeyName="balanceAfter" currentSortKey={walletTable.sortKey} currentSortDir={walletTable.sortDir} onSort={walletTable.handleSort} />
                     <th className="p-3">Description</th>
-                    <th className="p-3">Date</th>
+                    <TableSortHeader label="Date" sortKeyName="createdAt" currentSortKey={walletTable.sortKey} currentSortDir={walletTable.sortDir} onSort={walletTable.handleSort} />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 bg-slate-950/40">
-                  {allTransactions.length === 0 ? (
+                  {walletTable.totalCount === 0 ? (
                     <tr>
                       <td colSpan={7} className="p-6 text-center text-slate-500 italic">
                         No transactions matching the current filter criteria found.
                       </td>
                     </tr>
                   ) : (
-                    allTransactions.map((tx) => {
+                    walletTable.paginatedData.map((tx) => {
                       const uObj = allUsersList.find((u) => u.id === tx.userId);
                       const displayUser = uObj ? `@${uObj.username}` : tx.username ? `@${tx.username}` : tx.userId;
                       return (
@@ -2261,6 +2728,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   )}
                 </tbody>
               </table>
+
+              {/* Wallet Pagination */}
+              <TablePagination
+                currentPage={walletTable.currentPage}
+                totalPages={walletTable.totalPages}
+                pageSize={walletTable.pageSize}
+                totalCount={walletTable.totalCount}
+                onPageChange={walletTable.setCurrentPage}
+                onPageSizeChange={walletTable.setPageSize}
+              />
             </div>
           </div>
         )}
@@ -2288,52 +2765,96 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
-            <div className="space-y-3">
-              {deposits.map((dep) => (
-                <div key={dep.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-                  <div className="space-y-1">
-                    <div className="font-extrabold text-white text-sm">@{dep.userName}</div>
-                    <div className="text-slate-400">
-                      Method: <strong className="text-amber-300">{dep.paymentMethodName}</strong> • Ref: <span className="font-mono text-white">{dep.referenceCode}</span>
-                    </div>
-                    <div className="text-[10px] text-slate-500">Submitted: {new Date(dep.createdAt).toLocaleString()}</div>
-                  </div>
+            {/* Deposits Batch Action Bar */}
+            <BatchActionBar
+              selectedIds={Array.from(depositsTable.selectedIds)}
+              selectedCount={depositsTable.selectedCount}
+              totalVisibleCount={depositsTable.paginatedData.length}
+              totalFilteredCount={depositsTable.totalCount}
+              isAllVisibleSelected={depositsTable.isAllVisibleSelected}
+              onSelectAllFiltered={depositsTable.selectAllFiltered}
+              onClearSelection={depositsTable.clearSelection}
+              actions={depositBatchActions}
+            />
 
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg font-black text-emerald-400">{dep.amount} Birr</span>
-                    <button
-                      onClick={() => setSelectedDepositForReceipt(dep)}
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-bold text-xs flex items-center gap-1"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Inspect Receipt</span>
-                    </button>
-                    {dep.status === 'PENDING' && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleApproveDeposit(dep.id)}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-xs hover:bg-emerald-400 transition"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => setRejectingDeposit(dep)}
-                          className="px-3 py-1.5 rounded-xl bg-red-500/20 text-red-300 border border-red-500/40 font-bold text-xs hover:bg-red-500/30 transition"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    )}
-                    {dep.status !== 'PENDING' && (
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                        dep.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-                      }`}>
-                        {dep.status}
-                      </span>
-                    )}
-                  </div>
+            <div className="space-y-3">
+              {depositsTable.totalCount === 0 ? (
+                <div className="text-center py-10 bg-slate-950/40 rounded-2xl border border-slate-800 text-slate-500 italic text-xs">
+                  No deposit records found.
                 </div>
-              ))}
+              ) : (
+                depositsTable.paginatedData.map((dep) => {
+                  const isSelected = depositsTable.isSelected(dep.id);
+                  return (
+                    <div
+                      key={dep.id}
+                      className={`bg-slate-950 p-4 rounded-2xl border transition flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs ${
+                        isSelected ? 'border-amber-500/60 bg-amber-500/5' : 'border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => depositsTable.toggleSelect(dep.id)}
+                          className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500/40 w-4 h-4 cursor-pointer mt-1"
+                        />
+                        <div className="space-y-1">
+                          <div className="font-extrabold text-white text-sm">@{dep.userName}</div>
+                          <div className="text-slate-400">
+                            Method: <strong className="text-amber-300">{dep.paymentMethodName}</strong> • Ref: <span className="font-mono text-white">{dep.referenceCode}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500">Submitted: {new Date(dep.createdAt).toLocaleString()}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-black text-emerald-400">{dep.amount} Birr</span>
+                        <button
+                          onClick={() => setSelectedDepositForReceipt(dep)}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-bold text-xs flex items-center gap-1"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Inspect Receipt</span>
+                        </button>
+                        {dep.status === 'PENDING' && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleApproveDeposit(dep.id)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-xs hover:bg-emerald-400 transition"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => setRejectingDeposit(dep)}
+                              className="px-3 py-1.5 rounded-xl bg-red-500/20 text-red-300 border border-red-500/40 font-bold text-xs hover:bg-red-500/30 transition"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
+                        {dep.status !== 'PENDING' && (
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                            dep.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                          }`}>
+                            {dep.status}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+
+              {/* Deposits Pagination */}
+              <TablePagination
+                currentPage={depositsTable.currentPage}
+                totalPages={depositsTable.totalPages}
+                pageSize={depositsTable.pageSize}
+                totalCount={depositsTable.totalCount}
+                onPageChange={depositsTable.setCurrentPage}
+                onPageSizeChange={depositsTable.setPageSize}
+              />
             </div>
           </div>
         )}
@@ -2361,45 +2882,89 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
-            <div className="space-y-3">
-              {withdrawals.map((wd) => (
-                <div key={wd.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-                  <div className="space-y-1">
-                    <div className="font-extrabold text-white text-sm">@{wd.userName}</div>
-                    <div className="text-slate-400">
-                      {wd.paymentMethodName} • Account: <span className="font-mono text-amber-300">{wd.accountNumber}</span> ({wd.accountName})
-                    </div>
-                    <div className="text-[10px] text-slate-500">Requested: {new Date(wd.createdAt).toLocaleString()}</div>
-                  </div>
+            {/* Withdrawals Batch Action Bar */}
+            <BatchActionBar
+              selectedIds={Array.from(withdrawalsTable.selectedIds)}
+              selectedCount={withdrawalsTable.selectedCount}
+              totalVisibleCount={withdrawalsTable.paginatedData.length}
+              totalFilteredCount={withdrawalsTable.totalCount}
+              isAllVisibleSelected={withdrawalsTable.isAllVisibleSelected}
+              onSelectAllFiltered={withdrawalsTable.selectAllFiltered}
+              onClearSelection={withdrawalsTable.clearSelection}
+              actions={withdrawalBatchActions}
+            />
 
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg font-black text-amber-400">{wd.amount} Birr</span>
-                    {wd.status === 'PENDING' && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setApprovingWithdrawal(wd)}
-                          className="px-3 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs hover:bg-amber-400 transition"
-                        >
-                          Approve Payout
-                        </button>
-                        <button
-                          onClick={() => setRejectingWithdrawal(wd)}
-                          className="px-3 py-1.5 rounded-xl bg-red-500/20 text-red-300 border border-red-500/40 font-bold text-xs hover:bg-red-500/30 transition"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    )}
-                    {wd.status !== 'PENDING' && (
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                        wd.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-                      }`}>
-                        {wd.status}
-                      </span>
-                    )}
-                  </div>
+            <div className="space-y-3">
+              {withdrawalsTable.totalCount === 0 ? (
+                <div className="text-center py-10 bg-slate-950/40 rounded-2xl border border-slate-800 text-slate-500 italic text-xs">
+                  No withdrawal records found.
                 </div>
-              ))}
+              ) : (
+                withdrawalsTable.paginatedData.map((wd) => {
+                  const isSelected = withdrawalsTable.isSelected(wd.id);
+                  return (
+                    <div
+                      key={wd.id}
+                      className={`bg-slate-950 p-4 rounded-2xl border transition flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs ${
+                        isSelected ? 'border-amber-500/60 bg-amber-500/5' : 'border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => withdrawalsTable.toggleSelect(wd.id)}
+                          className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500/40 w-4 h-4 cursor-pointer mt-1"
+                        />
+                        <div className="space-y-1">
+                          <div className="font-extrabold text-white text-sm">@{wd.userName}</div>
+                          <div className="text-slate-400">
+                            {wd.paymentMethodName} • Account: <span className="font-mono text-amber-300">{wd.accountNumber}</span> ({wd.accountName})
+                          </div>
+                          <div className="text-[10px] text-slate-500">Requested: {new Date(wd.createdAt).toLocaleString()}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-black text-amber-400">{wd.amount} Birr</span>
+                        {wd.status === 'PENDING' && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setApprovingWithdrawal(wd)}
+                              className="px-3 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs hover:bg-amber-400 transition"
+                            >
+                              Approve Payout
+                            </button>
+                            <button
+                              onClick={() => setRejectingWithdrawal(wd)}
+                              className="px-3 py-1.5 rounded-xl bg-red-500/20 text-red-300 border border-red-500/40 font-bold text-xs hover:bg-red-500/30 transition"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        )}
+                        {wd.status !== 'PENDING' && (
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                            wd.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                          }`}>
+                            {wd.status}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+
+              {/* Withdrawals Pagination */}
+              <TablePagination
+                currentPage={withdrawalsTable.currentPage}
+                totalPages={withdrawalsTable.totalPages}
+                pageSize={withdrawalsTable.pageSize}
+                totalCount={withdrawalsTable.totalCount}
+                onPageChange={withdrawalsTable.setCurrentPage}
+                onPageSizeChange={withdrawalsTable.setPageSize}
+              />
             </div>
           </div>
         )}
@@ -2524,23 +3089,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <table className="w-full text-left text-xs text-slate-300">
                 <thead className="bg-slate-950 text-slate-400 font-bold uppercase text-[10px] border-b border-slate-800">
                   <tr>
-                    <th className="p-3">Winner</th>
-                    <th className="p-3">Game Ref ID</th>
-                    <th className="p-3">Prize Won</th>
-                    <th className="p-3">Room</th>
-                    <th className="p-3">Pattern</th>
-                    <th className="p-3">Date</th>
+                    <TableSortHeader label="Winner" sortKeyName="username" currentSortKey={winnersTable.sortKey} currentSortDir={winnersTable.sortDir} onSort={winnersTable.handleSort} />
+                    <TableSortHeader label="Game Ref ID" sortKeyName="gameReferenceId" currentSortKey={winnersTable.sortKey} currentSortDir={winnersTable.sortDir} onSort={winnersTable.handleSort} />
+                    <TableSortHeader label="Prize Won" sortKeyName="prizeAmount" currentSortKey={winnersTable.sortKey} currentSortDir={winnersTable.sortDir} onSort={winnersTable.handleSort} />
+                    <TableSortHeader label="Room" sortKeyName="roomId" currentSortKey={winnersTable.sortKey} currentSortDir={winnersTable.sortDir} onSort={winnersTable.handleSort} />
+                    <TableSortHeader label="Pattern" sortKeyName="pattern" currentSortKey={winnersTable.sortKey} currentSortDir={winnersTable.sortDir} onSort={winnersTable.handleSort} />
+                    <TableSortHeader label="Date" sortKeyName="wonAt" currentSortKey={winnersTable.sortKey} currentSortDir={winnersTable.sortDir} onSort={winnersTable.handleSort} />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 bg-slate-950/40">
-                  {allWinnersList.length === 0 ? (
+                  {winnersTable.totalCount === 0 ? (
                     <tr>
                       <td colSpan={6} className="p-6 text-center text-slate-500 italic">
                         No winning records matching the current filter criteria found.
                       </td>
                     </tr>
                   ) : (
-                    allWinnersList.map((win, idx) => {
+                    winnersTable.paginatedData.map((win, idx) => {
                       const roomObj = standardRooms.find((r) => r.id === win.roomId);
                       const roomName = roomObj ? roomObj.name : win.roomId;
                       return (
@@ -2557,6 +3122,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   )}
                 </tbody>
               </table>
+
+              {/* Winners Pagination */}
+              <TablePagination
+                currentPage={winnersTable.currentPage}
+                totalPages={winnersTable.totalPages}
+                pageSize={winnersTable.pageSize}
+                totalCount={winnersTable.totalCount}
+                onPageChange={winnersTable.setCurrentPage}
+                onPageSizeChange={winnersTable.setPageSize}
+              />
             </div>
           </div>
         )}
@@ -3120,6 +3695,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <Lock className="w-3.5 h-3.5" />
                 <span>Security & Toggles</span>
               </button>
+
+              <button
+                onClick={() => setSettingsCategoryTab('maintenance')}
+                className={`px-4 py-2 rounded-2xl font-extrabold text-xs transition flex items-center gap-2 ${
+                  settingsCategoryTab === 'maintenance'
+                    ? 'bg-red-500 text-slate-950 shadow-lg'
+                    : 'bg-slate-900 text-slate-400 hover:text-red-400'
+                }`}
+              >
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Maintenance & Reset</span>
+              </button>
             </div>
 
             {/* Success banner if saved */}
@@ -3572,16 +4159,130 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               )}
 
+              {/* CATEGORY 5: MAINTENANCE & DANGER ZONE */}
+              {settingsCategoryTab === 'maintenance' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <h3 className="text-sm font-black text-white flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-400" />
+                      <span>System Maintenance & Danger Zone</span>
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 text-[10px] font-mono font-bold">
+                      SuperAdmin Access Only
+                    </span>
+                  </div>
+
+                  {/* System State Diagnostics Card */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">SuperAdmin Identity</span>
+                      <span className="font-mono text-xs font-bold text-amber-400 block truncate">dawitsolomon1823@gmail.com</span>
+                      <span className="text-[10px] text-emerald-400">Authenticated & Protected</span>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Registered Players</span>
+                      <span className="text-lg font-black text-white">{allUsersList.length} Accounts</span>
+                      <span className="text-[10px] text-slate-400">In Database</span>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Tickets Recorded</span>
+                      <span className="text-lg font-black text-white">{allTicketsList.length} Cards</span>
+                      <span className="text-[10px] text-slate-400">Active & Historical</span>
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Active Game Rooms</span>
+                      <span className="text-lg font-black text-emerald-400">{standardRooms.length} Official Arenas</span>
+                      <span className="text-[10px] text-slate-400">Ready in Memory</span>
+                    </div>
+                  </div>
+
+                  {/* Danger Zone: Full Application Data Reset */}
+                  <div className="rounded-3xl border-2 border-red-500/40 bg-gradient-to-b from-red-950/30 via-slate-950 to-slate-950 p-6 space-y-4 shadow-2xl">
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-red-500/20 border border-red-500/50 flex items-center justify-center text-red-400 flex-shrink-0">
+                        <AlertTriangle className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-base font-black text-white flex items-center gap-2">
+                          <span>Reset All Application Data</span>
+                          <span className="px-2 py-0.5 rounded-md bg-red-500/20 text-red-400 text-[10px] font-mono font-bold uppercase border border-red-500/30">
+                            Permanent Action
+                          </span>
+                        </h4>
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          Permanently clears all test users, active/past game rounds, tickets, wallet ledger transactions,
+                          deposits, withdrawals, referral logs, and game winners. Clean official game rooms (10, 50, 100, 200 Birr)
+                          will be automatically recreated for fresh production gameplay.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 text-xs">
+                      <div className="bg-red-950/30 border border-red-500/30 rounded-2xl p-3.5 space-y-1.5">
+                        <span className="text-[11px] font-black text-red-400 flex items-center gap-1.5">
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Collections That Will Be Permanently Purged:</span>
+                        </span>
+                        <ul className="text-[11px] text-slate-300 space-y-1 list-disc list-inside">
+                          <li>All player user profiles & account credentials</li>
+                          <li>All purchased Bingo cards & active ticket reservations</li>
+                          <li>All live game room states & active rounds</li>
+                          <li>All historical game rounds & champion winner records</li>
+                          <li>All double-entry financial ledger transactions</li>
+                          <li>All submitted deposit slips & payout withdrawal requests</li>
+                          <li>All referral claims & bonus redemption histories</li>
+                          <li>All security audit event logs</li>
+                        </ul>
+                      </div>
+
+                      <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-2xl p-3.5 space-y-1.5">
+                        <span className="text-[11px] font-black text-emerald-400 flex items-center gap-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>Core Infrastructure Strictly Preserved:</span>
+                        </span>
+                        <ul className="text-[11px] text-slate-300 space-y-1 list-disc list-inside">
+                          <li><strong>SuperAdmin Firebase Auth Account</strong> (dawitsolomon1823@gmail.com)</li>
+                          <li>All Firestore Database Indexes & Security Rules</li>
+                          <li>Master Platform Settings & Configured Rules</li>
+                          <li>Configured Payment Providers (CBE, Telebirr, etc.)</li>
+                          <li>4 Official Standard Rooms (10, 50, 100, 200 Birr) automatically recreated</li>
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-red-500/20 flex flex-col sm:flex-row items-center justify-between gap-3">
+                      <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                        <Lock className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Requires SuperAdmin explicit phrase confirmation to execute</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsResetModalOpen(true)}
+                        className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-black text-xs transition shadow-xl shadow-red-950/50 flex items-center justify-center gap-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Initiate System Data Reset</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Submit Button */}
-              <div className="pt-4 border-t border-slate-800 flex justify-end">
-                <button
-                  type="submit"
-                  className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition shadow-xl flex items-center gap-2"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Review & Save System Configuration</span>
-                </button>
-              </div>
+              {settingsCategoryTab !== 'maintenance' && (
+                <div className="pt-4 border-t border-slate-800 flex justify-end">
+                  <button
+                    type="submit"
+                    className="px-6 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition shadow-xl flex items-center gap-2"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>Review & Save System Configuration</span>
+                  </button>
+                </div>
+              )}
             </form>
 
             {/* AUDIT LOG & CHANGE HISTORY FOR SETTINGS */}
@@ -3721,7 +4422,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <h3 className="text-sm font-black text-white flex items-center gap-2">
                 <ScrollText className="w-4 h-4 text-amber-400" />
-                <span>System Security Audit Logs ({filteredAuditLogs.length})</span>
+                <span>System Security Audit Logs ({auditTable.totalCount})</span>
               </h3>
 
               <input
@@ -3734,22 +4435,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             <div className="space-y-2">
-              {filteredAuditLogs.map((log) => (
-                <div key={log.id} className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-xs flex justify-between items-center">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-white">{log.action}</span>
-                      {log.gameReferenceId && (
-                        <span className="font-mono text-[9px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 font-bold">
-                          {log.gameReferenceId}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[10px] text-slate-400">{log.description}</p>
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-mono">{new Date(log.timestamp).toLocaleString()}</span>
+              {auditTable.totalCount === 0 ? (
+                <div className="text-center py-10 bg-slate-950/40 rounded-2xl border border-slate-800 text-slate-500 italic text-xs">
+                  No security audit logs found.
                 </div>
-              ))}
+              ) : (
+                auditTable.paginatedData.map((log) => (
+                  <div key={log.id} className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-xs flex justify-between items-center">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-white">{log.action}</span>
+                        {log.gameReferenceId && (
+                          <span className="font-mono text-[9px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 font-bold">
+                            {log.gameReferenceId}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-slate-400">{log.description}</p>
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-mono">{new Date(log.timestamp).toLocaleString()}</span>
+                  </div>
+                ))
+              )}
+
+              {/* Audit Pagination */}
+              <TablePagination
+                currentPage={auditTable.currentPage}
+                totalPages={auditTable.totalPages}
+                pageSize={auditTable.pageSize}
+                totalCount={auditTable.totalCount}
+                onPageChange={auditTable.setCurrentPage}
+                onPageSizeChange={auditTable.setPageSize}
+              />
             </div>
           </div>
         )}
@@ -4498,6 +5215,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* SYSTEM RESET MODAL */}
+      <SystemResetModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        onResetSuccess={() => {
+          fetchAdminData();
+        }}
+      />
     </div>
   );
 };

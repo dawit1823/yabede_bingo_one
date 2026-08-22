@@ -466,6 +466,28 @@ export class TicketManager {
       }
     }
   }
+
+  /**
+   * Resets all purchased tickets and reservations for a room or all rooms during maintenance/data reset.
+   */
+  public clearPurchasedTickets(roomId?: string): void {
+    if (roomId) {
+      for (const [key, res] of this.inMemoryReservations.entries()) {
+        if (res.roomId === roomId) {
+          this.inMemoryReservations.delete(key);
+        }
+      }
+    } else {
+      this.inMemoryReservations.clear();
+    }
+  }
+
+  /**
+   * Clears all in-memory reservations across all rooms.
+   */
+  public clearAllReservations(): void {
+    this.inMemoryReservations.clear();
+  }
 }
 
 export const ticketManager = new TicketManager();

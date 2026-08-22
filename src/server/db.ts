@@ -1995,6 +1995,298 @@ class FirestoreDatabaseStore {
     userRecords.sort((a, b) => new Date(b.playedAt).getTime() - new Date(a.playedAt).getTime());
     return userRecords.slice(0, limitCount);
   }
+
+  // --- DATA RESET & RE-INITIALIZATION ---
+  public resetAllData(): void {
+    logger.info('[DB Store] Resetting all in-memory collections for fresh state...');
+    this.users.clear();
+    this.telegramUserIndex.clear();
+    this.phoneUserAuthMap.clear();
+    this.phoneToUserIndex.clear();
+    this.transactions = [];
+    this.deposits = [];
+    this.withdrawals = [];
+    this.notifications = [];
+    this.tickets.clear();
+    this.winners = [];
+    this.gameHistoryRecords = [];
+    this.chatMessages.clear();
+    this.privateGroups.clear();
+    this.privateGroupCodeIndex.clear();
+    this.groupMembers.clear();
+    this.groupInvitations.clear();
+    this.groupMessages.clear();
+    this.rooms.clear();
+  }
+
+  public recreateOfficialRooms(): BingoRoom[] {
+    logger.info('[DB Store] Re-instantiating official Bingo rooms...');
+    this.rooms.clear();
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const endsIso = new Date(nowMs + 45000).toISOString();
+    const recreated: BingoRoom[] = [];
+
+    for (const officialRoom of OFFICIAL_ROOMS) {
+      const gameRef = generateGameReferenceId(officialRoom.ticketPrice, officialRoom.id);
+      const roomObj: BingoRoom = {
+        ...officialRoom,
+        gameReferenceId: gameRef,
+        status: 'WAITING',
+        currentBall: null,
+        drawnBalls: [],
+        prizePool: 0,
+        platformFee: 0,
+        ticketsSold: 0,
+        activePlayersCount: 0,
+        startedAt: nowIso,
+        endsAt: endsIso,
+        countdownSeconds: 45,
+      };
+      this.rooms.set(officialRoom.id, roomObj);
+      recreated.push(roomObj);
+
+      // Async sync to Firestore
+      adminDb.collection('rooms').doc(officialRoom.id).set(roomObj).catch((err) => {
+        logger.warn(`[DB Store] Failed to save official room ${officialRoom.id} to Firestore:`, err.message || err);
+      });
+    }
+
+    return recreated;
+  }
+
+  // --- BATCH USER OPERATIONS ---
+  public batchUpdateUserStatus(
+    userIds: string[],
+    status: 'ACTIVE' | 'SUSPENDED' | 'BANNED',
+    adminId: string,
+    ipAddress?: string
+  ): { updatedCount: number; results: Array<{ id: string; success: boolean; status?: string; error?: string }> } {
+    let count = 0;
+    const results: Array<{ id: string; success: boolean; status?: string; error?: string }> = [];
+
+    for (const id of userIds) {
+      try {
+        const user = this.getUserById(id);
+        if (!user) {
+          results.push({ id, success: false, error: 'User not found' });
+          continue;
+        }
+        user.status = status;
+        this.saveUser(user);
+        results.push({ id, success: true, status });
+        count++;
+      } catch (err: any) {
+        results.push({ id, success: false, error: err.message || 'Update failed' });
+      }
+    }
+
+    this.logAudit(
+      adminId,
+      'BATCH_UPDATE_USER_STATUS',
+      undefined,
+      `Batch updated status to ${status} for ${count} users`,
+      `User IDs: ${userIds.slice(0, 10).join(', ')}${userIds.length > 10 ? '...' : ''}`,
+      ipAddress
+    );
+
+    return { updatedCount: count, results };
+  }
+
+  public batchAdjustUserBalance(
+    userIds: string[],
+    amount: number,
+    type: 'CREDIT' | 'DEBIT',
+    note: string,
+    adminId: string,
+    ipAddress?: string
+  ): { processedCount: number; results: Array<{ id: string; success: boolean; newBalance?: number; error?: string }> } {
+    let count = 0;
+    const delta = type === 'CREDIT' ? Math.abs(amount) : -Math.abs(amount);
+    const results: Array<{ id: string; success: boolean; newBalance?: number; error?: string }> = [];
+
+    for (const id of userIds) {
+      try {
+        const user = this.getUserById(id);
+        if (!user) {
+          results.push({ id, success: false, error: 'User not found' });
+          continue;
+        }
+        if (delta < 0 && user.walletBalance < Math.abs(delta)) {
+          results.push({ id, success: false, error: 'Insufficient balance to debit' });
+          continue;
+        }
+
+        this.updateWalletBalance(
+          id,
+          delta,
+          'ADMIN_ADJUSTMENT',
+          note || `Batch admin ${type.toLowerCase()} of ${Math.abs(amount)} Birr`,
+          `BATCH-ADJ-${Date.now()}`
+        );
+
+        this.addNotification({
+          userId: id,
+          title: delta > 0 ? 'Admin Credit Added 💰' : 'Admin Balance Adjustment ℹ️',
+          message: note || `Your wallet has been ${delta > 0 ? 'credited' : 'debited'} with ${Math.abs(delta)} Birr.`,
+          type: 'SYSTEM',
+        });
+
+        results.push({ id, success: true, newBalance: user.walletBalance });
+        count++;
+      } catch (err: any) {
+        results.push({ id, success: false, error: err.message || 'Adjustment failed' });
+      }
+    }
+
+    this.logAudit(
+      adminId,
+      'BATCH_ADJUST_BALANCE',
+      undefined,
+      `Batch ${type} of ${amount} Birr applied to ${count} users. Note: ${note}`,
+      `Users: ${userIds.length}`,
+      ipAddress
+    );
+
+    return { processedCount: count, results };
+  }
+
+  public batchDeleteUsers(
+    userIds: string[],
+    adminId: string,
+    ipAddress?: string
+  ): { deletedCount: number; results: Array<{ id: string; success: boolean; error?: string }> } {
+    let count = 0;
+    const results: Array<{ id: string; success: boolean; error?: string }> = [];
+
+    for (const id of userIds) {
+      try {
+        const user = this.users.get(id);
+        if (!user) {
+          results.push({ id, success: false, error: 'User not found in store' });
+          continue;
+        }
+
+        // Delete from indexes and maps
+        this.users.delete(id);
+        if (user.telegramId) this.telegramUserIndex.delete(user.telegramId);
+        if (user.phone) this.phoneToUserIndex.delete(user.phone);
+        this.phoneUserAuthMap.delete(id);
+
+        // Delete from Firestore
+        firestoreGuard.safeDelete('users', 'batchDeleteUsers', async () => {
+          await adminDb.collection('users').doc(id).delete();
+          await adminDb.collection('userAuth').doc(id).delete();
+          await adminDb.collection('wallets').doc(id).delete();
+        });
+
+        results.push({ id, success: true });
+        count++;
+      } catch (err: any) {
+        results.push({ id, success: false, error: err.message || 'Deletion failed' });
+      }
+    }
+
+    this.logAudit(
+      adminId,
+      'BATCH_DELETE_USERS',
+      undefined,
+      `Batch deleted ${count} user accounts and profiles`,
+      `Deleted IDs: ${userIds.slice(0, 10).join(', ')}`,
+      ipAddress
+    );
+
+    return { deletedCount: count, results };
+  }
+
+  // --- BATCH TICKET OPERATIONS ---
+  public batchCancelTickets(
+    ticketIds: string[],
+    reason: string = 'Batch Cancelled by Admin',
+    adminId: string,
+    ipAddress?: string
+  ): { cancelledCount: number; results: Array<{ id: string; success: boolean; error?: string }> } {
+    let count = 0;
+    const results: Array<{ id: string; success: boolean; error?: string }> = [];
+
+    for (const id of ticketIds) {
+      try {
+        const ticket = this.tickets.get(id);
+        if (!ticket) {
+          results.push({ id, success: false, error: 'Ticket not found' });
+          continue;
+        }
+        if (ticket.status === 'CANCELLED') {
+          results.push({ id, success: true, error: 'Already cancelled' });
+          continue;
+        }
+
+        ticket.status = 'CANCELLED';
+        this.tickets.set(id, ticket);
+
+        // Refund purchase price if active
+        if (ticket.purchasePrice > 0) {
+          this.updateWalletBalance(
+            ticket.userId,
+            ticket.purchasePrice,
+            'REFUND',
+            `Refund for Cancelled Ticket #${id} (Room ${ticket.roomId})`,
+            `TKT-REFUND-${id}`
+          );
+        }
+
+        // Firestore sync
+        adminDb.collection('tickets').doc(id).update({ status: 'CANCELLED', updatedAt: new Date().toISOString() }).catch(console.warn);
+
+        results.push({ id, success: true });
+        count++;
+      } catch (err: any) {
+        results.push({ id, success: false, error: err.message || 'Cancel failed' });
+      }
+    }
+
+    this.logAudit(
+      adminId,
+      'BATCH_CANCEL_TICKETS',
+      undefined,
+      `Batch cancelled ${count} tickets. Reason: ${reason}`,
+      `Tickets: ${ticketIds.length}`,
+      ipAddress
+    );
+
+    return { cancelledCount: count, results };
+  }
+
+  public batchDeleteTickets(
+    ticketIds: string[],
+    adminId: string,
+    ipAddress?: string
+  ): { deletedCount: number; results: Array<{ id: string; success: boolean; error?: string }> } {
+    let count = 0;
+    const results: Array<{ id: string; success: boolean; error?: string }> = [];
+
+    for (const id of ticketIds) {
+      try {
+        this.tickets.delete(id);
+        adminDb.collection('tickets').doc(id).delete().catch(console.warn);
+        results.push({ id, success: true });
+        count++;
+      } catch (err: any) {
+        results.push({ id, success: false, error: err.message || 'Delete failed' });
+      }
+    }
+
+    this.logAudit(
+      adminId,
+      'BATCH_DELETE_TICKETS',
+      undefined,
+      `Batch deleted ${count} ticket documents from system`,
+      `Ticket IDs: ${ticketIds.slice(0, 10).join(', ')}`,
+      ipAddress
+    );
+
+    return { deletedCount: count, results };
+  }
 }
 
 export const db = new FirestoreDatabaseStore();

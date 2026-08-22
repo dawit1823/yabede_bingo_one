@@ -1696,6 +1696,285 @@ apiRouter.post('/admin/settings', async (req: Request, res: Response) => {
   });
 });
 
+// --- ADMIN SYSTEM MAINTENANCE & FULL DATA RESET ---
+apiRouter.post('/admin/maintenance/reset-all-data', async (req: any, res: Response) => {
+  try {
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    const { confirmationPhrase } = req.body;
+
+    if (confirmationPhrase !== 'RESET ALL DATA') {
+      res.status(400).json({
+        error: 'Confirmation phrase mismatch. You must enter "RESET ALL DATA" exactly to confirm this destructive operation.',
+      });
+      return;
+    }
+
+    if (!req.admin?.isSuperAdmin && adminEmail.toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
+      res.status(403).json({
+        error: 'Unauthorized: Full system data reset is strictly restricted to SuperAdmin (dawitsolomon1823@gmail.com).',
+      });
+      return;
+    }
+
+    // Perform atomic/controlled server-side reset
+    const result = await adminService.resetAllApplicationData(confirmationPhrase, adminEmail, clientIp);
+
+    // Reset ticket manager in-memory state
+    try {
+      ['room_10', 'room_50', 'room_100', 'room_200'].forEach((roomId) => {
+        ticketManager.clearPurchasedTickets(roomId);
+      });
+    } catch (err) {
+      console.warn('Ticket manager reset note:', err);
+    }
+
+    // Broadcast reset event and updated rooms to connected clients and admin panels
+    const io = getIO();
+    if (io) {
+      const rooms = Array.from(db.rooms.values());
+      io.emit('rooms:updated', rooms);
+      io.emit('admin:data-reset', {
+        timestamp: result.timestamp,
+        recreatedRooms: result.officialRooms,
+      });
+    }
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Data reset failed' });
+  }
+});
+
+// --- ADMIN BATCH ACTIONS ---
+apiRouter.post('/admin/batch/users', async (req: any, res: Response) => {
+  try {
+    const { userIds, action, status, amount, balanceType = 'CREDIT', note = '', notificationTitle, notificationMessage } = req.body;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      res.status(400).json({ error: 'userIds must be a non-empty array' });
+      return;
+    }
+
+    if (action === 'status') {
+      if (!['ACTIVE', 'SUSPENDED', 'BANNED'].includes(status)) {
+        res.status(400).json({ error: 'Invalid status value' });
+        return;
+      }
+      const result = db.batchUpdateUserStatus(userIds, status, adminEmail, clientIp);
+      res.json({ success: true, ...result });
+    } else if (action === 'adjust-balance') {
+      if (typeof amount !== 'number' || amount <= 0) {
+        res.status(400).json({ error: 'amount must be a positive number' });
+        return;
+      }
+      const result = db.batchAdjustUserBalance(userIds, amount, balanceType, note, adminEmail, clientIp);
+      res.json({ success: true, ...result });
+    } else if (action === 'delete') {
+      if (!req.admin?.isSuperAdmin && adminEmail.toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
+        res.status(403).json({ error: 'Unauthorized: Batch user deletion is restricted to SuperAdmin' });
+        return;
+      }
+      const result = db.batchDeleteUsers(userIds, adminEmail, clientIp);
+      res.json({ success: true, ...result });
+    } else if (action === 'notify') {
+      if (!notificationTitle || !notificationMessage) {
+        res.status(400).json({ error: 'Notification title and message are required' });
+        return;
+      }
+      let count = 0;
+      for (const uid of userIds) {
+        db.addNotification({
+          userId: uid,
+          title: notificationTitle,
+          message: notificationMessage,
+          type: 'SYSTEM',
+        });
+        count++;
+      }
+      res.json({ success: true, notifiedCount: count });
+    } else {
+      res.status(400).json({ error: `Unknown batch action "${action}"` });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/admin/batch/deposits', async (req: any, res: Response) => {
+  try {
+    const { depositIds, action, reason = '' } = req.body;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+    if (!Array.isArray(depositIds) || depositIds.length === 0) {
+      res.status(400).json({ error: 'depositIds must be a non-empty array' });
+      return;
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+    const results: Array<{ id: string; success: boolean; error?: string }> = [];
+
+    for (const depId of depositIds) {
+      try {
+        if (action === 'APPROVE') {
+          db.approveDeposit(depId, adminEmail, clientIp);
+        } else if (action === 'REJECT') {
+          db.rejectDeposit(depId, reason || 'Rejected in batch review', adminEmail, clientIp);
+        } else {
+          throw new Error('Action must be APPROVE or REJECT');
+        }
+        results.push({ id: depId, success: true });
+        successCount++;
+      } catch (err: any) {
+        results.push({ id: depId, success: false, error: err.message });
+        errorCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      action,
+      processedCount: depositIds.length,
+      successCount,
+      errorCount,
+      results,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/admin/batch/withdrawals', async (req: any, res: Response) => {
+  try {
+    const { withdrawalIds, action, reason = '' } = req.body;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+    if (!Array.isArray(withdrawalIds) || withdrawalIds.length === 0) {
+      res.status(400).json({ error: 'withdrawalIds must be a non-empty array' });
+      return;
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+    const results: Array<{ id: string; success: boolean; error?: string }> = [];
+
+    for (const wdId of withdrawalIds) {
+      try {
+        db.processWithdrawal(wdId, action === 'APPROVE', reason, adminEmail, clientIp);
+        results.push({ id: wdId, success: true });
+        successCount++;
+      } catch (err: any) {
+        results.push({ id: wdId, success: false, error: err.message });
+        errorCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      action,
+      processedCount: withdrawalIds.length,
+      successCount,
+      errorCount,
+      results,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/admin/batch/tickets', async (req: any, res: Response) => {
+  try {
+    const { ticketIds, action, reason = 'Batch action by administrator' } = req.body;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+    if (!Array.isArray(ticketIds) || ticketIds.length === 0) {
+      res.status(400).json({ error: 'ticketIds must be a non-empty array' });
+      return;
+    }
+
+    if (action === 'cancel') {
+      const result = db.batchCancelTickets(ticketIds, reason, adminEmail, clientIp);
+      res.json({ success: true, ...result });
+    } else if (action === 'delete') {
+      if (!req.admin?.isSuperAdmin && adminEmail.toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
+        res.status(403).json({ error: 'Unauthorized: Batch ticket deletion is restricted to SuperAdmin' });
+        return;
+      }
+      const result = db.batchDeleteTickets(ticketIds, adminEmail, clientIp);
+      res.json({ success: true, ...result });
+    } else {
+      res.status(400).json({ error: `Unknown batch ticket action "${action}"` });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/admin/batch/game-history', async (req: any, res: Response) => {
+  try {
+    const { historyIds } = req.body;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+
+    if (!Array.isArray(historyIds) || historyIds.length === 0) {
+      res.status(400).json({ error: 'historyIds must be a non-empty array' });
+      return;
+    }
+
+    if (!req.admin?.isSuperAdmin && adminEmail.toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
+      res.status(403).json({ error: 'Unauthorized: SuperAdmin privileges required' });
+      return;
+    }
+
+    let count = 0;
+    for (const hId of historyIds) {
+      if (db.deleteGameHistoryRecord(hId, adminEmail)) {
+        count++;
+      }
+    }
+
+    res.json({ success: true, deletedCount: count });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/admin/batch/audit-logs', async (req: any, res: Response) => {
+  try {
+    const { logIds } = req.body;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+
+    if (!Array.isArray(logIds) || logIds.length === 0) {
+      res.status(400).json({ error: 'logIds must be a non-empty array' });
+      return;
+    }
+
+    if (!req.admin?.isSuperAdmin && adminEmail.toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
+      res.status(403).json({ error: 'Unauthorized: SuperAdmin privileges required' });
+      return;
+    }
+
+    const initialLen = db.auditLogs.length;
+    const logSet = new Set(logIds);
+    db.auditLogs = db.auditLogs.filter((l) => !logSet.has(l.id));
+    const deletedCount = initialLen - db.auditLogs.length;
+
+    // Delete from Firestore
+    for (const lid of logIds) {
+      adminDb.collection('auditLogs').doc(lid).delete().catch(console.warn);
+    }
+
+    res.json({ success: true, deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- ADMIN REFERRALS & BONUSES ---
 apiRouter.get('/admin/referrals', (req: Request, res: Response) => {
   const allUsers = db.getAllUsers();
