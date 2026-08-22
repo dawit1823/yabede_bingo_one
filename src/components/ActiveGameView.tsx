@@ -125,6 +125,14 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
   const [showMasterBoard, setShowMasterBoard] = React.useState<boolean>(false);
   const isRefreshingRef = React.useRef<boolean>(false);
 
+  // Preload all 75 Amharic MP3 caller files when entering the Bingo room
+  React.useEffect(() => {
+    audioEngine.preloadAmharicCaller();
+    return () => {
+      audioEngine.stopCallerAudio();
+    };
+  }, []);
+
   const handleRefreshGame = React.useCallback(async () => {
     if (isRefreshingRef.current || !room?.id) return;
     try {

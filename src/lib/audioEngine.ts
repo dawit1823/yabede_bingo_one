@@ -1,12 +1,45 @@
 /**
- * Web Audio API Sound Generator for Bingo Game Effects
+ * Web Audio API Sound Generator & Audio Caller for Bingo Game Effects
  */
+
+// Vite glob import of all 75 pre-recorded Amharic MP3 caller audio files
+const amharicAudioModules = import.meta.glob<{ default: string }>(
+  './Amharic caller/F*.mp3',
+  { eager: true }
+);
+
+/**
+ * Resolves the URL for a specific ball's pre-recorded Amharic caller MP3 (F1.mp3 - F75.mp3)
+ */
+function getAmharicAudioUrl(ball: number): string | null {
+  if (ball < 1 || ball > 75) return null;
+  const standardKey = `./Amharic caller/F${ball}.mp3`;
+  const mod: any = amharicAudioModules[standardKey];
+  if (mod) {
+    return typeof mod === 'string' ? mod : mod.default || null;
+  }
+
+  // Fallback search in case of different path normalization
+  for (const [key, value] of Object.entries(amharicAudioModules)) {
+    if (key.endsWith(`/F${ball}.mp3`) || key.endsWith(`F${ball}.mp3`)) {
+      const entry: any = value;
+      return typeof entry === 'string' ? entry : entry?.default || null;
+    }
+  }
+  return null;
+}
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private soundEnabled: boolean = true;
   private cachedVoices: SpeechSynthesisVoice[] = [];
   private isUnlocked: boolean = false;
+
+  // In-memory cache for all 75 Amharic MP3 Audio elements
+  private amharicAudioCache: Map<number, HTMLAudioElement> = new Map();
+  private isPreloaded: boolean = false;
+  private isPreloading: boolean = false;
+  private currentCallerAudio: HTMLAudioElement | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -58,7 +91,62 @@ class SoundEngine {
 
   public toggleSound(): boolean {
     this.soundEnabled = !this.soundEnabled;
+    if (!this.soundEnabled) {
+      this.stopCallerAudio();
+    }
     return this.soundEnabled;
+  }
+
+  /**
+   * Preload all 75 Amharic MP3 caller audio files into memory once.
+   * Avoids repeated network requests and eliminates latency when balls are drawn.
+   */
+  public preloadAmharicCaller(): void {
+    if (typeof window === 'undefined' || this.isPreloaded || this.isPreloading) return;
+    this.isPreloading = true;
+
+    try {
+      for (let ball = 1; ball <= 75; ball++) {
+        if (this.amharicAudioCache.has(ball)) continue;
+
+        const url = getAmharicAudioUrl(ball);
+        if (url) {
+          const audio = new Audio();
+          audio.preload = 'auto';
+          audio.src = url;
+          // Load audio buffer into browser memory
+          audio.load();
+          this.amharicAudioCache.set(ball, audio);
+        } else {
+          console.warn(`Missing caller audio for ball ${ball}`);
+        }
+      }
+      this.isPreloaded = true;
+    } catch (err) {
+      console.warn('[SoundEngine] Error preloading Amharic caller audio files:', err);
+    } finally {
+      this.isPreloading = false;
+    }
+  }
+
+  /**
+   * Stop any active caller audio announcement (both MP3 and TTS)
+   * Prevents overlapping audio when new balls are drawn
+   */
+  public stopCallerAudio(): void {
+    if (this.currentCallerAudio) {
+      try {
+        this.currentCallerAudio.pause();
+        this.currentCallerAudio.currentTime = 0;
+      } catch {}
+      this.currentCallerAudio = null;
+    }
+
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
   }
 
   public unlockAudio() {
@@ -70,6 +158,9 @@ class SoundEngine {
     } else if (ctx && ctx.state === 'running') {
       this.isUnlocked = true;
     }
+
+    // Start preloading Amharic MP3s immediately upon user gesture
+    this.preloadAmharicCaller();
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       this.loadVoices();
@@ -191,73 +282,80 @@ class SoundEngine {
     }
   }
 
+  /**
+   * Announces the drawn Bingo ball.
+   * - When language is 'am': Plays the pre-recorded MP3 file (F<ball>.mp3) with zero latency.
+   * - When language is 'en': Uses SpeechSynthesis with standard Bingo letter and number.
+   * - Stops any overlapping audio before announcing the new ball.
+   */
   public speakBallDraw(ball: number, lang: 'en' | 'am' = 'am') {
-    if (!this.soundEnabled || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (!this.soundEnabled || typeof window === 'undefined') return;
+    if (ball < 1 || ball > 75) return;
 
-    try {
-      window.speechSynthesis.cancel(); // Clear pending speech
+    // 1. Stop any currently playing caller voice to prevent overlapping audio
+    this.stopCallerAudio();
 
-      const isAmharic = lang === 'am';
-      const voices = this.cachedVoices.length > 0 ? this.cachedVoices : window.speechSynthesis.getVoices();
+    // 2. Amharic: Play matching pre-recorded MP3 caller file (F1.mp3 - F75.mp3)
+    if (lang === 'am') {
+      let audio = this.amharicAudioCache.get(ball);
 
-      // Check if browser has a native Amharic TTS voice installed
-      const nativeAmVoice = voices.find(
-        (v) =>
-          (v.lang && v.lang.startsWith('am')) ||
-          (v.lang && v.lang.includes('am-ET')) ||
-          (v.name && v.name.toLowerCase().includes('amharic')) ||
-          (v.name && v.name.toLowerCase().includes('ethiopia'))
-      );
-
-      let letter = 'B';
-      let amLetterGeez = 'ቢ';
-      let amLetterPhonetic = 'Bee';
-
-      if (ball >= 16 && ball <= 30) {
-        letter = 'I';
-        amLetterGeez = 'አይ';
-        amLetterPhonetic = 'Eye';
-      } else if (ball >= 31 && ball <= 45) {
-        letter = 'N';
-        amLetterGeez = 'ኤን';
-        amLetterPhonetic = 'En';
-      } else if (ball >= 46 && ball <= 60) {
-        letter = 'G';
-        amLetterGeez = 'ጂ';
-        amLetterPhonetic = 'Gee';
-      } else if (ball >= 61 && ball <= 75) {
-        letter = 'O';
-        amLetterGeez = 'ኦ';
-        amLetterPhonetic = 'Oh';
+      // If not yet preloaded or missing from cache, retrieve and cache
+      if (!audio) {
+        const url = getAmharicAudioUrl(ball);
+        if (url) {
+          audio = new Audio();
+          audio.preload = 'auto';
+          audio.src = url;
+          this.amharicAudioCache.set(ball, audio);
+        }
       }
 
-      let textToSpeak = '';
-
-      if (isAmharic) {
-        if (nativeAmVoice) {
-          // Device has native Amharic voice: use Ge'ez script text
-          textToSpeak = `${amLetterGeez}, ${getAmharicNumberText(ball)}`;
-        } else {
-          // Device lacks native Amharic voice: use phonetic transliteration that standard TTS pronounces out loud in Amharic
-          textToSpeak = `${amLetterPhonetic}, ${getAmharicPhoneticText(ball)}`;
+      if (audio) {
+        this.currentCallerAudio = audio;
+        try {
+          audio.currentTime = 0;
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err) => {
+              // Log warning gracefully without crashing
+              console.warn(`[SoundEngine] Playback notice for ball ${ball}:`, err?.message || err);
+            });
+          }
+        } catch (err: any) {
+          console.warn(`[SoundEngine] Error playing caller audio for ball ${ball}:`, err?.message || err);
         }
       } else {
-        textToSpeak = `${letter}, ${ball}`;
+        console.warn(`Missing caller audio for ball ${ball}`);
+      }
+      return;
+    }
+
+    // 3. English: Keep existing SpeechSynthesis voice caller behavior unchanged
+    if (!('speechSynthesis' in window)) return;
+
+    try {
+      const voices = this.cachedVoices.length > 0 ? this.cachedVoices : window.speechSynthesis.getVoices();
+
+      let letter = 'B';
+      if (ball >= 16 && ball <= 30) {
+        letter = 'I';
+      } else if (ball >= 31 && ball <= 45) {
+        letter = 'N';
+      } else if (ball >= 46 && ball <= 60) {
+        letter = 'G';
+      } else if (ball >= 61 && ball <= 75) {
+        letter = 'O';
       }
 
+      const textToSpeak = `${letter}, ${ball}`;
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
       utterance.rate = 0.88; // Clear cadence for caller
       utterance.pitch = 1.0;
+      utterance.lang = 'en-US';
 
-      if (isAmharic && nativeAmVoice) {
-        utterance.voice = nativeAmVoice;
-        utterance.lang = 'am-ET';
-      } else {
-        utterance.lang = 'en-US';
-        const enVoice = voices.find((v) => v.lang && v.lang.startsWith('en'));
-        if (enVoice) {
-          utterance.voice = enVoice;
-        }
+      const enVoice = voices.find((v) => v.lang && v.lang.startsWith('en'));
+      if (enVoice) {
+        utterance.voice = enVoice;
       }
 
       // 20ms timeout prevents Chrome speech cancellation bug

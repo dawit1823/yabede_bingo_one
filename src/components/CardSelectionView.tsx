@@ -200,6 +200,11 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
   const horizontalScrollRef = useRef<HTMLDivElement>(null);
   const prevSelectedCountRef = useRef<number>(0);
 
+  // Preload Amharic MP3 caller audio files when entering the room lobby/card selection
+  useEffect(() => {
+    audioEngine.preloadAmharicCaller();
+  }, []);
+
   // Sync props room to local liveRoom
   useEffect(() => {
     setLiveRoom(room);
