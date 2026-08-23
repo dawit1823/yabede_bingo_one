@@ -822,6 +822,19 @@ export class AdminService {
     return 50;
   }
 
+  public getReferralBonusAmount(): number {
+    const refProg = this.bonusPrograms.find(
+      (p) => p.id === 'referral_bonus' || p.type === 'REFERRAL' || p.name === 'Friend Referral Reward'
+    );
+    if (refProg && refProg.enabled !== false && typeof refProg.amountBirr === 'number') {
+      return refProg.amountBirr;
+    }
+    if (typeof this.systemSettings.referralRewardBirr === 'number') {
+      return this.systemSettings.referralRewardBirr;
+    }
+    return 25;
+  }
+
   public async updateBonusPrograms(
     programs: BonusProgram[],
     updatedBy: string = AdminService.FIXED_ADMIN_EMAIL,

@@ -294,6 +294,7 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
 
     const tgUser = verification.user;
     const telegramId = Number(tgUser.id);
+    const referralCode = req.body.referralCode || (verification as any).start_param || undefined;
 
     // Look up existing Telegram user or auto-register in Firestore & memory
     let user = db.getUserByTelegramId(telegramId);
@@ -310,14 +311,17 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
 
       if (!user) {
         // Auto-register new Telegram user in Firestore & memory
-        user = db.findOrCreateTelegramUser({
-          id: telegramId,
-          first_name: tgUser.first_name,
-          last_name: tgUser.last_name,
-          username: tgUser.username,
-          language_code: tgUser.language_code,
-          photo_url: tgUser.photo_url,
-        });
+        user = db.findOrCreateTelegramUser(
+          {
+            id: telegramId,
+            first_name: tgUser.first_name,
+            last_name: tgUser.last_name,
+            username: tgUser.username,
+            language_code: tgUser.language_code,
+            photo_url: tgUser.photo_url,
+          },
+          referralCode
+        );
 
         await userRepository.saveUser(user);
       } else {
@@ -362,6 +366,7 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
       success: true,
       authenticated: true,
       registered: true,
+      phoneRequired: !user.phone,
       token,
       user,
     });
@@ -395,6 +400,42 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
 apiRouter.post('/auth/telegram', handleTelegramAuth);
 apiRouter.post('/auth/telegram-login', handleTelegramAuth);
 apiRouter.post('/auth/telegram-webapp-validate', handleTelegramAuth);
+
+// Link or verify phone number for Telegram user
+apiRouter.post(['/auth/link-phone', '/auth/telegram-phone'], async (req: Request, res: Response) => {
+  try {
+    const { userId, phone, initData } = req.body;
+    if (!phone) {
+      res.status(400).json({ success: false, error: 'Phone number is required' });
+      return;
+    }
+
+    let targetUserId = userId;
+    if (initData) {
+      const verification = telegramBot.verifyInitData(initData);
+      if (verification.valid && verification.user) {
+        const tgUser = db.getUserByTelegramId(Number(verification.user.id));
+        if (tgUser) targetUserId = tgUser.id;
+      }
+    }
+
+    if (!targetUserId) {
+      res.status(400).json({ success: false, error: 'User ID or valid initData is required' });
+      return;
+    }
+
+    const updatedUser = db.updateUserPhone(targetUserId, phone);
+    await userRepository.saveUser(updatedUser);
+
+    res.json({
+      success: true,
+      message: 'Phone number verified and saved successfully',
+      user: updatedUser,
+    });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message || 'Failed to update phone number' });
+  }
+});
 
 // Get tickets purchased by a specific user for a room or all active
 apiRouter.get('/user/tickets', (req: Request, res: Response) => {
@@ -1747,9 +1788,159 @@ apiRouter.post('/admin/maintenance/reset-all-data', async (req: any, res: Respon
 });
 
 // --- ADMIN BATCH ACTIONS ---
+apiRouter.post('/admin/batch/users/delete', async (req: any, res: Response) => {
+  try {
+    const { userIds } = req.body;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      res.status(400).json({ error: 'userIds must be a non-empty array' });
+      return;
+    }
+
+    if (!req.admin?.isSuperAdmin && adminEmail.toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
+      res.status(403).json({ error: 'Unauthorized: Batch user deletion is restricted to SuperAdmin' });
+      return;
+    }
+
+    const result = db.batchDeleteUsers(userIds, adminEmail, clientIp);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Batch user deletion failed' });
+  }
+});
+
+apiRouter.post('/admin/batch/users/status', async (req: any, res: Response) => {
+  try {
+    const { userIds, status } = req.body;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      res.status(400).json({ error: 'userIds must be a non-empty array' });
+      return;
+    }
+
+    if (!['ACTIVE', 'SUSPENDED', 'BANNED'].includes(status)) {
+      res.status(400).json({ error: 'Invalid status value' });
+      return;
+    }
+
+    const result = db.batchUpdateUserStatus(userIds, status, adminEmail, clientIp);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Batch status update failed' });
+  }
+});
+
+apiRouter.post('/admin/batch/users/adjust-balance', async (req: any, res: Response) => {
+  try {
+    const { userIds, amount, balanceType = 'CREDIT', reason = '', note = '' } = req.body;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      res.status(400).json({ error: 'userIds must be a non-empty array' });
+      return;
+    }
+
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount === 0) {
+      res.status(400).json({ error: 'amount must be a non-zero number' });
+      return;
+    }
+
+    const result = db.batchAdjustUserBalance(userIds, Math.abs(numAmount), balanceType, reason || note, adminEmail, clientIp);
+    res.json({ success: true, ...result, adjustedCount: result.processedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Batch balance adjustment failed' });
+  }
+});
+
+apiRouter.post('/admin/batch/users/notify', async (req: any, res: Response) => {
+  try {
+    const { userIds, title, message, notificationTitle, notificationMessage } = req.body;
+    const nTitle = title || notificationTitle;
+    const nMsg = message || notificationMessage;
+
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      res.status(400).json({ error: 'userIds must be a non-empty array' });
+      return;
+    }
+
+    if (!nTitle || !nMsg) {
+      res.status(400).json({ error: 'Notification title and message are required' });
+      return;
+    }
+
+    let count = 0;
+    for (const uid of userIds) {
+      db.addNotification({
+        userId: uid,
+        title: nTitle,
+        message: nMsg,
+        type: 'SYSTEM',
+      });
+      count++;
+    }
+
+    res.json({ success: true, notifiedCount: count });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Batch notification failed' });
+  }
+});
+
+apiRouter.post('/admin/users/delete', async (req: any, res: Response) => {
+  try {
+    const { userId, userIds } = req.body;
+    const targetIds = userIds || (userId ? [userId] : []);
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+    if (!Array.isArray(targetIds) || targetIds.length === 0) {
+      res.status(400).json({ error: 'userId or userIds is required' });
+      return;
+    }
+
+    if (!req.admin?.isSuperAdmin && adminEmail.toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
+      res.status(403).json({ error: 'Unauthorized: User deletion is restricted to SuperAdmin' });
+      return;
+    }
+
+    const result = db.batchDeleteUsers(targetIds, adminEmail, clientIp);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'User deletion failed' });
+  }
+});
+
+apiRouter.delete('/admin/users/:userId', async (req: any, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+    if (!userId) {
+      res.status(400).json({ error: 'userId is required' });
+      return;
+    }
+
+    if (!req.admin?.isSuperAdmin && adminEmail.toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
+      res.status(403).json({ error: 'Unauthorized: User deletion is restricted to SuperAdmin' });
+      return;
+    }
+
+    const result = db.batchDeleteUsers([userId], adminEmail, clientIp);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'User deletion failed' });
+  }
+});
+
 apiRouter.post('/admin/batch/users', async (req: any, res: Response) => {
   try {
-    const { userIds, action, status, amount, balanceType = 'CREDIT', note = '', notificationTitle, notificationMessage } = req.body;
+    const { userIds, action, status, amount, balanceType = 'CREDIT', note = '', reason = '', notificationTitle, notificationMessage, title, message } = req.body;
     const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
     const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
 
@@ -1770,8 +1961,8 @@ apiRouter.post('/admin/batch/users', async (req: any, res: Response) => {
         res.status(400).json({ error: 'amount must be a positive number' });
         return;
       }
-      const result = db.batchAdjustUserBalance(userIds, amount, balanceType, note, adminEmail, clientIp);
-      res.json({ success: true, ...result });
+      const result = db.batchAdjustUserBalance(userIds, amount, balanceType, reason || note, adminEmail, clientIp);
+      res.json({ success: true, ...result, adjustedCount: result.processedCount });
     } else if (action === 'delete') {
       if (!req.admin?.isSuperAdmin && adminEmail.toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
         res.status(403).json({ error: 'Unauthorized: Batch user deletion is restricted to SuperAdmin' });
@@ -1780,7 +1971,9 @@ apiRouter.post('/admin/batch/users', async (req: any, res: Response) => {
       const result = db.batchDeleteUsers(userIds, adminEmail, clientIp);
       res.json({ success: true, ...result });
     } else if (action === 'notify') {
-      if (!notificationTitle || !notificationMessage) {
+      const nTitle = title || notificationTitle;
+      const nMsg = message || notificationMessage;
+      if (!nTitle || !nMsg) {
         res.status(400).json({ error: 'Notification title and message are required' });
         return;
       }
@@ -1788,8 +1981,8 @@ apiRouter.post('/admin/batch/users', async (req: any, res: Response) => {
       for (const uid of userIds) {
         db.addNotification({
           userId: uid,
-          title: notificationTitle,
-          message: notificationMessage,
+          title: nTitle,
+          message: nMsg,
           type: 'SYSTEM',
         });
         count++;
@@ -1884,6 +2077,47 @@ apiRouter.post('/admin/batch/withdrawals', async (req: any, res: Response) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/admin/batch/tickets/cancel', async (req: any, res: Response) => {
+  try {
+    const { ticketIds, reason = 'Batch Cancelled by Admin' } = req.body;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+    if (!Array.isArray(ticketIds) || ticketIds.length === 0) {
+      res.status(400).json({ error: 'ticketIds must be a non-empty array' });
+      return;
+    }
+
+    const result = db.batchCancelTickets(ticketIds, reason, adminEmail, clientIp);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Batch ticket cancellation failed' });
+  }
+});
+
+apiRouter.post('/admin/batch/tickets/delete', async (req: any, res: Response) => {
+  try {
+    const { ticketIds } = req.body;
+    const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+    if (!Array.isArray(ticketIds) || ticketIds.length === 0) {
+      res.status(400).json({ error: 'ticketIds must be a non-empty array' });
+      return;
+    }
+
+    if (!req.admin?.isSuperAdmin && adminEmail.toLowerCase() !== AdminService.FIXED_ADMIN_EMAIL.toLowerCase()) {
+      res.status(403).json({ error: 'Unauthorized: Batch ticket deletion is restricted to SuperAdmin' });
+      return;
+    }
+
+    const result = db.batchDeleteTickets(ticketIds, adminEmail, clientIp);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Batch ticket deletion failed' });
   }
 });
 

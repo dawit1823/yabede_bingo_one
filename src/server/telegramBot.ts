@@ -840,7 +840,7 @@ class TelegramBotManager {
   /**
    * Verify Telegram WebApp initData string using official Telegram HMAC-SHA256 signature algorithm
    */
-  public verifyInitData(initData: string): { valid: boolean; user?: any; error?: string; message?: string } {
+  public verifyInitData(initData: string): { valid: boolean; user?: any; start_param?: string; error?: string; message?: string } {
     try {
       if (!initData || typeof initData !== 'string') {
         return { valid: false, error: 'NO_INIT_DATA', message: 'Telegram initData string is required' };
@@ -890,7 +890,9 @@ class TelegramBotManager {
         return { valid: false, error: 'INVALID_USER_ID', message: 'User payload in initData missing ID' };
       }
 
-      return { valid: true, user };
+      const startParam = urlParams.get('start_param') || undefined;
+
+      return { valid: true, user, start_param: startParam };
     } catch (err: any) {
       return { valid: false, error: 'VERIFICATION_FAILED', message: err?.message || 'Failed to parse initData' };
     }

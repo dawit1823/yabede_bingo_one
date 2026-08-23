@@ -35,11 +35,15 @@ class SoundEngine {
   private cachedVoices: SpeechSynthesisVoice[] = [];
   private isUnlocked: boolean = false;
 
-  // In-memory cache for all 75 Amharic MP3 Audio elements
+  // Web Audio API buffer cache for zero-latency, Android-compliant playback
+  private audioBufferCache: Map<number, AudioBuffer> = new Map();
   private amharicAudioCache: Map<number, HTMLAudioElement> = new Map();
+  private currentSourceNode: AudioBufferSourceNode | null = null;
+  private currentCallerAudio: HTMLAudioElement | null = null;
+  private currentUtterance: SpeechSynthesisUtterance | null = null;
   private isPreloaded: boolean = false;
   private isPreloading: boolean = false;
-  private currentCallerAudio: HTMLAudioElement | null = null;
+  private masterGain: GainNode | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -57,15 +61,11 @@ class SoundEngine {
     if (typeof window === 'undefined') return;
     const unlockHandler = () => {
       this.unlockAudio();
-      if (this.isUnlocked) {
-        ['touchstart', 'touchend', 'pointerdown', 'click', 'keydown'].forEach((evt) => {
-          window.removeEventListener(evt, unlockHandler);
-        });
-      }
     };
 
-    ['touchstart', 'touchend', 'pointerdown', 'click', 'keydown'].forEach((evt) => {
-      window.addEventListener(evt, unlockHandler, { passive: true, once: false });
+    const events = ['touchstart', 'touchend', 'pointerdown', 'mousedown', 'click', 'keydown'];
+    events.forEach((evt) => {
+      window.addEventListener(evt, unlockHandler, { passive: true, capture: true });
     });
   }
 
@@ -81,6 +81,9 @@ class SoundEngine {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.setValueAtTime(1.0, this.ctx.currentTime);
+        this.masterGain.connect(this.ctx.destination);
       }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
@@ -99,26 +102,48 @@ class SoundEngine {
 
   /**
    * Preload all 75 Amharic MP3 caller audio files into memory once.
-   * Avoids repeated network requests and eliminates latency when balls are drawn.
+   * Decodes them into AudioBuffers for zero-latency, Android-reliable playback.
    */
   public preloadAmharicCaller(): void {
     if (typeof window === 'undefined' || this.isPreloaded || this.isPreloading) return;
     this.isPreloading = true;
 
+    const ctx = this.getContext();
+
     try {
       for (let ball = 1; ball <= 75; ball++) {
-        if (this.amharicAudioCache.has(ball)) continue;
-
         const url = getAmharicAudioUrl(ball);
-        if (url) {
-          const audio = new Audio();
-          audio.preload = 'auto';
-          audio.src = url;
-          // Load audio buffer into browser memory
-          audio.load();
-          this.amharicAudioCache.set(ball, audio);
-        } else {
-          console.warn(`Missing caller audio for ball ${ball}`);
+        if (!url) continue;
+
+        // 1. Preload HTML5 Audio element fallback
+        if (!this.amharicAudioCache.has(ball)) {
+          try {
+            const audio = new Audio();
+            audio.preload = 'auto';
+            audio.src = url;
+            audio.load();
+            this.amharicAudioCache.set(ball, audio);
+          } catch {}
+        }
+
+        // 2. Decode into Web Audio AudioBuffer for Android background / timer playback
+        if (ctx && !this.audioBufferCache.has(ball)) {
+          fetch(url)
+            .then((res) => res.arrayBuffer())
+            .then((arrayBuffer) => {
+              if (this.ctx) {
+                return this.ctx.decodeAudioData(arrayBuffer);
+              }
+              return null;
+            })
+            .then((decodedBuffer) => {
+              if (decodedBuffer) {
+                this.audioBufferCache.set(ball, decodedBuffer);
+              }
+            })
+            .catch(() => {
+              // Fallback will be handled via HTMLAudioElement
+            });
         }
       }
       this.isPreloaded = true;
@@ -130,10 +155,18 @@ class SoundEngine {
   }
 
   /**
-   * Stop any active caller audio announcement (both MP3 and TTS)
+   * Stop any active caller audio announcement (both MP3 buffer/element and TTS)
    * Prevents overlapping audio when new balls are drawn
    */
   public stopCallerAudio(): void {
+    if (this.currentSourceNode) {
+      try {
+        this.currentSourceNode.stop();
+        this.currentSourceNode.disconnect();
+      } catch {}
+      this.currentSourceNode = null;
+    }
+
     if (this.currentCallerAudio) {
       try {
         this.currentCallerAudio.pause();
@@ -146,17 +179,31 @@ class SoundEngine {
       try {
         window.speechSynthesis.cancel();
       } catch {}
+      this.currentUtterance = null;
     }
   }
 
   public unlockAudio() {
     const ctx = this.getContext();
-    if (ctx && ctx.state === 'suspended') {
-      ctx.resume().then(() => {
+    if (ctx) {
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(() => {
+          this.isUnlocked = true;
+        }).catch(() => {});
+      } else {
         this.isUnlocked = true;
-      }).catch(() => {});
-    } else if (ctx && ctx.state === 'running') {
-      this.isUnlocked = true;
+      }
+
+      // Play a micro-silent buffer to unlock Android AudioContext pipeline
+      try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.001);
+      } catch {}
     }
 
     // Start preloading Amharic MP3s immediately upon user gesture
@@ -164,7 +211,6 @@ class SoundEngine {
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       this.loadVoices();
-      // Prime TTS on mobile
       try {
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
@@ -284,7 +330,7 @@ class SoundEngine {
 
   /**
    * Announces the drawn Bingo ball.
-   * - When language is 'am': Plays the pre-recorded MP3 file (F<ball>.mp3) with zero latency.
+   * - When language is 'am': Plays the pre-recorded MP3 file (F<ball>.mp3) with zero latency via Web Audio API AudioBuffer (or HTML5 Audio fallback).
    * - When language is 'en': Uses SpeechSynthesis with standard Bingo letter and number.
    * - Stops any overlapping audio before announcing the new ball.
    */
@@ -297,9 +343,34 @@ class SoundEngine {
 
     // 2. Amharic: Play matching pre-recorded MP3 caller file (F1.mp3 - F75.mp3)
     if (lang === 'am') {
-      let audio = this.amharicAudioCache.get(ball);
+      const ctx = this.getContext();
+      const decodedBuffer = this.audioBufferCache.get(ball);
 
-      // If not yet preloaded or missing from cache, retrieve and cache
+      // Primary Android Path: Play via Web Audio API AudioBuffer (bypasses Android WebView autoplay lock)
+      if (ctx && decodedBuffer) {
+        try {
+          const sourceNode = ctx.createBufferSource();
+          sourceNode.buffer = decodedBuffer;
+          if (this.masterGain) {
+            sourceNode.connect(this.masterGain);
+          } else {
+            sourceNode.connect(ctx.destination);
+          }
+          sourceNode.onended = () => {
+            if (this.currentSourceNode === sourceNode) {
+              this.currentSourceNode = null;
+            }
+          };
+          this.currentSourceNode = sourceNode;
+          sourceNode.start(0);
+          return;
+        } catch (err) {
+          console.warn(`[SoundEngine] Web Audio buffer playback note for ball ${ball}:`, err);
+        }
+      }
+
+      // Secondary / Fallback Path: Play via HTML5 Audio element
+      let audio = this.amharicAudioCache.get(ball);
       if (!audio) {
         const url = getAmharicAudioUrl(ball);
         if (url) {
@@ -317,8 +388,7 @@ class SoundEngine {
           const playPromise = audio.play();
           if (playPromise !== undefined) {
             playPromise.catch((err) => {
-              // Log warning gracefully without crashing
-              console.warn(`[SoundEngine] Playback notice for ball ${ball}:`, err?.message || err);
+              console.warn(`[SoundEngine] HTML5 audio playback notice for ball ${ball}:`, err?.message || err);
             });
           }
         } catch (err: any) {
@@ -358,9 +428,26 @@ class SoundEngine {
         utterance.voice = enVoice;
       }
 
+      this.currentUtterance = utterance;
+
+      utterance.onend = () => {
+        if (this.currentUtterance === utterance) {
+          this.currentUtterance = null;
+        }
+      };
+
+      utterance.onerror = () => {
+        if (this.currentUtterance === utterance) {
+          this.currentUtterance = null;
+        }
+      };
+
       // 20ms timeout prevents Chrome speech cancellation bug
       setTimeout(() => {
         try {
+          if (window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+          }
           window.speechSynthesis.speak(utterance);
         } catch {
           // Fallback

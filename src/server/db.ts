@@ -598,12 +598,24 @@ class FirestoreDatabaseStore {
     });
 
     if (referredByUserId) {
-      this.updateWalletBalance(
-        referredByUserId,
-        50,
-        'REFERRAL_BONUS',
-        `Referral reward for inviting ${params.firstName}`
-      );
+      const refBonus = adminService.getReferralBonusAmount();
+      const referrer = this.getUserById(referredByUserId);
+      if (referrer && refBonus > 0) {
+        this.updateWalletBalance(
+          referredByUserId,
+          refBonus,
+          'REFERRAL_BONUS',
+          `Referral reward for inviting ${params.firstName || 'new player'}`
+        );
+        referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
+        this.saveUser(referrer);
+        this.addNotification({
+          userId: referredByUserId,
+          title: '🎉 Referral Bonus Received!',
+          message: `You earned ${refBonus} Birr for inviting ${params.firstName || 'a new friend'}!`,
+          type: 'SYSTEM',
+        });
+      }
     }
 
     return { user, accessToken, refreshToken };
@@ -760,42 +772,75 @@ class FirestoreDatabaseStore {
     return this.users.get(userId);
   }
 
-  public findOrCreateTelegramUser(tgUser: {
-    id: number;
-    first_name: string;
-    last_name?: string;
-    username?: string;
-    language_code?: string;
-    photo_url?: string;
-  }): UserProfile {
+  public findOrCreateTelegramUser(
+    tgUser: {
+      id: number;
+      first_name: string;
+      last_name?: string;
+      username?: string;
+      language_code?: string;
+      photo_url?: string;
+      phone?: string;
+    },
+    referralCode?: string
+  ): UserProfile {
     let existing = this.getUserByTelegramId(tgUser.id);
     if (existing) {
       existing.firstName = tgUser.first_name || existing.firstName;
       existing.lastName = tgUser.last_name || existing.lastName;
       existing.username = tgUser.username || existing.username;
       if (tgUser.photo_url) existing.photoUrl = tgUser.photo_url;
+      if (tgUser.phone && !existing.phone) {
+        existing.phone = this.normalizePhone(tgUser.phone);
+        this.phoneToUserIndex.set(existing.phone, existing.id);
+      }
       this.saveUser(existing);
       return existing;
     }
 
     const newUserId = `usr_${tgUser.id}`;
-    const referralCode = `REF${Math.floor(100000 + Math.random() * 900000)}`;
+    const userReferralCode = `REF${Math.floor(100000 + Math.random() * 900000)}`;
     const regBonus = adminService.getRegistrationBonusAmount();
+
+    // Check referral
+    let referredByUserId: string | undefined = undefined;
+    if (referralCode) {
+      let cleanRef = referralCode.trim();
+      if (cleanRef.startsWith('ref_')) {
+        cleanRef = cleanRef.substring(4);
+      }
+      const referrer = Array.from(this.users.values()).find(
+        (u) =>
+          u.telegramId !== tgUser.id &&
+          u.id !== newUserId &&
+          (u.referralCode.toLowerCase() === cleanRef.toLowerCase() ||
+            u.id.toLowerCase() === cleanRef.toLowerCase() ||
+            (u.telegramId && String(u.telegramId) === cleanRef))
+      );
+      if (referrer) {
+        referredByUserId = referrer.id;
+      }
+    }
+
+    const normalizedPhone = tgUser.phone ? this.normalizePhone(tgUser.phone) : undefined;
 
     const newUser: UserProfile = {
       id: newUserId,
       telegramId: tgUser.id,
+      phone: normalizedPhone,
       username: tgUser.username || `user_${tgUser.id}`,
-      firstName: tgUser.first_name,
-      lastName: tgUser.last_name,
+      firstName: tgUser.first_name || '',
+      lastName: tgUser.last_name || '',
       photoUrl: tgUser.photo_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${tgUser.id}`,
       language: tgUser.language_code === 'am' ? 'am' : 'en',
-      referralCode,
+      referralCode: userReferralCode,
+      referredBy: referredByUserId,
       walletBalance: 100, // 100 Birr Welcome Gift
       bonusBalance: regBonus, // Dynamic Registration Bonus Gift from Admin
       vipLevel: 1,
       status: 'ACTIVE',
       createdAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
       totalWins: 0,
       totalGamesPlayed: 0,
       totalDeposited: 0,
@@ -817,7 +862,43 @@ class FirestoreDatabaseStore {
       createdAt: new Date().toISOString(),
     });
 
+    // Credit Referral Bonus to Referrer if valid
+    if (referredByUserId) {
+      const refBonus = adminService.getReferralBonusAmount();
+      const referrer = this.getUserById(referredByUserId);
+      if (referrer && refBonus > 0) {
+        this.updateWalletBalance(
+          referredByUserId,
+          refBonus,
+          'REFERRAL_BONUS',
+          `Referral reward for inviting ${tgUser.first_name || 'new player'}`
+        );
+        referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
+        this.saveUser(referrer);
+        this.addNotification({
+          userId: referredByUserId,
+          title: '🎉 Referral Bonus Received!',
+          message: `You earned ${refBonus} Birr for inviting ${tgUser.first_name || 'a friend'}!`,
+          type: 'SYSTEM',
+        });
+      }
+    }
+
     return newUser;
+  }
+
+  public updateUserPhone(userId: string, phone: string): UserProfile {
+    const user = this.getUserById(userId);
+    if (!user) throw new Error('User not found');
+    const normalized = this.normalizePhone(phone);
+    if (!normalized || normalized.length < 10) {
+      throw new Error('Invalid phone number format');
+    }
+    user.phone = normalized;
+    user.updatedAt = new Date().toISOString();
+    this.phoneToUserIndex.set(normalized, user.id);
+    this.saveUser(user);
+    return user;
   }
 
   // --- WALLET & LEDGER ATOMIC OPERATIONS ---
