@@ -14,7 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-export type TabType = 'home' | 'active_game' | 'history' | 'wallet' | 'bonuses' | 'leaderboard' | 'docs';
+export type TabType = 'home' | 'active_game' | 'history' | 'wallet' | 'bonuses' | 'leaderboard';
 
 interface NavigationProps {
   activeTab: TabType;
@@ -71,12 +71,6 @@ export const Navigation: React.FC<NavigationProps> = ({
       label: language === 'am' ? 'የጨዋታ ታሪክ' : 'Game History',
       description: language === 'am' ? 'ያለፉ ጨዋታዎች እና ትኬቶች' : 'Past Rounds & Result Verification',
       icon: History,
-    },
-    {
-      id: 'docs' as TabType,
-      label: language === 'am' ? 'መመሪያዎች' : 'Documentation',
-      description: language === 'am' ? 'ደንቦች እና የኤፒአይ መረጃ' : 'Rules, Guide & API Reference',
-      icon: FileText,
     },
   ];
 
@@ -189,7 +183,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               setIsOpen(true);
             }}
             className={`flex flex-col items-center justify-center flex-1 py-1.5 px-1 rounded-xl transition-all ${
-              ['leaderboard', 'history', 'docs'].includes(activeTab)
+              ['leaderboard', 'history'].includes(activeTab)
                 ? 'text-amber-400 font-bold'
                 : 'text-slate-400 hover:text-slate-200'
             }`}

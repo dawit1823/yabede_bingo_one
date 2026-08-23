@@ -24,7 +24,6 @@ import { WalletView } from './components/WalletView';
 import { BonusesView } from './components/BonusesView';
 import { LeaderboardView } from './components/LeaderboardView';
 import { GameHistoryView } from './components/GameHistoryView';
-import { DocsView } from './components/DocsView';
 import { AuthModal } from './components/AuthModal';
 import { CreatePrivateGroupModal } from './components/CreatePrivateGroupModal';
 import { JoinPrivateGroupModal } from './components/JoinPrivateGroupModal';
@@ -558,11 +557,6 @@ export default function App() {
             userId={currentUser.id}
             language={language}
           />
-        )}
-
-        {/* Rules & Documentation Tab */}
-        {activeTab === 'docs' && (
-          <DocsView language={language} />
         )}
       </main>
 

@@ -25,7 +25,6 @@ import { WalletView } from './components/WalletView';
 import { BonusesView } from './components/BonusesView';
 import { LeaderboardView } from './components/LeaderboardView';
 import { GameHistoryView } from './components/GameHistoryView';
-import { DocsView } from './components/DocsView';
 import { AuthModal } from './components/AuthModal';
 import { CreatePrivateGroupModal } from './components/CreatePrivateGroupModal';
 import { JoinPrivateGroupModal } from './components/JoinPrivateGroupModal';
@@ -855,7 +854,6 @@ export default function App() {
         onOpenAuth={() => setIsAuthOpen(true)}
         language={language}
         onToggleLanguage={() => setLanguage(language === 'am' ? 'en' : 'am')}
-        onOpenBot={() => setIsBotOpen(true)}
         theme={theme}
         onSelectTheme={handleSelectTheme}
       />
@@ -1011,8 +1009,6 @@ export default function App() {
             {activeTab === 'leaderboard' && (
               <LeaderboardView entries={leaderboard} language={language} />
             )}
-
-            {activeTab === 'docs' && <DocsView />}
           </>
         )}
       </>
@@ -1032,6 +1028,8 @@ export default function App() {
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         currentUser={currentUser}
+        isLoggedIn={isLoggedIn}
+        language={language}
         onAuthSuccess={(user) => {
           setCurrentUser(user);
           setIsLoggedIn(true);

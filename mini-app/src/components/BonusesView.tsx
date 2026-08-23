@@ -60,7 +60,7 @@ export const BonusesView: React.FC<BonusesViewProps> = ({
                 <span>{copiedLink ? 'Copied' : 'Copy'}</span>
               </button>
               <a
-                href={`https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join me on Ahun Bingo! 🎱 Play multiplayer 75-ball bingo and win Birr!')}`}
+                href={`https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join me on Yabede Bingo! 🎱 Play multiplayer 75-ball bingo and win Birr!')}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => triggerHaptic('medium')}
