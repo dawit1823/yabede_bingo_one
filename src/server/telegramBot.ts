@@ -87,6 +87,7 @@ export interface BotSession {
     resetPhone?: string;
     resetOtp?: string;
     resetNewPassword?: string;
+    referralCode?: string;
   };
 }
 
@@ -126,37 +127,45 @@ class TelegramBotManager {
     const text = (msg.text || '').trim();
     const session = this.getSession(chatId);
 
-    // 1. Check commands
-    if (text === '/start' || text.toLowerCase() === 'start') {
+    // 1. Check commands & start parameters
+    if (text.startsWith('/start') || text.toLowerCase() === 'start') {
+      const parts = text.split(/\s+/);
+      const startParam = parts.length > 1 ? parts[1].trim() : undefined;
+      const prevPending = session.pendingData;
       this.resetSession(chatId);
-      return this.handleStartCommand(tgUser, chatId);
+      const newSession = this.getSession(chatId);
+      const cleanRef = startParam || prevPending?.referralCode;
+      if (cleanRef) {
+        newSession.pendingData = { ...newSession.pendingData, referralCode: cleanRef };
+      }
+      return this.handleStartCommand(tgUser, chatId, startParam);
     }
 
-    if (text === '/register' || text.toLowerCase() === 'register' || text.includes('Register')) {
+    if (text === '/register' || text.toLowerCase() === 'register' || text.includes('Register') || text === 'cmd_register') {
       return this.initiateRegistration(tgUser, chatId);
     }
 
-    if (text === '/login' || text.toLowerCase() === 'login' || text.includes('Login')) {
+    if (text === '/login' || text.toLowerCase() === 'login' || text.includes('Login') || text === 'cmd_login') {
       return this.initiateLogin(chatId);
     }
 
-    if (text === '/forgot' || text.toLowerCase() === 'forgot password' || text.includes('Forgot Password')) {
+    if (text === '/forgot' || text.toLowerCase() === 'forgot password' || text.includes('Forgot Password') || text === 'cmd_forgot') {
       return this.initiateForgotPassword(chatId);
     }
 
-    if (text === '/profile' || text.includes('Profile')) {
+    if (text === '/profile' || text.includes('Profile') || text === 'cmd_profile') {
       return this.handleProfileCommand(tgUser.id, chatId);
     }
 
-    if (text === '/wallet' || text.includes('Wallet')) {
+    if (text === '/wallet' || text.includes('Wallet') || text === 'cmd_wallet') {
       return this.handleWalletCommand(tgUser.id, chatId);
     }
 
-    if (text === '/invitations' || text.includes('Invitations')) {
+    if (text === '/invitations' || text.includes('Invitations') || text === 'cmd_invitations') {
       return this.handleInvitationsCommand(tgUser.id, chatId);
     }
 
-    if (text === '/help' || text.includes('Help')) {
+    if (text === '/help' || text.includes('Help') || text === 'cmd_help') {
       return this.handleHelpCommand(chatId);
     }
 
@@ -177,9 +186,9 @@ class TelegramBotManager {
     if (text === '/openapp' || text.includes('Open Mini App')) {
       return {
         chatId,
-        text: '🎮 Click below to open Yabede Bingo Telegram Mini App:',
+        text: '🎮 Click below to open Ahun Bingo Telegram Mini App:',
         replyMarkup: {
-          inline_keyboard: [[{ text: '🎮 Open Yabede Bingo', url: process.env.APP_URL || 'http://localhost:3000' }]],
+          inline_keyboard: [[{ text: '🎮 Open Ahun Bingo', url: process.env.APP_URL || 'http://localhost:3000' }]],
         },
       };
     }
@@ -294,17 +303,17 @@ class TelegramBotManager {
   }
 
   // --- START COMMAND ---
-  private handleStartCommand(tgUser: TelegramUser, chatId: number): BotResponse {
+  private handleStartCommand(tgUser: TelegramUser, chatId: number, startParam?: string): BotResponse {
     const existingUser = db.getUserByTelegramId(tgUser.id);
 
     if (existingUser) {
       return {
         chatId,
-        text: `👋 Welcome back to Yabede Bingo, <b>${existingUser.firstName}</b>!\n\n💰 Wallet Balance: <b>${(existingUser?.walletBalance ?? 0).toLocaleString()} Birr</b>\n🏆 VIP Level: <b>L${existingUser?.vipLevel ?? 1}</b>\n\nTap below to launch the Mini App or manage your account:`,
+        text: `👋 Welcome back to Ahun Bingo, <b>${existingUser.firstName}</b>!\n\n💰 Wallet Balance: <b>${(existingUser?.walletBalance ?? 0).toLocaleString()} Birr</b>\n🏆 VIP Level: <b>L${existingUser?.vipLevel ?? 1}</b>\n\nTap below to launch the Mini App or manage your account:`,
         parseMode: 'HTML',
         replyMarkup: {
           inline_keyboard: [
-            [{ text: '🎮 Open Yabede Bingo', url: process.env.APP_URL || 'http://localhost:3000' }],
+            [{ text: '🎮 Open Ahun Bingo', url: process.env.APP_URL || 'http://localhost:3000' }],
             [{ text: '👤 Profile', callback_data: 'cmd_profile' }, { text: '💳 Wallet', callback_data: 'cmd_wallet' }],
             [{ text: '🎟️ Invitations', callback_data: 'cmd_invitations' }, { text: '❓ Help', callback_data: 'cmd_help' }],
           ],
@@ -312,9 +321,14 @@ class TelegramBotManager {
       };
     }
 
+    let referralText = '';
+    if (startParam) {
+      referralText = `\n🎁 <i>Invited by friend (Code: ${startParam})</i>\n`;
+    }
+
     return {
       chatId,
-      text: `🎉 <b>Welcome to Yabede Bingo!</b> 🇪🇹\n\nTo start playing multiplayer Bingo, winning real prizes, and creating private groups, you must first register your account through this Telegram Bot.\n\nTap <b>Register</b> below to complete registration in 30 seconds!`,
+      text: `🎉 <b>Welcome to Ahun Bingo!</b> 🇪🇹${referralText}\nTo start playing multiplayer Bingo, winning real prizes, and creating private groups, you must first register your account through this Telegram Bot.\n\nTap <b>Register</b> below to complete registration in 30 seconds!`,
       parseMode: 'HTML',
       replyMarkup: {
         inline_keyboard: [
@@ -333,7 +347,7 @@ class TelegramBotManager {
     if (existingUser) {
       return {
         chatId,
-        text: `⚠️ <b>You already have an account!</b>\n\nName: ${existingUser.firstName}\nPhone: ${existingUser.phone}\nTelegram ID: ${tgUser.id}\n\nYou do not need to register again. You can log in or open the Mini App directly.`,
+        text: `⚠️ <b>You already have an account!</b>\n\nName: ${existingUser.firstName}\nPhone: ${existingUser.phone || 'Verified'}\nTelegram ID: ${tgUser.id}\n\nYou do not need to register again. You can log in or open the Mini App directly.`,
         parseMode: 'HTML',
         replyMarkup: {
           inline_keyboard: [
@@ -345,6 +359,7 @@ class TelegramBotManager {
     }
 
     const session = this.getSession(chatId);
+    const existingRef = session.pendingData?.referralCode;
     session.state = 'AWAITING_CONTACT';
     session.pendingData = {
       telegramId: tgUser.id,
@@ -352,6 +367,7 @@ class TelegramBotManager {
       firstName: tgUser.first_name || 'Player',
       lastName: tgUser.last_name || '',
       languageCode: tgUser.language_code || 'en',
+      referralCode: existingRef,
     };
 
     return {
@@ -368,6 +384,20 @@ class TelegramBotManager {
 
   // --- STEP 3: CONTACT RECEIVED ---
   private handleContactReceived(tgUser: TelegramUser, contact: TelegramContact, chatId: number): BotResponse {
+    // Verify contact belongs to authenticated telegram user if user_id is provided
+    if (contact.user_id && contact.user_id !== tgUser.id) {
+      return {
+        chatId,
+        text: '❌ <b>Contact Verification Failed</b>\n\nThe shared contact must belong to your own Telegram account. Please share your own contact number using the button below.',
+        parseMode: 'HTML',
+        replyMarkup: {
+          keyboard: [[{ text: '📱 Share My Contact', request_contact: true }]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      };
+    }
+
     const rawPhone = contact.phone_number;
     const normalized = db.normalizePhone(rawPhone);
 
@@ -376,7 +406,7 @@ class TelegramBotManager {
       this.resetSession(chatId);
       return {
         chatId,
-        text: `⚠️ <b>Account Already Exists</b>\n\nAn account with the phone number <b>${normalized}</b> is already registered in Yabede Bingo.\n\nPlease log in or use password reset.`,
+        text: `⚠️ <b>Account Already Exists</b>\n\nAn account with the phone number <b>${normalized}</b> is already registered in Ahun Bingo.\n\nPlease log in or use password reset.`,
         parseMode: 'HTML',
         replyMarkup: {
           inline_keyboard: [
@@ -389,6 +419,7 @@ class TelegramBotManager {
     }
 
     const session = this.getSession(chatId);
+    const existingRef = session.pendingData?.referralCode;
     session.state = 'AWAITING_PASSWORD';
     session.pendingData = {
       telegramId: tgUser.id,
@@ -397,6 +428,7 @@ class TelegramBotManager {
       lastName: contact.last_name || tgUser.last_name || '',
       phoneNumber: normalized,
       languageCode: tgUser.language_code || 'en',
+      referralCode: existingRef,
     };
 
     return {
@@ -423,9 +455,34 @@ class TelegramBotManager {
     try {
       const passwordHash = bcrypt.hashSync(data.pendingPassword, 10);
       const uid = `usr_tg_${data.telegramId}`;
-      const referralCode = `REF${Math.floor(100000 + Math.random() * 900000)}`;
+      const userReferralCode = `REF${Math.floor(100000 + Math.random() * 900000)}`;
 
-      // 1. Create Firebase Auth user (if available)
+      // 1. Fetch dynamic bonus configurations from Admin Service
+      const welcomeConfig = adminService.getWelcomeGiftConfig();
+      const welcomeGiftAmount = welcomeConfig.enabled ? welcomeConfig.amountBirr : 0;
+      const dynamicBonus = adminService.getRegistrationBonusAmount();
+
+      // Check referral and prevent self-referral
+      let referredByUserId: string | undefined = undefined;
+      if (data.referralCode) {
+        let cleanRef = data.referralCode.trim();
+        if (cleanRef.startsWith('ref_')) {
+          cleanRef = cleanRef.substring(4);
+        }
+        const referrer = Array.from(db.users.values()).find(
+          (u) =>
+            u.telegramId !== data.telegramId &&
+            u.id !== uid &&
+            (u.referralCode.toLowerCase() === cleanRef.toLowerCase() ||
+              u.id.toLowerCase() === cleanRef.toLowerCase() ||
+              (u.telegramId && String(u.telegramId) === cleanRef))
+        );
+        if (referrer) {
+          referredByUserId = referrer.id;
+        }
+      }
+
+      // 2. Create Firebase Auth user (if available)
       try {
         await adminAuth.createUser({
           uid,
@@ -436,7 +493,7 @@ class TelegramBotManager {
         console.warn('Firebase Auth user creation note:', authErr.message || authErr);
       }
 
-      // 2. Create User Profile object
+      // 3. Create User Profile object
       const userProfile: UserProfile = {
         id: uid,
         telegramId: data.telegramId,
@@ -447,9 +504,12 @@ class TelegramBotManager {
         lastName: data.lastName || '',
         photoUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${uid}`,
         language: (data.languageCode === 'am' ? 'am' : 'en'),
-        referralCode,
-        walletBalance: 100, // 100 Birr Welcome Credit
-        bonusBalance: adminService.getRegistrationBonusAmount(), // Dynamic Registration Bonus Credit from Admin
+        referralCode: userReferralCode,
+        referredBy: referredByUserId,
+        referralCount: 0,
+        referralEarnings: 0,
+        walletBalance: welcomeGiftAmount,
+        bonusBalance: dynamicBonus,
         vipLevel: 1,
         status: 'ACTIVE',
         createdAt: new Date().toISOString(),
@@ -461,7 +521,7 @@ class TelegramBotManager {
         totalWithdrawn: 0,
       };
 
-      // 3. Save to primary server database store first
+      // 4. Save to primary server database store first
       db.saveUser(userProfile);
       db.phoneToUserIndex.set(data.phoneNumber, uid);
       db.telegramUserIndex.set(data.telegramId, uid);
@@ -473,22 +533,68 @@ class TelegramBotManager {
         activeSessions: [],
       });
 
-      // 4. Safely attempt Cloud Firestore persistent sync (non-blocking)
+      // 5. Add welcome transaction if welcome gift is enabled
+      if (welcomeConfig.enabled && welcomeGiftAmount > 0) {
+        db.addTransaction({
+          id: `tx_welcome_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+          userId: uid,
+          amount: welcomeGiftAmount,
+          balanceAfter: welcomeGiftAmount,
+          type: 'DAILY_BONUS',
+          status: 'COMPLETED',
+          reference: 'WEL-BONUS-YABEDE',
+          description: 'New Player Welcome Gift Credit',
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      // 6. Credit referral bonus to referrer if valid
+      if (referredByUserId) {
+        const refConfig = adminService.getReferralBonusConfig();
+        const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
+        const referrer = db.getUserById(referredByUserId);
+        if (referrer) {
+          referrer.referralCount = (referrer.referralCount || 0) + 1;
+          if (refBonus > 0) {
+            db.updateWalletBalance(
+              referredByUserId,
+              refBonus,
+              'REFERRAL_BONUS',
+              `Referral reward for inviting ${data.firstName || 'new player'}`
+            );
+            referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
+            db.addNotification({
+              userId: referredByUserId,
+              title: '🎉 Referral Bonus Received!',
+              message: `You earned ${refBonus} Birr for inviting ${data.firstName || 'a friend'}!`,
+              type: 'SYSTEM',
+            });
+          }
+          db.saveUser(referrer);
+        }
+      }
+
+      // 7. Safely attempt Cloud Firestore persistent sync (non-blocking)
       try {
-        const dynamicBonus = adminService.getRegistrationBonusAmount();
         await Promise.all([
           adminDb.collection('users').doc(uid).set({
             uid,
+            id: uid,
             telegramId: data.telegramId,
             telegramUsername: data.username || '',
             firstName: data.firstName || 'Player',
             lastName: data.lastName || '',
+            phone: data.phoneNumber,
             phoneNumber: data.phoneNumber,
             passwordHash,
             photoURL: userProfile.photoUrl,
-            walletBalance: 100,
+            photoUrl: userProfile.photoUrl,
+            referredBy: referredByUserId || null,
+            referralCount: 0,
+            referralEarnings: 0,
+            walletBalance: welcomeGiftAmount,
             bonusBalance: dynamicBonus,
-            referralCode,
+            referralCode: userReferralCode,
             status: 'ACTIVE',
             createdAt: userProfile.createdAt,
             updatedAt: userProfile.updatedAt,
@@ -496,7 +602,7 @@ class TelegramBotManager {
           }, { merge: true }),
           adminDb.collection('wallets').doc(uid).set({
             userId: uid,
-            balance: 100,
+            balance: welcomeGiftAmount,
             bonusBalance: dynamicBonus,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -517,9 +623,13 @@ class TelegramBotManager {
       // Clear session
       this.resetSession(chatId);
 
+      const welcomeBonusText = welcomeGiftAmount > 0
+        ? `\n🎁 <b>${welcomeGiftAmount} Birr Welcome Credit</b> has been credited to your wallet.\n`
+        : '\n';
+
       return {
         chatId,
-        text: `✅ <b>Registration Completed Successfully!</b> 🎉\n\nWelcome to Yabede Bingo, <b>${data.firstName}</b>!\n\n🎁 <b>100 Birr Welcome Credit</b> has been credited to your wallet.\n📱 Phone: <b>${data.phoneNumber}</b>\n🎟️ Referral Code: <b>${referralCode}</b>\n\nYou can now tap the button below to enter the Mini App using your registered account:`,
+        text: `✅ <b>Registration Completed Successfully!</b> 🎉\n\nWelcome to Ahun Bingo, <b>${data.firstName}</b>!${welcomeBonusText}📱 Phone: <b>${data.phoneNumber}</b>\n🎟️ Referral Code: <b>${userReferralCode}</b>\n\nYou can now tap the button below to enter the Mini App using your registered account:`,
         parseMode: 'HTML',
         replyMarkup: {
           inline_keyboard: [

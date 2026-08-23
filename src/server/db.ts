@@ -300,11 +300,13 @@ class FirestoreDatabaseStore {
                 username: data.username || data.telegramUsername || `user_${uid.slice(-4)}`,
                 firstName: data.firstName || '',
                 lastName: data.lastName || '',
-                phone: data.phone || undefined,
+                phone: data.phone || data.phoneNumber || undefined,
                 photoUrl: data.photoUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${uid}`,
                 language: data.language || 'am',
                 referralCode: data.referralCode || `REF${Math.floor(100000 + Math.random() * 900000)}`,
                 referredBy: data.referredBy || undefined,
+                referralCount: typeof data.referralCount === 'number' ? data.referralCount : 0,
+                referralEarnings: typeof data.referralEarnings === 'number' ? data.referralEarnings : 0,
                 walletBalance: typeof data.walletBalance === 'number' ? data.walletBalance : 0,
                 bonusBalance: typeof data.bonusBalance === 'number' ? data.bonusBalance : 0,
                 vipLevel: Number(data.vipLevel) || 1,
@@ -532,6 +534,8 @@ class FirestoreDatabaseStore {
       }
     }
 
+    const welcomeConfig = adminService.getWelcomeGiftConfig();
+    const initialWalletBalance = welcomeConfig.enabled ? welcomeConfig.amountBirr : 0;
     const regBonus = adminService.getRegistrationBonusAmount();
 
     const user: UserProfile = {
@@ -546,8 +550,10 @@ class FirestoreDatabaseStore {
       language: 'am',
       referralCode: userReferralCode,
       referredBy: referredByUserId || undefined,
-      walletBalance: 100, // 100 Birr Welcome Credit
-      bonusBalance: regBonus, // Dynamic Registration Bonus Credit from Admin
+      referralCount: 0,
+      referralEarnings: 0,
+      walletBalance: initialWalletBalance,
+      bonusBalance: regBonus,
       vipLevel: 1,
       status: 'ACTIVE',
       createdAt: new Date().toISOString(),
@@ -584,37 +590,43 @@ class FirestoreDatabaseStore {
     // Save auth doc in Firestore
     adminDb.collection('userAuth').doc(userId).set(auth).catch(console.error);
 
-    // Ledger welcome gift
-    this.addTransaction({
-      id: `tx_welcome_${Date.now()}`,
-      userId,
-      amount: 100,
-      balanceAfter: 100,
-      type: 'DAILY_BONUS',
-      status: 'COMPLETED',
-      reference: 'WEL-BONUS-PHONE',
-      description: 'Welcome Gift Credit for Registration',
-      createdAt: new Date().toISOString(),
-    });
+    // Ledger welcome gift if enabled
+    if (welcomeConfig.enabled && initialWalletBalance > 0) {
+      this.addTransaction({
+        id: `tx_welcome_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        userId,
+        amount: initialWalletBalance,
+        balanceAfter: initialWalletBalance,
+        type: 'DAILY_BONUS',
+        status: 'COMPLETED',
+        reference: 'WEL-BONUS-PHONE',
+        description: 'New Player Welcome Gift Credit',
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     if (referredByUserId) {
-      const refBonus = adminService.getReferralBonusAmount();
+      const refConfig = adminService.getReferralBonusConfig();
+      const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
       const referrer = this.getUserById(referredByUserId);
-      if (referrer && refBonus > 0) {
-        this.updateWalletBalance(
-          referredByUserId,
-          refBonus,
-          'REFERRAL_BONUS',
-          `Referral reward for inviting ${params.firstName || 'new player'}`
-        );
-        referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
+      if (referrer) {
+        referrer.referralCount = (referrer.referralCount || 0) + 1;
+        if (refBonus > 0) {
+          this.updateWalletBalance(
+            referredByUserId,
+            refBonus,
+            'REFERRAL_BONUS',
+            `Referral reward for inviting ${params.firstName || 'new player'}`
+          );
+          referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
+          this.addNotification({
+            userId: referredByUserId,
+            title: '🎉 Referral Bonus Received!',
+            message: `You earned ${refBonus} Birr for inviting ${params.firstName || 'a new friend'}!`,
+            type: 'SYSTEM',
+          });
+        }
         this.saveUser(referrer);
-        this.addNotification({
-          userId: referredByUserId,
-          title: '🎉 Referral Bonus Received!',
-          message: `You earned ${refBonus} Birr for inviting ${params.firstName || 'a new friend'}!`,
-          type: 'SYSTEM',
-        });
       }
     }
 
@@ -800,6 +812,8 @@ class FirestoreDatabaseStore {
 
     const newUserId = `usr_${tgUser.id}`;
     const userReferralCode = `REF${Math.floor(100000 + Math.random() * 900000)}`;
+    const welcomeConfig = adminService.getWelcomeGiftConfig();
+    const initialWalletBalance = welcomeConfig.enabled ? welcomeConfig.amountBirr : 0;
     const regBonus = adminService.getRegistrationBonusAmount();
 
     // Check referral
@@ -835,8 +849,10 @@ class FirestoreDatabaseStore {
       language: tgUser.language_code === 'am' ? 'am' : 'en',
       referralCode: userReferralCode,
       referredBy: referredByUserId,
-      walletBalance: 100, // 100 Birr Welcome Gift
-      bonusBalance: regBonus, // Dynamic Registration Bonus Gift from Admin
+      referralCount: 0,
+      referralEarnings: 0,
+      walletBalance: initialWalletBalance,
+      bonusBalance: regBonus,
       vipLevel: 1,
       status: 'ACTIVE',
       createdAt: new Date().toISOString(),
@@ -849,38 +865,44 @@ class FirestoreDatabaseStore {
 
     this.saveUser(newUser);
 
-    // Ledger welcome gift
-    this.addTransaction({
-      id: `tx_welcome_${Date.now()}`,
-      userId: newUserId,
-      amount: 100,
-      balanceAfter: 100,
-      type: 'DAILY_BONUS',
-      status: 'COMPLETED',
-      reference: 'WEL-BONUS-YABEDE',
-      description: 'Welcome Gift Credit from Yabede Bingo',
-      createdAt: new Date().toISOString(),
-    });
+    // Ledger welcome gift if enabled
+    if (welcomeConfig.enabled && initialWalletBalance > 0) {
+      this.addTransaction({
+        id: `tx_welcome_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        userId: newUserId,
+        amount: initialWalletBalance,
+        balanceAfter: initialWalletBalance,
+        type: 'DAILY_BONUS',
+        status: 'COMPLETED',
+        reference: 'WEL-BONUS-YABEDE',
+        description: 'New Player Welcome Gift Credit',
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     // Credit Referral Bonus to Referrer if valid
     if (referredByUserId) {
-      const refBonus = adminService.getReferralBonusAmount();
+      const refConfig = adminService.getReferralBonusConfig();
+      const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
       const referrer = this.getUserById(referredByUserId);
-      if (referrer && refBonus > 0) {
-        this.updateWalletBalance(
-          referredByUserId,
-          refBonus,
-          'REFERRAL_BONUS',
-          `Referral reward for inviting ${tgUser.first_name || 'new player'}`
-        );
-        referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
+      if (referrer) {
+        referrer.referralCount = (referrer.referralCount || 0) + 1;
+        if (refBonus > 0) {
+          this.updateWalletBalance(
+            referredByUserId,
+            refBonus,
+            'REFERRAL_BONUS',
+            `Referral reward for inviting ${tgUser.first_name || 'new player'}`
+          );
+          referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
+          this.addNotification({
+            userId: referredByUserId,
+            title: '🎉 Referral Bonus Received!',
+            message: `You earned ${refBonus} Birr for inviting ${tgUser.first_name || 'a friend'}!`,
+            type: 'SYSTEM',
+          });
+        }
         this.saveUser(referrer);
-        this.addNotification({
-          userId: referredByUserId,
-          title: '🎉 Referral Bonus Received!',
-          message: `You earned ${refBonus} Birr for inviting ${tgUser.first_name || 'a friend'}!`,
-          type: 'SYSTEM',
-        });
       }
     }
 

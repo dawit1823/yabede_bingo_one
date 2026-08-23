@@ -846,22 +846,6 @@ export default function App() {
           : 'theme-dark bg-slate-950 text-slate-100'
       } font-sans transition-colors duration-300`}
     >
-      {/* Telegram WebApp Simulator Top Bar */}
-      <TelegramSimulatorBar
-        currentUser={currentUser}
-        allDemoUsers={DEMO_USERS}
-        onSwitchUser={(u) => {
-          setCurrentUser(u);
-          setActiveRoom(null);
-          setUserTickets([]);
-        }}
-        isDarkMode={isDarkMode}
-        onToggleTheme={() => handleSelectTheme(theme === 'golden' ? 'dark' : theme === 'dark' ? 'light' : 'golden')}
-        language={language}
-        onToggleLanguage={() => setLanguage(language === 'am' ? 'en' : 'am')}
-        onOpenBot={() => setIsBotOpen(true)}
-      />
-
       {/* Main App Header */}
       <HeaderBar
         user={currentUser}
@@ -870,6 +854,8 @@ export default function App() {
         onOpenDeposit={() => setActiveTab('wallet')}
         onOpenAuth={() => setIsAuthOpen(true)}
         language={language}
+        onToggleLanguage={() => setLanguage(language === 'am' ? 'en' : 'am')}
+        onOpenBot={() => setIsBotOpen(true)}
         theme={theme}
         onSelectTheme={handleSelectTheme}
       />

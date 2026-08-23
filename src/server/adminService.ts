@@ -809,12 +809,29 @@ export class AdminService {
     return this.bonusPrograms;
   }
 
+  public getWelcomeGiftConfig(): { enabled: boolean; amountBirr: number } {
+    const prog = this.bonusPrograms.find(
+      (p) => p.id === 'welcome_bonus' || p.type === 'WELCOME' || p.name === 'New Player Welcome Gift'
+    );
+    if (prog) {
+      return {
+        enabled: prog.enabled !== false,
+        amountBirr: typeof prog.amountBirr === 'number' ? Math.max(0, prog.amountBirr) : 0,
+      };
+    }
+    return {
+      enabled: true,
+      amountBirr: typeof this.systemSettings.welcomeBonusBirr === 'number' ? this.systemSettings.welcomeBonusBirr : 100,
+    };
+  }
+
   public getRegistrationBonusAmount(): number {
     const regProg = this.bonusPrograms.find(
       (p) => p.id === 'registration_bonus' || p.type === 'REGISTRATION' || p.name === 'Registration Bonus Credit'
     );
-    if (regProg && regProg.enabled !== false && typeof regProg.amountBirr === 'number') {
-      return regProg.amountBirr;
+    if (regProg) {
+      if (regProg.enabled === false) return 0;
+      return typeof regProg.amountBirr === 'number' ? Math.max(0, regProg.amountBirr) : 0;
     }
     if (typeof this.systemSettings.welcomeBonusBirr === 'number') {
       return this.systemSettings.welcomeBonusBirr;
@@ -822,17 +839,27 @@ export class AdminService {
     return 50;
   }
 
-  public getReferralBonusAmount(): number {
+  public getReferralBonusConfig(): { enabled: boolean; amountBirr: number; maxBonusBirr?: number } {
     const refProg = this.bonusPrograms.find(
       (p) => p.id === 'referral_bonus' || p.type === 'REFERRAL' || p.name === 'Friend Referral Reward'
     );
-    if (refProg && refProg.enabled !== false && typeof refProg.amountBirr === 'number') {
-      return refProg.amountBirr;
+    if (refProg) {
+      return {
+        enabled: refProg.enabled !== false,
+        amountBirr: typeof refProg.amountBirr === 'number' ? Math.max(0, refProg.amountBirr) : 0,
+        maxBonusBirr: refProg.maxBonusBirr,
+      };
     }
-    if (typeof this.systemSettings.referralRewardBirr === 'number') {
-      return this.systemSettings.referralRewardBirr;
-    }
-    return 25;
+    return {
+      enabled: true,
+      amountBirr: typeof this.systemSettings.referralRewardBirr === 'number' ? this.systemSettings.referralRewardBirr : 25,
+      maxBonusBirr: this.systemSettings.maxReferralBonusBirr || 5000,
+    };
+  }
+
+  public getReferralBonusAmount(): number {
+    const config = this.getReferralBonusConfig();
+    return config.enabled ? config.amountBirr : 0;
   }
 
   public async updateBonusPrograms(

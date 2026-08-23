@@ -2,7 +2,7 @@ import React from 'react';
 import { UserProfile } from '../types';
 import { triggerHaptic } from '../lib/telegramSDK';
 import { audioEngine } from '../lib/audioEngine';
-import { Wallet, Volume2, VolumeX, PlusCircle, Award, Sunset, Moon, Sun, ChevronDown, Sparkles, Check } from 'lucide-react';
+import { Wallet, Volume2, VolumeX, PlusCircle, Award, Sunset, Moon, Sun, ChevronDown, Sparkles, Check, Globe, Bot } from 'lucide-react';
 
 export type ThemeMode = 'dark' | 'golden' | 'light';
 
@@ -13,6 +13,8 @@ interface HeaderBarProps {
   onOpenDeposit: () => void;
   onOpenAuth?: () => void;
   language: 'en' | 'am';
+  onToggleLanguage?: () => void;
+  onOpenBot?: () => void;
   theme?: ThemeMode;
   onSelectTheme?: (theme: ThemeMode) => void;
 }
@@ -24,6 +26,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onOpenDeposit,
   onOpenAuth,
   language,
+  onToggleLanguage,
+  onOpenBot,
   theme = 'dark',
   onSelectTheme,
 }) => {
@@ -243,6 +247,36 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Language Toggle */}
+          {onToggleLanguage && (
+            <button
+              onClick={() => {
+                onToggleLanguage();
+                triggerHaptic('light');
+              }}
+              className="px-2 py-1.5 min-h-[36px] flex items-center gap-1 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 font-bold text-xs text-slate-200 transition shrink-0"
+              title="Toggle Language"
+            >
+              <Globe className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>{language === 'am' ? '🇪🇹' : '🇬🇧'}</span>
+            </button>
+          )}
+
+          {/* Telegram Bot Helper */}
+          {onOpenBot && (
+            <button
+              onClick={() => {
+                onOpenBot();
+                triggerHaptic('medium');
+              }}
+              className="p-1.5 sm:px-2.5 sm:py-1.5 min-h-[36px] flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:brightness-110 text-white font-bold text-xs transition shadow-sm shrink-0"
+              title="Open Telegram Bot"
+            >
+              <Bot className="w-4 h-4" />
+              <span className="hidden sm:inline">Bot</span>
+            </button>
+          )}
 
           {/* Sound Toggle */}
           <button
