@@ -30,6 +30,7 @@ import { JoinPrivateGroupModal } from './components/JoinPrivateGroupModal';
 import { PrivateGroupLobbyModal } from './components/PrivateGroupLobbyModal';
 import { TelegramBotModal } from './components/TelegramBotModal';
 import { RegistrationGateModal } from './components/RegistrationGateModal';
+import { TelegramPhoneVerificationModal } from './components/TelegramPhoneVerificationModal';
 import { Wrench } from 'lucide-react';
 import { getRemainingSeconds } from '@shared/bingoUtils';
 import { apiUrl, getSocketUrl } from '@shared/apiConfig';
@@ -95,6 +96,7 @@ export default function App() {
     localStorage.setItem('yabede_theme', newTheme);
   };
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
+  const [isPhoneVerificationOpen, setIsPhoneVerificationOpen] = useState<boolean>(false);
 
   // App Data States
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -443,6 +445,7 @@ export default function App() {
         registrationBonusCredit={registrationBonusCredit}
         onOpenDeposit={() => setActiveTab('wallet')}
         onOpenAuth={() => setIsAuthOpen(true)}
+        onOpenPhoneVerification={() => setIsPhoneVerificationOpen(true)}
         language={language}
         theme={theme}
         onSelectTheme={handleSelectTheme}
@@ -471,6 +474,7 @@ export default function App() {
             onJoinPrivateGroupCode={() => setIsJoinGroupCodeOpen(true)}
             onOpenPrivateGroupLobby={(grpId) => setActivePrivateGroupId(grpId)}
             onRefreshRooms={refreshRooms}
+            onOpenPhoneVerification={() => setIsPhoneVerificationOpen(true)}
             language={language}
             onlineUsersCount={onlineUsersCount}
             isLoggedIn={isLoggedIn}
@@ -577,6 +581,7 @@ export default function App() {
         onClose={() => setIsAuthOpen(false)}
         currentUser={currentUser}
         isLoggedIn={isLoggedIn}
+        onOpenPhoneVerification={() => setIsPhoneVerificationOpen(true)}
         onAuthSuccess={(user, token) => {
           setCurrentUser(user);
           setIsLoggedIn(true);
@@ -588,6 +593,18 @@ export default function App() {
           localStorage.removeItem('ahun_jwt_token');
           setCurrentUser(DEMO_USERS[0]);
         }}
+      />
+
+      {/* Telegram Phone Verification Modal */}
+      <TelegramPhoneVerificationModal
+        isOpen={isPhoneVerificationOpen}
+        onClose={() => setIsPhoneVerificationOpen(false)}
+        user={currentUser}
+        language={language}
+        onVerificationSuccess={(updatedUser) => {
+          setCurrentUser(updatedUser);
+        }}
+        onOpenBotSimulator={() => setIsBotOpen(true)}
       />
 
       <CreatePrivateGroupModal

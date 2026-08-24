@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   User,
   ShieldCheck,
+  Smartphone,
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -21,6 +22,7 @@ interface AuthModalProps {
   isLoggedIn?: boolean;
   onAuthSuccess: (user: UserProfile, token: string) => void;
   onLogout?: () => void;
+  onOpenPhoneVerification?: () => void;
   language?: 'en' | 'am';
 }
 
@@ -31,6 +33,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   isLoggedIn = false,
   onAuthSuccess,
   onLogout,
+  onOpenPhoneVerification,
   language = 'am',
 }) => {
   const [authLoading, setAuthLoading] = useState(false);
@@ -171,6 +174,56 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Phone Status & Verification Button */}
+              {currentUser.phone ? (
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        {language === 'am' ? 'የተረጋገጠ ስልክ ቁጥር' : 'Verified Phone Number'}
+                      </div>
+                      <div className="text-xs font-mono font-black text-emerald-300 truncate">
+                        {currentUser.phone}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-[9px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/40 shrink-0">
+                    {language === 'am' ? 'ተረጋግጧል' : 'Verified'}
+                  </span>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2.5">
+                  <div className="flex items-start gap-2.5">
+                    <Smartphone className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-black text-amber-300">
+                        {language === 'am' ? 'ስልክ ቁጥር አልተረጋገጠም (Unverified)' : 'Phone Number Not Verified'}
+                      </div>
+                      <div className="text-[11px] text-slate-300 mt-0.5 leading-snug">
+                        {language === 'am'
+                          ? 'ገንዘብ ወጪ ለማድረግ (Withdrawal) እና የኪስ ቦርሳዎን ደህንነት ለማረጋገጥ ስልክዎን ያረጋግጡ።'
+                          : 'Link your Telegram phone number to enable instant withdrawals and bonus claims.'}
+                      </div>
+                    </div>
+                  </div>
+                  {onOpenPhoneVerification && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('medium');
+                        onClose();
+                        onOpenPhoneVerification();
+                      }}
+                      className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20 transition cursor-pointer"
+                    >
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>{language === 'am' ? '📱 የቴሌግራም ስልክ ቁጥር አረጋግጥ' : '📱 Verify Telegram Phone Number'}</span>
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Close / Action button */}
               <button

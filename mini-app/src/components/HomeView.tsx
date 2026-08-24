@@ -15,6 +15,7 @@ import {
   ArrowRight,
   RefreshCw,
   Sparkles,
+  Smartphone,
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -27,6 +28,7 @@ interface HomeViewProps {
   onJoinPrivateGroupCode: () => void;
   onOpenPrivateGroupLobby: (groupId: string) => void;
   onRefreshRooms?: () => void;
+  onOpenPhoneVerification?: () => void;
   language: 'en' | 'am';
   onlineUsersCount?: number;
   isLoggedIn?: boolean;
@@ -41,7 +43,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onJoinPrivateGroupCode,
   onOpenPrivateGroupLobby,
   onRefreshRooms,
+  onOpenPhoneVerification,
   language,
+  onlineUsersCount = 1,
+  isLoggedIn = false,
 }) => {
   const [activeMode, setActiveMode] = useState<'public' | 'private'>('public');
   const [myPrivateGroups, setMyPrivateGroups] = useState<PrivateGroup[]>([]);
@@ -101,6 +106,41 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <div className="space-y-4 sm:space-y-6 pb-24 w-full min-w-0">
+      {/* Unverified Phone Verification Prompt Banner */}
+      {isLoggedIn && !user?.phone && onOpenPhoneVerification && (
+        <div className="bg-gradient-to-r from-amber-500/15 via-amber-500/20 to-orange-500/15 border border-amber-500/40 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-amber-500/5 animate-in fade-in duration-300">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+              <Smartphone className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs sm:text-sm font-black text-white flex items-center gap-2">
+                <span>{language === 'am' ? '📱 የቴሌግራም ስልክ ቁጥር ማረጋገጫ' : '📱 Telegram Phone Verification'}</span>
+                <span className="text-[10px] bg-amber-500/30 text-amber-300 font-bold px-1.5 py-0.5 rounded border border-amber-500/40">
+                  {language === 'am' ? 'አስፈላጊ' : 'Required'}
+                </span>
+              </h4>
+              <p className="text-[11px] sm:text-xs text-slate-300 mt-0.5">
+                {language === 'am'
+                  ? 'አሸናፊ ሲሆኑ ገንዘብዎን ወዲያውኑ ወጪ (Withdraw) ለማድረግ እና ቦነስ ለማግኘት ስልክዎን ያረጋግጡ።'
+                  : 'Verify your phone number via Telegram to enable instant withdrawals and bonus rewards.'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              triggerHaptic('medium');
+              onOpenPhoneVerification();
+            }}
+            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20 transition shrink-0 cursor-pointer"
+          >
+            <Smartphone className="w-4 h-4" />
+            <span>{language === 'am' ? 'አሁን አረጋግጥ (Verify)' : 'Verify Phone Now'}</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Mode Switcher: Public Rooms vs Private Group Bingo */}
       <div className="flex bg-slate-900 border border-slate-800 p-1 sm:p-1.5 rounded-2xl gap-1">
         <button

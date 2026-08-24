@@ -19,6 +19,7 @@ import {
   Info,
   RefreshCw,
   Image as ImageIcon,
+  Smartphone,
 } from 'lucide-react';
 
 interface WalletViewProps {
@@ -40,6 +41,7 @@ interface WalletViewProps {
     accountName: string;
     note?: string;
   }) => Promise<void>;
+  onOpenPhoneVerification?: () => void;
   language: 'en' | 'am';
 }
 
@@ -48,6 +50,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
   transactions,
   onDeposit,
   onWithdraw,
+  onOpenPhoneVerification,
   language,
 }) => {
   const [activeTab, setActiveTab] = useState<'deposit' | 'withdraw' | 'history'>('deposit');
@@ -638,6 +641,36 @@ export const WalletView: React.FC<WalletViewProps> = ({
       {/* TAB 2: WITHDRAWAL FLOW */}
       {activeTab === 'withdraw' && (
         <div className="space-y-6">
+          {/* Phone Verification Notice for Withdrawals */}
+          {!user.phone && onOpenPhoneVerification && (
+            <div className="bg-amber-500/15 border border-amber-500/40 text-amber-300 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+              <div className="flex items-start sm:items-center gap-3">
+                <Smartphone className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-black text-white text-xs sm:text-sm">
+                    {language === 'am' ? 'የስልክ ቁጥር ማረጋገጫ ያስፈልጋል' : 'Phone Verification Required'}
+                  </div>
+                  <div className="text-[11px] text-slate-300 mt-0.5">
+                    {language === 'am'
+                      ? 'ገንዘብ ወጪ ለማድረግ የቴሌግራም ስልክ ቁጥርዎን ማረጋገጥ አለብዎት።'
+                      : 'Please verify your Telegram phone number before requesting a withdrawal.'}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('medium');
+                  onOpenPhoneVerification();
+                }}
+                className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl flex items-center justify-center gap-1.5 shadow transition shrink-0 cursor-pointer"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>{language === 'am' ? '📱 ስልክ አረጋግጥ' : '📱 Verify Phone Now'}</span>
+              </button>
+            </div>
+          )}
+
           {withdrawSuccessMsg && (
             <div className="bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 p-4 rounded-2xl text-xs font-bold flex items-start gap-3 shadow-lg">
               <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />

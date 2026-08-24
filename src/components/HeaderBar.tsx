@@ -2,7 +2,7 @@ import React from 'react';
 import { UserProfile } from '../types';
 import { triggerHaptic } from '../lib/telegramSDK';
 import { audioEngine } from '../lib/audioEngine';
-import { Wallet, Volume2, VolumeX, PlusCircle, Sunset, Moon, Sun, Globe, User } from 'lucide-react';
+import { Wallet, Volume2, VolumeX, PlusCircle, Sunset, Moon, Sun, Globe, User, Smartphone, ShieldAlert } from 'lucide-react';
 
 export type ThemeMode = 'dark' | 'golden' | 'light';
 
@@ -12,6 +12,7 @@ interface HeaderBarProps {
   registrationBonusCredit?: number;
   onOpenDeposit: () => void;
   onOpenAuth?: () => void;
+  onOpenPhoneVerification?: () => void;
   language: 'en' | 'am';
   onToggleLanguage?: () => void;
   theme?: ThemeMode;
@@ -24,6 +25,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   registrationBonusCredit,
   onOpenDeposit,
   onOpenAuth,
+  onOpenPhoneVerification,
   language,
   onToggleLanguage,
   theme = 'dark',
@@ -95,6 +97,21 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               <Moon className="w-4 h-4 text-indigo-400 shrink-0" />
             )}
           </button>
+
+          {/* Phone Verification Warning / Action Button */}
+          {isLoggedIn && !user?.phone && onOpenPhoneVerification && (
+            <button
+              onClick={() => {
+                onOpenPhoneVerification();
+                triggerHaptic('medium');
+              }}
+              className="flex items-center gap-1 sm:gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/50 rounded-full px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-bold text-amber-300 shadow-sm transition animate-pulse min-h-[36px] cursor-pointer"
+              title={language === 'am' ? 'የቴሌግራም ስልክ ቁጥርዎን ያረጋግጡ' : 'Verify Telegram Phone Number'}
+            >
+              <Smartphone className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="truncate">{language === 'am' ? 'ስልክ አረጋግጥ' : 'Verify Phone'}</span>
+            </button>
+          )}
 
           {/* Wallet Balance Pill */}
           <div

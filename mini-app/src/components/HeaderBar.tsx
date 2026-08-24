@@ -2,7 +2,7 @@ import React from 'react';
 import { UserProfile } from '@shared/types';
 import { triggerHaptic } from '../lib/telegramSDK';
 import { audioEngine } from '../lib/audioEngine';
-import { Wallet, Volume2, VolumeX, PlusCircle, Award, Sunset, Moon, Sun, ChevronDown, Sparkles, Check, User } from 'lucide-react';
+import { Wallet, Volume2, VolumeX, PlusCircle, Award, Sunset, Moon, Sun, ChevronDown, Sparkles, Check, User, Smartphone } from 'lucide-react';
 
 export type ThemeMode = 'dark' | 'golden' | 'light';
 
@@ -12,6 +12,7 @@ interface HeaderBarProps {
   registrationBonusCredit?: number;
   onOpenDeposit: () => void;
   onOpenAuth?: () => void;
+  onOpenPhoneVerification?: () => void;
   language: 'en' | 'am';
   theme?: ThemeMode;
   onSelectTheme?: (theme: ThemeMode) => void;
@@ -23,6 +24,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   registrationBonusCredit,
   onOpenDeposit,
   onOpenAuth,
+  onOpenPhoneVerification,
   language,
   theme = 'dark',
   onSelectTheme,
@@ -167,6 +169,23 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           >
             {soundOn ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-500" />}
           </button>
+
+          {/* Phone Verification Warning / Action Button */}
+          {isLoggedIn && !user?.phone && onOpenPhoneVerification && (
+            <button
+              id="header-phone-verify-btn"
+              type="button"
+              onClick={() => {
+                onOpenPhoneVerification();
+                triggerHaptic('medium');
+              }}
+              className="flex items-center gap-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/50 rounded-xl px-2 py-1.5 text-[11px] font-bold text-amber-300 shadow-sm transition animate-pulse cursor-pointer"
+              title={language === 'am' ? 'የቴሌግራም ስልክ ቁጥርዎን ያረጋግጡ' : 'Verify Telegram Phone Number'}
+            >
+              <Smartphone className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="truncate hidden xs:inline">{language === 'am' ? 'ስልክ አረጋግጥ' : 'Verify Phone'}</span>
+            </button>
+          )}
 
           {/* Wallet Balance & Deposit CTA */}
           <div className="flex items-center bg-slate-950/80 border border-slate-800 rounded-xl p-1 pl-2 sm:pl-2.5 gap-1.5 sm:gap-2">

@@ -25,6 +25,7 @@ interface AuthModalProps {
   isLoggedIn?: boolean;
   onAuthSuccess: (user: UserProfile, token: string) => void;
   onLogout: () => void;
+  onOpenPhoneVerification?: () => void;
 }
 
 type AuthTab = 'login' | 'register' | 'forgot' | 'account';
@@ -36,6 +37,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   isLoggedIn = false,
   onAuthSuccess,
   onLogout,
+  onOpenPhoneVerification,
 }) => {
   const [activeTab, setActiveTab] = useState<AuthTab>(
     currentUser.phone ? 'account' : 'login'
@@ -597,6 +599,48 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Phone Verification Section */}
+                {currentUser.phone ? (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Verified Phone</div>
+                        <div className="text-xs font-mono font-bold text-emerald-300">{currentUser.phone}</div>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30">
+                      Verified
+                    </span>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <Smartphone className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="text-xs font-bold text-amber-300">Phone Verification Required</div>
+                        <p className="text-[11px] text-slate-300">
+                          Verify your phone number to enable instant withdrawals and claim bonuses.
+                        </p>
+                      </div>
+                    </div>
+                    {onOpenPhoneVerification && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic('medium');
+                          onClose();
+                          onOpenPhoneVerification();
+                        }}
+                        className="w-full py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-lg flex items-center justify-center gap-1.5 shadow"
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                        <span>Verify Telegram Phone Number</span>
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-3 text-center">
                   <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800">

@@ -1,18 +1,21 @@
 import React from 'react';
 import { UserProfile, ReferralStat } from '../types';
 import { triggerHaptic } from '../lib/telegramSDK';
-import { Users, Copy, Check } from 'lucide-react';
+import { Users, Copy, Check, Smartphone, ShieldCheck, ArrowRight } from 'lucide-react';
 
 interface BonusesViewProps {
   user: UserProfile;
   referralStat?: ReferralStat;
   onSpinWheel?: () => Promise<number>;
+  onOpenPhoneVerification?: () => void;
   language: 'en' | 'am';
 }
 
 export const BonusesView: React.FC<BonusesViewProps> = ({
   user,
   referralStat,
+  onOpenPhoneVerification,
+  language,
 }) => {
   const [copiedLink, setCopiedLink] = React.useState<boolean>(false);
 
@@ -27,6 +30,43 @@ export const BonusesView: React.FC<BonusesViewProps> = ({
 
   return (
     <div className="space-y-6 pb-24">
+      {/* Phone Verification Bonus Box */}
+      {!user.phone && onOpenPhoneVerification && (
+        <div className="bg-gradient-to-r from-amber-500/15 via-amber-500/20 to-orange-500/15 border border-amber-500/40 rounded-3xl p-5 sm:p-6 space-y-3 shadow-xl">
+          <div className="flex items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                <Smartphone className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white flex items-center gap-2">
+                  <span>{language === 'am' ? 'የስልክ ቁጥር ማረጋገጫ' : 'Phone Verification'}</span>
+                  <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-1.5 py-0.5 rounded border border-amber-500/30">
+                    {language === 'am' ? 'ያልተረጋገጠ' : 'Pending'}
+                  </span>
+                </h4>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  {language === 'am'
+                    ? 'ስልክዎን በቴሌግራም ያረጋግጡና የኪስ ቦርሳዎን ደህንነት ያጠናክሩ።'
+                    : 'Verify your phone number via Telegram to secure your wallet and withdrawals.'}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                triggerHaptic('medium');
+                onOpenPhoneVerification();
+              }}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition shrink-0 cursor-pointer"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>{language === 'am' ? 'አረጋግጥ' : 'Verify Now'}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* REFERRAL HUB */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
         <div className="flex items-center justify-between">
