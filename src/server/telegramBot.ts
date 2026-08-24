@@ -93,6 +93,7 @@ export interface BotSession {
 
 class TelegramBotManager {
   private sessions: Map<number, BotSession> = new Map();
+  public verifiedPhonesByTelegramId: Map<number, string> = new Map();
 
   public getSession(chatId: number): BotSession {
     if (!this.sessions.has(chatId)) {
@@ -425,6 +426,9 @@ class TelegramBotManager {
     const rawPhone = contact.phone_number;
     const normalized = db.normalizePhone(rawPhone);
 
+    // Cache verified phone by Telegram user ID for Mini App instant verification
+    this.verifiedPhonesByTelegramId.set(tgUser.id, normalized);
+
     const existingUserWithPhoneId = db.phoneToUserIndex.get(normalized);
     const currentExistingTgUser = db.getUserByTelegramId(tgUser.id);
     if (existingUserWithPhoneId && (!currentExistingTgUser || existingUserWithPhoneId !== currentExistingTgUser.id)) {
@@ -441,6 +445,28 @@ class TelegramBotManager {
           ],
         },
       };
+    }
+
+    // If this Telegram user is already an existing Ahun Bingo player, link the verified phone immediately!
+    if (currentExistingTgUser) {
+      try {
+        const updated = db.updateUserPhone(currentExistingTgUser.id, normalized);
+        db.saveUser(updated);
+        this.resetSession(chatId);
+        return {
+          chatId,
+          text: `🎉 <b>ስልክ ቁጥርዎ ተረጋግጧል! (Phone Verified)</b>\n\nየስልክ ቁጥር <b>${normalized}</b> ከAhun Bingo አካውንትዎ ጋር በተሳካ ሁኔታ ተገናኝቷል።\n\nአሁን የፈለጉትን ያህል መጫወት እና አሸናፊ ሲሆኑ ወዲያውኑ ወጪ (Withdraw) ማድረግ ይችላሉ!`,
+          parseMode: 'HTML',
+          replyMarkup: {
+            inline_keyboard: [
+              [{ text: '🎮 Open Ahun Bingo (መጫወቻውን ክፈት)', url: process.env.APP_URL || 'http://localhost:3000' }],
+              [{ text: '💰 My Wallet (የኪስ ቦርሳ)', callback_data: 'cmd_wallet' }],
+            ],
+          },
+        };
+      } catch (err: any) {
+        console.error('Error updating existing user phone from bot:', err);
+      }
     }
 
     const session = this.getSession(chatId);

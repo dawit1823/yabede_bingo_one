@@ -331,9 +331,15 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
         if (tgUser.username !== undefined) user.username = tgUser.username;
         if (tgUser.photo_url) user.photoUrl = tgUser.photo_url;
         if (!user.phone) {
-          const auth = db.phoneUserAuthMap.get(user.id);
-          if (auth?.phone) {
-            user.phone = auth.phone;
+          const cachedPhone = telegramBot.verifiedPhonesByTelegramId.get(Number(tgUser.id));
+          if (cachedPhone) {
+            user.phone = cachedPhone;
+            db.phoneToUserIndex.set(cachedPhone, user.id);
+          } else {
+            const auth = db.phoneUserAuthMap.get(user.id);
+            if (auth?.phone) {
+              user.phone = auth.phone;
+            }
           }
         }
         user.lastLogin = new Date().toISOString();
@@ -408,21 +414,35 @@ apiRouter.post('/auth/telegram-login', handleTelegramAuth);
 apiRouter.post('/auth/telegram-webapp-validate', handleTelegramAuth);
 
 // Link or verify phone number for Telegram user
-apiRouter.post(['/auth/link-phone', '/auth/telegram-phone'], async (req: Request, res: Response) => {
+apiRouter.post(['/auth/link-phone', '/auth/telegram-phone', '/auth/verify-telegram-contact'], async (req: Request, res: Response) => {
   try {
     const { userId, phone, initData } = req.body;
-    if (!phone) {
-      res.status(400).json({ success: false, error: 'Phone number is required' });
-      return;
+    let targetUserId = userId;
+    let targetPhone = phone;
+
+    // Check Authorization header token if available
+    if (!targetUserId && req.headers.authorization) {
+      try {
+        const token = req.headers.authorization.replace('Bearer ', '');
+        const decoded: any = jwt.verify(token, JWT_SECRET);
+        if (decoded?.userId) targetUserId = decoded.userId;
+      } catch (e) {}
     }
 
-    let targetUserId = userId;
     if (initData) {
       const verification = telegramBot.verifyInitData(initData);
       if (verification.valid && verification.user) {
         const tgUser = db.getUserByTelegramId(Number(verification.user.id));
         if (tgUser) targetUserId = tgUser.id;
+        if (!targetPhone && telegramBot.verifiedPhonesByTelegramId.has(Number(verification.user.id))) {
+          targetPhone = telegramBot.verifiedPhonesByTelegramId.get(Number(verification.user.id));
+        }
       }
+    }
+
+    if (!targetPhone) {
+      res.status(400).json({ success: false, error: 'Phone number is required for verification' });
+      return;
     }
 
     if (!targetUserId) {
@@ -430,17 +450,54 @@ apiRouter.post(['/auth/link-phone', '/auth/telegram-phone'], async (req: Request
       return;
     }
 
-    const updatedUser = db.updateUserPhone(targetUserId, phone);
+    const updatedUser = db.updateUserPhone(targetUserId, targetPhone);
     await userRepository.saveUser(updatedUser);
 
     res.json({
       success: true,
-      message: 'Phone number verified and saved successfully',
+      message: 'Phone number verified and linked successfully',
       user: updatedUser,
     });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message || 'Failed to update phone number' });
   }
+});
+
+// Check if user has a verified phone (used by Mini App polling during contact share)
+apiRouter.get('/auth/check-telegram-phone', (req: Request, res: Response) => {
+  const telegramIdStr = req.query.telegramId as string;
+  const userId = req.query.userId as string;
+
+  if (userId) {
+    const user = db.getUserById(userId);
+    if (user && user.phone) {
+      res.json({ success: true, verified: true, phone: user.phone, user });
+      return;
+    }
+  }
+
+  if (telegramIdStr) {
+    const tgId = Number(telegramIdStr);
+    const user = db.getUserByTelegramId(tgId);
+    if (user && user.phone) {
+      res.json({ success: true, verified: true, phone: user.phone, user });
+      return;
+    }
+
+    const cachedPhone = telegramBot.verifiedPhonesByTelegramId.get(tgId);
+    if (cachedPhone) {
+      if (user) {
+        const updated = db.updateUserPhone(user.id, cachedPhone);
+        userRepository.saveUser(updated).catch(console.error);
+        res.json({ success: true, verified: true, phone: cachedPhone, user: updated });
+        return;
+      }
+      res.json({ success: true, verified: true, phone: cachedPhone });
+      return;
+    }
+  }
+
+  res.json({ success: true, verified: false });
 });
 
 // Get tickets purchased by a specific user for a room or all active

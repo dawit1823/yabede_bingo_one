@@ -46,43 +46,128 @@ export const TelegramPhoneVerificationModal: React.FC<TelegramPhoneVerificationM
   const handleRequestTelegramContact = () => {
     const tg = getTelegramWebApp();
     triggerHaptic('medium');
+    setErrorMsg(null);
+    setSuccessMsg(null);
 
     if (tg && typeof (tg as any).requestContact === 'function') {
       try {
-        (tg as any).requestContact((shared: boolean) => {
+        setLoading(true);
+        (tg as any).requestContact(async (shared: boolean, result?: any) => {
           if (shared) {
             triggerNotificationHaptic('success');
             setSuccessMsg(
               language === 'am'
-                ? 'የስልክ ቁጥርዎ በቴሌግራም በኩል ተረጋግጧል!'
-                : 'Phone contact shared via Telegram!'
+                ? 'የስልክ ቁጥርዎ በቴሌግራም ተልኳል! በማረጋገጥ ላይ...'
+                : 'Telegram contact sent! Verifying...'
             );
-            // Refresh user session via auth endpoint
-            const initData = tg.initData;
-            fetch(apiUrl('/api/auth/telegram'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ initData }),
-            })
-              .then((res) => res.json())
-              .then((data) => {
+
+            // 1. If result contains phone number details directly, submit immediately
+            const potentialPhone =
+              result?.phone_number ||
+              result?.contact?.phone_number ||
+              (typeof result === 'string' && result.length >= 9 ? result : null);
+
+            if (potentialPhone) {
+              try {
+                const res = await fetch(apiUrl('/api/auth/link-phone'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    userId: user.id,
+                    phone: potentialPhone,
+                    initData: tg.initData || '',
+                  }),
+                });
+                const data = await res.json();
                 if (data.success && data.user) {
+                  triggerNotificationHaptic('success');
+                  setSuccessMsg(
+                    language === 'am'
+                      ? 'ስልክ ቁጥርዎ በተሳካ ሁኔታ ተረጋግጧል!'
+                      : 'Phone number verified and linked successfully!'
+                  );
                   onVerificationSuccess(data.user);
                   setTimeout(() => onClose(), 1200);
+                  setLoading(false);
+                  return;
                 }
-              })
-              .catch(console.error);
+              } catch (e) {
+                console.warn('Direct phone link error:', e);
+              }
+            }
+
+            // 2. Poll server for contact confirmation from Telegram bot update (up to 8 attempts)
+            let verified = false;
+            for (let i = 0; i < 8; i++) {
+              await new Promise((r) => setTimeout(r, 450));
+              try {
+                const checkRes = await fetch(
+                  apiUrl(`/api/auth/check-telegram-phone?userId=${user.id}&telegramId=${user.telegramId || ''}`)
+                );
+                const checkData = await checkRes.json();
+                if (checkData.success && checkData.verified && checkData.user) {
+                  verified = true;
+                  triggerNotificationHaptic('success');
+                  setSuccessMsg(
+                    language === 'am'
+                      ? 'ስልክ ቁጥርዎ በተሳካ ሁኔታ ተረጋግጧል!'
+                      : 'Phone number verified and linked successfully!'
+                  );
+                  onVerificationSuccess(checkData.user);
+                  setTimeout(() => onClose(), 1200);
+                  break;
+                }
+
+                // Also try validating initData
+                if (tg.initData) {
+                  const authRes = await fetch(apiUrl('/api/auth/telegram'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ initData: tg.initData }),
+                  });
+                  const authData = await authRes.json();
+                  if (authData.success && authData.user?.phone) {
+                    verified = true;
+                    triggerNotificationHaptic('success');
+                    setSuccessMsg(
+                      language === 'am'
+                        ? 'ስልክ ቁጥርዎ በተሳካ ሁኔታ ተረጋግጧል!'
+                        : 'Phone number verified and linked successfully!'
+                    );
+                    onVerificationSuccess(authData.user);
+                    setTimeout(() => onClose(), 1200);
+                    break;
+                  }
+                }
+              } catch (err) {
+                console.error('Polling error:', err);
+              }
+            }
+
+            setLoading(false);
+            if (!verified) {
+              // If webhook didn't complete automatic phone link, switch to direct confirmation
+              setActiveMode('manual');
+              setErrorMsg(
+                language === 'am'
+                  ? 'የቴሌግራም ስልክ ማጋራትዎ ተልኳል! ማረጋገጫውን ለማጠናቀቅ እባክዎ ቁጥርዎን ከታች ያረጋግጡ:'
+                  : 'Contact request acknowledged! Please confirm your phone number below to finish linking:'
+              );
+            }
           } else {
+            setLoading(false);
             setErrorMsg(
               language === 'am'
-                ? 'የስልክ ቁጥር ማጋራት አልተፈቀደም። እባክዎ በቦቱ በኩል ይሞክሩ።'
-                : 'Contact sharing was declined. Please try via the bot.'
+                ? 'የስልክ ቁጥር ማጋራት አልተፈቀደም። ከታች ባለው የስልክ ቁጥር ማስገቢያ መጠቀም ይችላሉ።'
+                : 'Contact sharing was declined. You can enter your number directly below.'
             );
+            setActiveMode('manual');
           }
         });
         return;
       } catch (err) {
         console.warn('requestContact failed, falling back to bot link:', err);
+        setLoading(false);
       }
     }
 
@@ -98,15 +183,21 @@ export const TelegramPhoneVerificationModal: React.FC<TelegramPhoneVerificationM
   // 2. Direct Phone Submission (with format normalization on server)
   const handleManualPhoneSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!phoneNumber.trim()) {
+    let cleaned = phoneNumber.trim().replace(/[\s\-\(\)]/g, '');
+    if (!cleaned) {
       setErrorMsg(language === 'am' ? 'እባክዎ ትክክለኛ ስልክ ቁጥር ያስገቡ' : 'Please enter a valid phone number');
       triggerNotificationHaptic('error');
       return;
     }
 
+    // Automatically handle missing leading 0 for 9-digit input (e.g. 911223344 -> 0911223344)
+    if ((cleaned.startsWith('9') || cleaned.startsWith('7')) && cleaned.length === 9) {
+      cleaned = '0' + cleaned;
+    }
+
     setLoading(true);
     setErrorMsg(null);
-    setErrorMsg(null);
+    setSuccessMsg(null);
 
     try {
       const initData = window.Telegram?.WebApp?.initData || '';
@@ -115,7 +206,7 @@ export const TelegramPhoneVerificationModal: React.FC<TelegramPhoneVerificationM
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: user.id,
-          phone: phoneNumber.trim(),
+          phone: cleaned,
           initData,
         }),
       });
