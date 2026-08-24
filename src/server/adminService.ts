@@ -781,6 +781,18 @@ export class AdminService {
       }
     }
 
+    if (parsedSettings.referralRewardBirr !== undefined) {
+      const refProg = this.bonusPrograms.find(
+        (p) => p.id === 'referral_bonus' || p.type === 'REFERRAL' || p.name === 'Friend Referral Reward'
+      );
+      if (refProg) {
+        refProg.amountBirr = Number(parsedSettings.referralRewardBirr);
+        firestoreGuard.safeWrite('settings', 'updateReferralBonusConfig', async () => {
+          await adminDb.collection('settings').doc('bonusConfigs').set({ programs: this.bonusPrograms });
+        });
+      }
+    }
+
     this.systemSettings = combined;
 
     // Record history
@@ -888,6 +900,16 @@ export class AdminService {
     if (regProg && typeof regProg.amountBirr === 'number') {
       this.systemSettings.welcomeBonusBirr = regProg.amountBirr;
       firestoreGuard.safeWrite('settings', 'syncPlatformConfigWelcomeBonus', async () => {
+        await adminDb.collection('settings').doc('platformConfig').set(this.systemSettings, { merge: true });
+      });
+    }
+
+    const refProg = programs.find(
+      (p) => p.id === 'referral_bonus' || p.type === 'REFERRAL' || p.name === 'Friend Referral Reward'
+    );
+    if (refProg && typeof refProg.amountBirr === 'number') {
+      this.systemSettings.referralRewardBirr = refProg.amountBirr;
+      firestoreGuard.safeWrite('settings', 'syncPlatformConfigReferralReward', async () => {
         await adminDb.collection('settings').doc('platformConfig').set(this.systemSettings, { merge: true });
       });
     }

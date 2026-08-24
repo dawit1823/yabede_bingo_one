@@ -66,7 +66,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
   // Deposit Form States
   const [depositAmount, setDepositAmount] = useState<number>(100);
   const [referenceCode, setReferenceCode] = useState<string>('');
-  const [mobileNumber, setMobileNumber] = useState<string>('');
+  const [mobileNumber, setMobileNumber] = useState<string>(user?.phone || '');
   const [depositNote, setDepositNote] = useState<string>('');
   const [screenshotUrl, setScreenshotUrl] = useState<string>('');
   const [screenshotFileName, setScreenshotFileName] = useState<string>('');
@@ -76,7 +76,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
 
   // Withdrawal Form States
   const [withdrawAmount, setWithdrawAmount] = useState<number>(200);
-  const [withdrawAccountNumber, setWithdrawAccountNumber] = useState<string>('');
+  const [withdrawAccountNumber, setWithdrawAccountNumber] = useState<string>(user?.phone || '');
   const [withdrawAccountName, setWithdrawAccountName] = useState<string>('');
   const [withdrawNote, setWithdrawNote] = useState<string>('');
   const [isSubmittingWithdraw, setIsSubmittingWithdraw] = useState<boolean>(false);
@@ -84,6 +84,14 @@ export const WalletView: React.FC<WalletViewProps> = ({
 
   // Copy state helper
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Auto-fill phone number when available
+  useEffect(() => {
+    if (user?.phone) {
+      setMobileNumber((prev) => (prev ? prev : user.phone || ''));
+      setWithdrawAccountNumber((prev) => (prev ? prev : user.phone || ''));
+    }
+  }, [user?.phone]);
 
   // Load Payment Methods & Deposit History
   const fetchPaymentMethods = async () => {
@@ -295,8 +303,41 @@ export const WalletView: React.FC<WalletViewProps> = ({
         </div>
       </div>
 
-      {/* Tabs Switcher */}
-      <div className="grid grid-cols-3 gap-1.5 sm:gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-800">
+      {/* If user is not verified, prompt them to verify phone first */}
+      {!user.phone ? (
+        <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/30 border border-amber-500/40 rounded-3xl p-6 text-center space-y-4 shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto shadow-inner">
+            <Smartphone className="w-8 h-8" />
+          </div>
+          <div>
+            <h3 className="text-lg font-black text-white">
+              {language === 'am' ? 'የስልክ ቁጥር ማረጋገጫ ያስፈልጋል' : 'Phone Verification Required'}
+            </h3>
+            <p className="text-xs text-slate-300 max-w-md mx-auto mt-2 leading-relaxed">
+              {language === 'am'
+                ? 'የኪስ ቦርሳ እና የባንክ አገልግሎት ለመጠቀም፣ ገንዘብ ገቢ (Deposit) እና ወጪ (Withdraw) ለማድረግ እባክዎ መጀመሪያ ስልክ ቁጥርዎን ያረጋግጡ።'
+                : 'To access Wallet & Banking services, make deposits, or request withdrawals, please verify your Ethiopian phone number first.'}
+            </p>
+          </div>
+
+          <div className="pt-2 flex flex-col sm:flex-row gap-3 justify-center max-w-xs mx-auto">
+            <button
+              onClick={() => {
+                triggerHaptic('medium');
+                onOpenPhoneVerification?.();
+              }}
+              className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 transition shadow-lg shadow-amber-500/25 cursor-pointer active:scale-95"
+            >
+              <Smartphone className="w-4 h-4" />
+              <span>{language === 'am' ? '📱 አሁን ስልክዎን ያረጋግጡ' : '📱 Verify Phone Number Now'}</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Tabs Switcher */}
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-800">
         <button
           onClick={() => {
             setActiveTab('deposit');
@@ -907,6 +948,8 @@ export const WalletView: React.FC<WalletViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

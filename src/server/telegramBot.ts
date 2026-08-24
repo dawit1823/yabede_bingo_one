@@ -618,27 +618,35 @@ class TelegramBotManager {
 
       // 6. Credit referral bonus to referrer if valid and newly attributed
       if (referredByUserId && (!existingUser || !existingUser.referredBy)) {
-        const refConfig = adminService.getReferralBonusConfig();
-        const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
-        const referrer = db.getUserById(referredByUserId);
-        if (referrer) {
-          referrer.referralCount = (referrer.referralCount || 0) + 1;
-          if (refBonus > 0) {
-            db.updateWalletBalance(
-              referredByUserId,
-              refBonus,
-              'REFERRAL_BONUS',
-              `Referral reward for inviting ${data.firstName || 'new player'}`
-            );
-            referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
-            db.addNotification({
-              userId: referredByUserId,
-              title: '🎉 Referral Bonus Received!',
-              message: `You earned ${refBonus} Birr for inviting ${data.firstName || 'a friend'}!`,
-              type: 'SYSTEM',
-            });
+        const refTxRef = `REFERRAL_JOIN_${uid}`;
+        const alreadyRewarded = db.transactions.some(
+          (tx) => tx.userId === referredByUserId && tx.type === 'REFERRAL_BONUS' && tx.reference === refTxRef
+        );
+
+        if (!alreadyRewarded) {
+          const refConfig = adminService.getReferralBonusConfig();
+          const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
+          const referrer = db.getUserById(referredByUserId);
+          if (referrer) {
+            referrer.referralCount = (referrer.referralCount || 0) + 1;
+            if (refBonus > 0) {
+              db.updateWalletBalance(
+                referredByUserId,
+                refBonus,
+                'REFERRAL_BONUS',
+                `Referral reward for inviting ${data.firstName || 'new player'}`,
+                refTxRef
+              );
+              referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
+              db.addNotification({
+                userId: referredByUserId,
+                title: '🎉 Referral Bonus Received!',
+                message: `You earned ${refBonus} Birr for inviting ${data.firstName || 'a friend'}!`,
+                type: 'SYSTEM',
+              });
+            }
+            db.saveUser(referrer);
           }
-          db.saveUser(referrer);
         }
       }
 

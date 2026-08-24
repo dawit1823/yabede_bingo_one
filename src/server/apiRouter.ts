@@ -687,6 +687,9 @@ apiRouter.get('/user/profile', (req: Request, res: Response) => {
     .filter((tx) => tx.userId === user.id && tx.type === 'REFERRAL_BONUS')
     .reduce((acc, curr) => acc + curr.amount, 0);
 
+  const refConfig = adminService.getReferralBonusConfig();
+  const refBonusAmount = refConfig.enabled ? refConfig.amountBirr : 0;
+
   res.json({
     user,
     referralStat: {
@@ -697,7 +700,7 @@ apiRouter.get('/user/profile', (req: Request, res: Response) => {
         userId: r.id,
         username: r.username,
         joinedAt: r.createdAt,
-        bonusEarned: 50,
+        bonusEarned: refBonusAmount,
       })),
     },
   });

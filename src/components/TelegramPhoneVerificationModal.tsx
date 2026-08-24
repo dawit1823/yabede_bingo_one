@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
-import { triggerHaptic, triggerNotificationHaptic, getTelegramWebApp } from '../lib/telegramSDK';
+import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
 import { apiUrl } from '../lib/apiConfig';
 import {
   Smartphone,
@@ -9,10 +9,6 @@ import {
   AlertCircle,
   Loader2,
   X,
-  Bot,
-  ExternalLink,
-  Lock,
-  ArrowRight,
 } from 'lucide-react';
 
 interface TelegramPhoneVerificationModalProps {
@@ -36,151 +32,10 @@ export const TelegramPhoneVerificationModal: React.FC<TelegramPhoneVerificationM
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [activeMode, setActiveMode] = useState<'telegram' | 'manual'>('telegram');
 
   if (!isOpen) return null;
 
-  const isTgMiniApp = typeof window !== 'undefined' && Boolean(window.Telegram?.WebApp?.initData);
-
-  // 1. Native Telegram Contact Request (for Mini Apps)
-  const handleRequestTelegramContact = () => {
-    const tg = getTelegramWebApp();
-    triggerHaptic('medium');
-    setErrorMsg(null);
-    setSuccessMsg(null);
-
-    if (tg && typeof (tg as any).requestContact === 'function') {
-      try {
-        setLoading(true);
-        (tg as any).requestContact(async (shared: boolean, result?: any) => {
-          if (shared) {
-            triggerNotificationHaptic('success');
-            setSuccessMsg(
-              language === 'am'
-                ? 'የስልክ ቁጥርዎ በቴሌግራም ተልኳል! በማረጋገጥ ላይ...'
-                : 'Telegram contact sent! Verifying...'
-            );
-
-            // 1. If result contains phone number details directly, submit immediately
-            const potentialPhone =
-              result?.phone_number ||
-              result?.contact?.phone_number ||
-              (typeof result === 'string' && result.length >= 9 ? result : null);
-
-            if (potentialPhone) {
-              try {
-                const res = await fetch(apiUrl('/api/auth/link-phone'), {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    userId: user.id,
-                    phone: potentialPhone,
-                    initData: tg.initData || '',
-                  }),
-                });
-                const data = await res.json();
-                if (data.success && data.user) {
-                  triggerNotificationHaptic('success');
-                  setSuccessMsg(
-                    language === 'am'
-                      ? 'ስልክ ቁጥርዎ በተሳካ ሁኔታ ተረጋግጧል!'
-                      : 'Phone number verified and linked successfully!'
-                  );
-                  onVerificationSuccess(data.user);
-                  setTimeout(() => onClose(), 1200);
-                  setLoading(false);
-                  return;
-                }
-              } catch (e) {
-                console.warn('Direct phone link error:', e);
-              }
-            }
-
-            // 2. Poll server for contact confirmation from Telegram bot update (up to 8 attempts)
-            let verified = false;
-            for (let i = 0; i < 8; i++) {
-              await new Promise((r) => setTimeout(r, 450));
-              try {
-                const checkRes = await fetch(
-                  apiUrl(`/api/auth/check-telegram-phone?userId=${user.id}&telegramId=${user.telegramId || ''}`)
-                );
-                const checkData = await checkRes.json();
-                if (checkData.success && checkData.verified && checkData.user) {
-                  verified = true;
-                  triggerNotificationHaptic('success');
-                  setSuccessMsg(
-                    language === 'am'
-                      ? 'ስልክ ቁጥርዎ በተሳካ ሁኔታ ተረጋግጧል!'
-                      : 'Phone number verified and linked successfully!'
-                  );
-                  onVerificationSuccess(checkData.user);
-                  setTimeout(() => onClose(), 1200);
-                  break;
-                }
-
-                // Also try validating initData
-                if (tg.initData) {
-                  const authRes = await fetch(apiUrl('/api/auth/telegram'), {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ initData: tg.initData }),
-                  });
-                  const authData = await authRes.json();
-                  if (authData.success && authData.user?.phone) {
-                    verified = true;
-                    triggerNotificationHaptic('success');
-                    setSuccessMsg(
-                      language === 'am'
-                        ? 'ስልክ ቁጥርዎ በተሳካ ሁኔታ ተረጋግጧል!'
-                        : 'Phone number verified and linked successfully!'
-                    );
-                    onVerificationSuccess(authData.user);
-                    setTimeout(() => onClose(), 1200);
-                    break;
-                  }
-                }
-              } catch (err) {
-                console.error('Polling error:', err);
-              }
-            }
-
-            setLoading(false);
-            if (!verified) {
-              // If webhook didn't complete automatic phone link, switch to direct confirmation
-              setActiveMode('manual');
-              setErrorMsg(
-                language === 'am'
-                  ? 'የቴሌግራም ስልክ ማጋራትዎ ተልኳል! ማረጋገጫውን ለማጠናቀቅ እባክዎ ቁጥርዎን ከታች ያረጋግጡ:'
-                  : 'Contact request acknowledged! Please confirm your phone number below to finish linking:'
-              );
-            }
-          } else {
-            setLoading(false);
-            setErrorMsg(
-              language === 'am'
-                ? 'የስልክ ቁጥር ማጋራት አልተፈቀደም። ከታች ባለው የስልክ ቁጥር ማስገቢያ መጠቀም ይችላሉ።'
-                : 'Contact sharing was declined. You can enter your number directly below.'
-            );
-            setActiveMode('manual');
-          }
-        });
-        return;
-      } catch (err) {
-        console.warn('requestContact failed, falling back to bot link:', err);
-        setLoading(false);
-      }
-    }
-
-    // Fallback: Open Telegram Bot start deep link
-    const botUrl = `https://t.me/yabede_bingo_bot?start=verify_phone`;
-    if (tg?.openTelegramLink) {
-      tg.openTelegramLink(botUrl);
-    } else {
-      window.open(botUrl, '_blank');
-    }
-  };
-
-  // 2. Direct Phone Submission (with format normalization on server)
+  // Direct Phone Submission (with format normalization on server)
   const handleManualPhoneSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     let cleaned = phoneNumber.trim().replace(/[\s\-\(\)]/g, '');
@@ -249,7 +104,7 @@ export const TelegramPhoneVerificationModal: React.FC<TelegramPhoneVerificationM
             </div>
             <div>
               <h3 className="font-black text-white text-sm">
-                {language === 'am' ? 'የቴሌግራም ስልክ ማረጋገጫ' : 'Telegram Phone Verification'}
+                {language === 'am' ? 'የስልክ ቁጥር ማረጋገጫ' : 'Phone Number Verification'}
               </h3>
               <p className="text-[10px] text-slate-400">
                 {language === 'am' ? 'የኢትዮጵያ ስልክ ቁጥር (+251)' : 'Ethiopian Phone Number (+251)'}
@@ -288,8 +143,8 @@ export const TelegramPhoneVerificationModal: React.FC<TelegramPhoneVerificationM
                   {language === 'am' ? 'ስልክ ቁጥር ማረጋገጥ ለምን አስፈለገ?' : 'Why verify your phone number?'}
                 </span>
                 {language === 'am'
-                  ? 'ገንዘብ ወጪ ለማድረግ (Withdrawal) እና የኪስ ቦርሳዎን ደህንነት ለመጠበቅ ስልክዎን በቴሌግራም ያረጋግጡ።'
-                  : 'Phone verification is required for instant withdrawals, security, and bonus attribution.'}
+                  ? 'ገንዘብ ወጪ ለማድረግ (Withdrawal) እና የኪስ ቦርሳዎን ደህንነት ለመጠበቅ ስልክዎን ያረጋግጡ።'
+                  : 'Phone verification is required for instant withdrawals, security, and banking access.'}
               </div>
             </div>
           )}
@@ -308,123 +163,46 @@ export const TelegramPhoneVerificationModal: React.FC<TelegramPhoneVerificationM
             </div>
           )}
 
-          {/* Mode Switcher */}
-          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
-            <button
-              onClick={() => {
-                setActiveMode('telegram');
-                triggerHaptic('light');
-              }}
-              className={`flex-1 py-2 rounded-lg transition flex items-center justify-center gap-1.5 ${
-                activeMode === 'telegram'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Bot className="w-3.5 h-3.5" />
-              <span>{language === 'am' ? 'በቴሌግራም አረጋግጥ' : 'Via Telegram'}</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveMode('manual');
-                triggerHaptic('light');
-              }}
-              className={`flex-1 py-2 rounded-lg transition flex items-center justify-center gap-1.5 ${
-                activeMode === 'manual'
-                  ? 'bg-amber-500 text-slate-950 font-black shadow'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span>{language === 'am' ? 'በስልክ ቁጥር' : 'Direct Number'}</span>
-            </button>
-          </div>
-
-          {activeMode === 'telegram' ? (
-            <div className="space-y-3 pt-1">
-              {/* Primary Telegram 1-Tap Button */}
-              <button
-                onClick={handleRequestTelegramContact}
-                className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-sky-500 via-sky-400 to-indigo-600 hover:brightness-110 active:scale-[0.98] text-white font-black text-xs flex items-center justify-center gap-2 transition shadow-lg shadow-sky-500/25 cursor-pointer"
-              >
-                <Bot className="w-4 h-4" />
-                <span>
-                  {language === 'am'
-                    ? '📱 የቴሌግራም ስልክ ቁጥር አጋራ (Share Contact)'
-                    : '📱 1-Tap Share Telegram Contact'}
+          <form onSubmit={handleManualPhoneSubmit} className="space-y-3 pt-1">
+            <div>
+              <label className="text-[11px] font-bold text-slate-300 block mb-1.5">
+                {language === 'am' ? 'የስልክ ቁጥርዎን ያስገቡ (ለምሳሌ 0911223344)' : 'Enter Ethiopian Phone Number (e.g. 0911223344):'}
+              </label>
+              <div className="relative">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-amber-400">
+                  +251
                 </span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-
-              {/* Open in Bot direct link */}
-              <a
-                href="https://t.me/yabede_bingo_bot?start=verify_phone"
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => triggerHaptic('light')}
-                className="w-full py-2.5 px-4 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition border border-slate-700 cursor-pointer"
-              >
-                <span>{language === 'am' ? '🤖 በቴሌግራም ቦት ክፈት (@yabede_bingo_bot)' : '🤖 Open in Bot (@yabede_bingo_bot)'}</span>
-                <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-              </a>
-
-              {/* Bot simulator button if running in browser */}
-              {!isTgMiniApp && onOpenBotSimulator && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    triggerHaptic('light');
-                    onClose();
-                    onOpenBotSimulator();
-                  }}
-                  className="w-full py-2 px-3 rounded-xl bg-slate-950 hover:bg-slate-800/80 text-amber-400 font-bold text-[11px] flex items-center justify-center gap-1.5 transition border border-amber-500/30"
-                >
-                  <span>🛠️ {language === 'am' ? 'በቦት ሲሙሌተር ሞክር' : 'Test with Bot Simulator'}</span>
-                </button>
-              )}
-            </div>
-          ) : (
-            <form onSubmit={handleManualPhoneSubmit} className="space-y-3 pt-1">
-              <div>
-                <label className="text-[11px] font-bold text-slate-300 block mb-1.5">
-                  {language === 'am' ? 'የስልክ ቁጥርዎን ያስገቡ (ለምሳሌ 0911223344)' : 'Enter Ethiopian Phone Number (e.g. 0911223344):'}
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-amber-400">
-                    +251
-                  </span>
-                  <input
-                    type="tel"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    placeholder="912345678 or 0912345678"
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-16 pr-3.5 py-2.5 text-xs text-white font-mono placeholder:text-slate-600 focus:outline-none transition"
-                  />
-                </div>
+                <input
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="912345678 or 0912345678"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl pl-16 pr-3.5 py-2.5 text-xs text-white font-mono placeholder:text-slate-600 focus:outline-none transition"
+                />
               </div>
+            </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 transition shadow-lg shadow-amber-500/20 disabled:opacity-50 cursor-pointer"
-              >
-                {loading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <ShieldCheck className="w-4 h-4" />
-                )}
-                <span>
-                  {loading
-                    ? language === 'am'
-                      ? 'በማረጋገጥ ላይ...'
-                      : 'Verifying...'
-                    : language === 'am'
-                    ? 'ስልክ ቁጥር አረጋግጥ እና መዝግብ'
-                    : 'Verify & Link Phone Number'}
-                </span>
-              </button>
-            </form>
-          )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 transition shadow-lg shadow-amber-500/20 disabled:opacity-50 cursor-pointer"
+            >
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ShieldCheck className="w-4 h-4" />
+              )}
+              <span>
+                {loading
+                  ? language === 'am'
+                    ? 'በማረጋገጥ ላይ...'
+                    : 'Verifying...'
+                  : language === 'am'
+                  ? 'ስልክ ቁጥር አረጋግጥ እና መዝግብ'
+                  : 'Verify & Link Phone Number'}
+              </span>
+            </button>
+          </form>
 
           {/* Close button */}
           <button

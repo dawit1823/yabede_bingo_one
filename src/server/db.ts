@@ -610,27 +610,35 @@ class FirestoreDatabaseStore {
     }
 
     if (referredByUserId) {
-      const refConfig = adminService.getReferralBonusConfig();
-      const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
-      const referrer = this.getUserById(referredByUserId);
-      if (referrer) {
-        referrer.referralCount = (referrer.referralCount || 0) + 1;
-        if (refBonus > 0) {
-          this.updateWalletBalance(
-            referredByUserId,
-            refBonus,
-            'REFERRAL_BONUS',
-            `Referral reward for inviting ${params.firstName || 'new player'}`
-          );
-          referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
-          this.addNotification({
-            userId: referredByUserId,
-            title: '🎉 Referral Bonus Received!',
-            message: `You earned ${refBonus} Birr for inviting ${params.firstName || 'a new friend'}!`,
-            type: 'SYSTEM',
-          });
+      const refTxRef = `REFERRAL_JOIN_${userId}`;
+      const alreadyRewarded = this.transactions.some(
+        (tx) => tx.userId === referredByUserId && tx.type === 'REFERRAL_BONUS' && tx.reference === refTxRef
+      );
+
+      if (!alreadyRewarded) {
+        const refConfig = adminService.getReferralBonusConfig();
+        const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
+        const referrer = this.getUserById(referredByUserId);
+        if (referrer) {
+          referrer.referralCount = (referrer.referralCount || 0) + 1;
+          if (refBonus > 0) {
+            this.updateWalletBalance(
+              referredByUserId,
+              refBonus,
+              'REFERRAL_BONUS',
+              `Referral reward for inviting ${params.firstName || 'new player'}`,
+              refTxRef
+            );
+            referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
+            this.addNotification({
+              userId: referredByUserId,
+              title: '🎉 Referral Bonus Received!',
+              message: `You earned ${refBonus} Birr for inviting ${params.firstName || 'a new friend'}!`,
+              type: 'SYSTEM',
+            });
+          }
+          this.saveUser(referrer);
         }
-        this.saveUser(referrer);
       }
     }
 
@@ -886,27 +894,35 @@ class FirestoreDatabaseStore {
 
     // Credit Referral Bonus to Referrer if valid
     if (referredByUserId) {
-      const refConfig = adminService.getReferralBonusConfig();
-      const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
-      const referrer = this.getUserById(referredByUserId);
-      if (referrer) {
-        referrer.referralCount = (referrer.referralCount || 0) + 1;
-        if (refBonus > 0) {
-          this.updateWalletBalance(
-            referredByUserId,
-            refBonus,
-            'REFERRAL_BONUS',
-            `Referral reward for inviting ${tgUser.first_name || 'new player'}`
-          );
-          referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
-          this.addNotification({
-            userId: referredByUserId,
-            title: '🎉 Referral Bonus Received!',
-            message: `You earned ${refBonus} Birr for inviting ${tgUser.first_name || 'a friend'}!`,
-            type: 'SYSTEM',
-          });
+      const refTxRef = `REFERRAL_JOIN_${newUserId}`;
+      const alreadyRewarded = this.transactions.some(
+        (tx) => tx.userId === referredByUserId && tx.type === 'REFERRAL_BONUS' && tx.reference === refTxRef
+      );
+
+      if (!alreadyRewarded) {
+        const refConfig = adminService.getReferralBonusConfig();
+        const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
+        const referrer = this.getUserById(referredByUserId);
+        if (referrer) {
+          referrer.referralCount = (referrer.referralCount || 0) + 1;
+          if (refBonus > 0) {
+            this.updateWalletBalance(
+              referredByUserId,
+              refBonus,
+              'REFERRAL_BONUS',
+              `Referral reward for inviting ${tgUser.first_name || 'new player'}`,
+              refTxRef
+            );
+            referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
+            this.addNotification({
+              userId: referredByUserId,
+              title: '🎉 Referral Bonus Received!',
+              message: `You earned ${refBonus} Birr for inviting ${tgUser.first_name || 'a friend'}!`,
+              type: 'SYSTEM',
+            });
+          }
+          this.saveUser(referrer);
         }
-        this.saveUser(referrer);
       }
     }
 
