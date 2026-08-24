@@ -345,14 +345,38 @@ class TelegramBotManager {
     // Existing Telegram ID Check
     const existingUser = db.getUserByTelegramId(tgUser.id);
     if (existingUser) {
+      if (!existingUser.phone) {
+        // User created via Mini App or WebApp but hasn't linked/verified phone yet!
+        const session = this.getSession(chatId);
+        const existingRef = session.pendingData?.referralCode;
+        session.state = 'AWAITING_CONTACT';
+        session.pendingData = {
+          telegramId: tgUser.id,
+          username: tgUser.username || existingUser.username,
+          firstName: tgUser.first_name || existingUser.firstName || 'Player',
+          lastName: tgUser.last_name || existingUser.lastName || '',
+          languageCode: tgUser.language_code || existingUser.language || 'en',
+          referralCode: existingRef || existingUser.referredBy,
+        };
+        return {
+          chatId,
+          text: `📱 <b>Link & Verify Your Phone Number</b>\n\nWelcome back <b>${existingUser.firstName}</b>! To complete your account registration and unlock full features, please tap the button below to share your verified phone number:`,
+          parseMode: 'HTML',
+          replyMarkup: {
+            keyboard: [[{ text: '📱 Share My Contact', request_contact: true }]],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          },
+        };
+      }
       return {
         chatId,
-        text: `⚠️ <b>You already have an account!</b>\n\nName: ${existingUser.firstName}\nPhone: ${existingUser.phone || 'Verified'}\nTelegram ID: ${tgUser.id}\n\nYou do not need to register again. You can log in or open the Mini App directly.`,
+        text: `⚠️ <b>You already have an active account!</b>\n\nName: <b>${existingUser.firstName}</b>\nPhone: <b>${existingUser.phone}</b>\nTelegram ID: <code>${tgUser.id}</code>\n\nYou do not need to register again. You can log in or open the Mini App directly.`,
         parseMode: 'HTML',
         replyMarkup: {
           inline_keyboard: [
             [{ text: '🎮 Open Mini App', url: process.env.APP_URL || 'http://localhost:3000' }],
-            [{ text: '🔑 Login', callback_data: 'cmd_login' }, { text: '🔑 Forgot Password', callback_data: 'cmd_forgot' }],
+            [{ text: '👤 View Profile', callback_data: 'cmd_profile' }, { text: '💳 Wallet', callback_data: 'cmd_wallet' }],
           ],
         },
       };
@@ -401,8 +425,9 @@ class TelegramBotManager {
     const rawPhone = contact.phone_number;
     const normalized = db.normalizePhone(rawPhone);
 
-    // Existing Phone Check
-    if (db.phoneToUserIndex.has(normalized)) {
+    const existingUserWithPhoneId = db.phoneToUserIndex.get(normalized);
+    const currentExistingTgUser = db.getUserByTelegramId(tgUser.id);
+    if (existingUserWithPhoneId && (!currentExistingTgUser || existingUserWithPhoneId !== currentExistingTgUser.id)) {
       this.resetSession(chatId);
       return {
         chatId,
@@ -454,8 +479,9 @@ class TelegramBotManager {
 
     try {
       const passwordHash = bcrypt.hashSync(data.pendingPassword, 10);
-      const uid = `usr_tg_${data.telegramId}`;
-      const userReferralCode = `REF${Math.floor(100000 + Math.random() * 900000)}`;
+      const existingUser = db.getUserByTelegramId(data.telegramId);
+      const uid = existingUser ? existingUser.id : `usr_tg_${data.telegramId}`;
+      const userReferralCode = existingUser?.referralCode || `REF${Math.floor(100000 + Math.random() * 900000)}`;
 
       // 1. Fetch dynamic bonus configurations from Admin Service
       const welcomeConfig = adminService.getWelcomeGiftConfig();
@@ -463,8 +489,8 @@ class TelegramBotManager {
       const dynamicBonus = adminService.getRegistrationBonusAmount();
 
       // Check referral and prevent self-referral
-      let referredByUserId: string | undefined = undefined;
-      if (data.referralCode) {
+      let referredByUserId: string | undefined = existingUser?.referredBy;
+      if (!referredByUserId && data.referralCode) {
         let cleanRef = data.referralCode.trim();
         if (cleanRef.startsWith('ref_')) {
           cleanRef = cleanRef.substring(4);
@@ -493,33 +519,49 @@ class TelegramBotManager {
         console.warn('Firebase Auth user creation note:', authErr.message || authErr);
       }
 
-      // 3. Create User Profile object
-      const userProfile: UserProfile = {
-        id: uid,
-        telegramId: data.telegramId,
-        phone: data.phoneNumber,
-        role: 'USER',
-        username: data.username || `user_${data.telegramId}`,
-        firstName: data.firstName || 'Player',
-        lastName: data.lastName || '',
-        photoUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${uid}`,
-        language: (data.languageCode === 'am' ? 'am' : 'en'),
-        referralCode: userReferralCode,
-        referredBy: referredByUserId,
-        referralCount: 0,
-        referralEarnings: 0,
-        walletBalance: welcomeGiftAmount,
-        bonusBalance: dynamicBonus,
-        vipLevel: 1,
-        status: 'ACTIVE',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        lastLogin: new Date().toISOString(),
-        totalWins: 0,
-        totalGamesPlayed: 0,
-        totalDeposited: 0,
-        totalWithdrawn: 0,
-      };
+      let userProfile: UserProfile;
+
+      if (existingUser) {
+        // Update existing user profile with phone and referral
+        existingUser.phone = data.phoneNumber;
+        existingUser.firstName = data.firstName || existingUser.firstName;
+        existingUser.lastName = data.lastName || existingUser.lastName;
+        existingUser.username = data.username || existingUser.username;
+        if (!existingUser.referredBy && referredByUserId) {
+          existingUser.referredBy = referredByUserId;
+        }
+        existingUser.updatedAt = new Date().toISOString();
+        existingUser.lastLogin = new Date().toISOString();
+        userProfile = existingUser;
+      } else {
+        // 3. Create User Profile object
+        userProfile = {
+          id: uid,
+          telegramId: data.telegramId,
+          phone: data.phoneNumber,
+          role: 'USER',
+          username: data.username || `user_${data.telegramId}`,
+          firstName: data.firstName || 'Player',
+          lastName: data.lastName || '',
+          photoUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${uid}`,
+          language: (data.languageCode === 'am' ? 'am' : 'en'),
+          referralCode: userReferralCode,
+          referredBy: referredByUserId,
+          referralCount: 0,
+          referralEarnings: 0,
+          walletBalance: welcomeGiftAmount,
+          bonusBalance: dynamicBonus,
+          vipLevel: 1,
+          status: 'ACTIVE',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          lastLogin: new Date().toISOString(),
+          totalWins: 0,
+          totalGamesPlayed: 0,
+          totalDeposited: 0,
+          totalWithdrawn: 0,
+        };
+      }
 
       // 4. Save to primary server database store first
       db.saveUser(userProfile);
@@ -533,8 +575,8 @@ class TelegramBotManager {
         activeSessions: [],
       });
 
-      // 5. Add welcome transaction if welcome gift is enabled
-      if (welcomeConfig.enabled && welcomeGiftAmount > 0) {
+      // 5. Add welcome transaction if welcome gift is enabled and it's a new user
+      if (!existingUser && welcomeConfig.enabled && welcomeGiftAmount > 0) {
         db.addTransaction({
           id: `tx_welcome_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
           userId: uid,
@@ -548,8 +590,8 @@ class TelegramBotManager {
         });
       }
 
-      // 6. Credit referral bonus to referrer if valid
-      if (referredByUserId) {
+      // 6. Credit referral bonus to referrer if valid and newly attributed
+      if (referredByUserId && (!existingUser || !existingUser.referredBy)) {
         const refConfig = adminService.getReferralBonusConfig();
         const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
         const referrer = db.getUserById(referredByUserId);
@@ -589,22 +631,22 @@ class TelegramBotManager {
             passwordHash,
             photoURL: userProfile.photoUrl,
             photoUrl: userProfile.photoUrl,
-            referredBy: referredByUserId || null,
-            referralCount: 0,
-            referralEarnings: 0,
-            walletBalance: welcomeGiftAmount,
-            bonusBalance: dynamicBonus,
+            referredBy: userProfile.referredBy || null,
+            referralCount: userProfile.referralCount || 0,
+            referralEarnings: userProfile.referralEarnings || 0,
+            walletBalance: userProfile.walletBalance,
+            bonusBalance: userProfile.bonusBalance,
             referralCode: userReferralCode,
-            status: 'ACTIVE',
+            status: userProfile.status || 'ACTIVE',
             createdAt: userProfile.createdAt,
             updatedAt: userProfile.updatedAt,
             lastLogin: userProfile.lastLogin,
           }, { merge: true }),
           adminDb.collection('wallets').doc(uid).set({
             userId: uid,
-            balance: welcomeGiftAmount,
-            bonusBalance: dynamicBonus,
-            createdAt: new Date().toISOString(),
+            balance: userProfile.walletBalance,
+            bonusBalance: userProfile.bonusBalance,
+            createdAt: userProfile.createdAt,
             updatedAt: new Date().toISOString(),
           }, { merge: true }),
           adminDb.collection('userAuth').doc(uid).set({
@@ -623,7 +665,7 @@ class TelegramBotManager {
       // Clear session
       this.resetSession(chatId);
 
-      const welcomeBonusText = welcomeGiftAmount > 0
+      const welcomeBonusText = (!existingUser && welcomeGiftAmount > 0)
         ? `\n🎁 <b>${welcomeGiftAmount} Birr Welcome Credit</b> has been credited to your wallet.\n`
         : '\n';
 

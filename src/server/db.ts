@@ -342,6 +342,10 @@ class FirestoreDatabaseStore {
               const norm = this.normalizePhone(authData.phone);
               this.phoneToUserIndex.set(norm, doc.id);
               this.phoneToUserIndex.set(authData.phone, doc.id);
+              const userRec = this.users.get(doc.id);
+              if (userRec && !userRec.phone) {
+                userRec.phone = norm;
+              }
             }
           });
         }

@@ -1321,12 +1321,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const filteredUsers = allUsersList.filter((u) => {
     if (userStatusFilter !== 'ALL' && u.status !== userStatusFilter) return false;
     if (userSearchQuery) {
-      const q = userSearchQuery.toLowerCase();
+      const q = userSearchQuery.toLowerCase().trim();
+      const phoneDigits = (u.phone || '').replace(/[^\d+]/g, '');
+      const qDigits = q.replace(/[^\d+]/g, '');
       return (
         (u.username || '').toLowerCase().includes(q) ||
         (u.firstName || '').toLowerCase().includes(q) ||
-        (u.phone || '').includes(q) ||
-        (u.id || '').includes(q)
+        (u.lastName || '').toLowerCase().includes(q) ||
+        (u.phone || '').toLowerCase().includes(q) ||
+        (phoneDigits && qDigits && phoneDigits.includes(qDigits)) ||
+        (u.referralCode || '').toLowerCase().includes(q) ||
+        (u.id || '').toLowerCase().includes(q)
       );
     }
     return true;
@@ -2071,7 +2076,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               </div>
                               <div className="text-[10px] text-slate-400">{usr.firstName} {usr.lastName || ''}</div>
                             </td>
-                            <td className="p-3 font-mono">{usr.phone || 'N/A'}</td>
+                            <td className="p-3 font-mono">
+                              {usr.phone ? (
+                                <span className="text-white font-medium">{usr.phone}</span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-bold">
+                                  Pending Verification
+                                </span>
+                              )}
+                            </td>
                             <td className="p-3 font-bold text-emerald-400">{usr.walletBalance} Birr</td>
                             <td className="p-3 font-bold text-amber-400">{usr.bonusBalance} Birr</td>
                             <td className="p-3 font-mono text-[11px]">{usr.totalGamesPlayed || 0} / <span className="text-amber-400 font-bold">{usr.totalWins || 0}</span></td>
@@ -4526,7 +4539,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
               <div>
                 <h3 className="text-base font-black text-white">@{selectedUserDetail.user.username}</h3>
-                <p className="text-xs text-slate-400">{selectedUserDetail.user.firstName} {selectedUserDetail.user.lastName || ''} • Phone: {selectedUserDetail.user.phone || 'N/A'}</p>
+                <p className="text-xs text-slate-400">
+                  {selectedUserDetail.user.firstName} {selectedUserDetail.user.lastName || ''} • Phone: {selectedUserDetail.user.phone || 'Pending Verification'}
+                </p>
               </div>
             </div>
 
@@ -4583,7 +4598,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 space-y-1">
                   <div>Status: <strong className="text-amber-400">{selectedUserDetail.user.status}</strong></div>
                   <div>Role: <strong className="text-slate-200">{selectedUserDetail.user.role || 'USER'}</strong></div>
+                  <div>Phone: <strong className="text-white font-mono">{selectedUserDetail.user.phone || 'Pending Verification'}</strong></div>
+                  <div>Telegram ID: <strong className="text-sky-400 font-mono">{selectedUserDetail.user.telegramId || 'None'}</strong></div>
                   <div>Referral Code: <strong className="text-indigo-400 font-mono">{selectedUserDetail.user.referralCode}</strong></div>
+                  <div>Referred By: <strong className="text-slate-300 font-mono">{selectedUserDetail.user.referredBy || 'None (Direct)'}</strong></div>
+                  <div>Referral Invites: <strong className="text-emerald-400 font-bold">{selectedUserDetail.referralsCount ?? selectedUserDetail.user.referralCount ?? 0}</strong></div>
+                  <div>Referral Earnings: <strong className="text-amber-400 font-bold">{selectedUserDetail.user.referralEarnings || 0} Birr</strong></div>
                   <div>Joined: {new Date(selectedUserDetail.user.createdAt).toLocaleString()}</div>
                 </div>
 

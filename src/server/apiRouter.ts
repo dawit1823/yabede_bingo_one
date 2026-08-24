@@ -330,6 +330,12 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
         if (tgUser.last_name !== undefined) user.lastName = tgUser.last_name;
         if (tgUser.username !== undefined) user.username = tgUser.username;
         if (tgUser.photo_url) user.photoUrl = tgUser.photo_url;
+        if (!user.phone) {
+          const auth = db.phoneUserAuthMap.get(user.id);
+          if (auth?.phone) {
+            user.phone = auth.phone;
+          }
+        }
         user.lastLogin = new Date().toISOString();
         db.saveUser(user);
         await userRepository.saveUser(user);

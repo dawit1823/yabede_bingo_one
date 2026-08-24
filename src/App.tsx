@@ -157,15 +157,23 @@ export default function App() {
   useEffect(() => {
     initTelegramApp();
 
-    // Retrieve real Telegram initData string
+    // Retrieve real Telegram initData string and start parameters
     const initData = window.Telegram?.WebApp?.initData || '';
+    const urlParams = new URLSearchParams(window.location.search);
+    const startParam =
+      window.Telegram?.WebApp?.initDataUnsafe?.start_param ||
+      urlParams.get('startapp') ||
+      urlParams.get('tgWebAppStartParam') ||
+      urlParams.get('ref') ||
+      urlParams.get('start') ||
+      '';
 
     if (initData) {
       // Send real Telegram initData to backend for HMAC verification & auto-registration
       fetch(apiUrl('/api/auth/telegram'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData }),
+        body: JSON.stringify({ initData, referralCode: startParam || undefined }),
       })
         .then(async (res) => {
           const data = await res.json();
@@ -193,23 +201,20 @@ export default function App() {
     }
 
     // Check Telegram Start Param for Group Invite (e.g. startapp=group_YABEDE77)
-    if (window.Telegram?.WebApp?.initDataUnsafe?.start_param) {
-      const param = window.Telegram.WebApp.initDataUnsafe.start_param;
-      if (param.startsWith('group_')) {
-        const code = param.replace('group_', '').toUpperCase();
-        fetch(apiUrl('/api/private-groups/join-code'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, userId: currentUser.id }),
+    if (startParam && startParam.startsWith('group_')) {
+      const code = startParam.replace('group_', '').toUpperCase();
+      fetch(apiUrl('/api/private-groups/join-code'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, userId: currentUser.id }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.group) {
+            setActivePrivateGroupId(data.group.id);
+          }
         })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data.success && data.group) {
-              setActivePrivateGroupId(data.group.id);
-            }
-          })
-          .catch(console.error);
-      }
+        .catch(console.error);
     }
   }, []);
 
