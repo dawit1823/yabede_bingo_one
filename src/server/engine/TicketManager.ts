@@ -235,7 +235,7 @@ export class TicketManager {
 
     const sysSettings = adminService.getSystemSettings();
     const platformFeePct = sysSettings.platformFeePercent ?? 20;
-    const prizePct = sysSettings.prizePercentage ?? 80;
+    const prizePct = sysSettings.prizePercentage ?? (100 - platformFeePct);
 
     if (existingTicket) {
       // --- REFUND / DESELECT ---

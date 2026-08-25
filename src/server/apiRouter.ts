@@ -6,10 +6,11 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { db } from './db.js';
+import { db, generateGameReferenceId } from './db.js';
 import { adminDb } from './firebaseAdmin.js';
 import { userRepository } from './repositories/UserRepository.js';
 import { gameEngine } from './engine/GameEngine.js';
+import { ballDrawer } from './engine/BallDrawer.js';
 
 const JWT_SECRET = 'yabede_bingo_super_secret_jwt_key_2026';
 import { generateCardMatrixByNumber } from '../lib/bingoUtils.js';
@@ -1340,30 +1341,55 @@ apiRouter.post('/admin/rooms/create', (req: Request, res: Response) => {
     return;
   }
 
+  const settings = adminService.getSystemSettings();
+  const countdownSec = settings.countdownDurationSeconds || 45;
+  const nowMs = Date.now();
+  const startTime = new Date(nowMs).toISOString();
+  const endTime = new Date(nowMs + countdownSec * 1000).toISOString();
+
   const roomId = `room_${ticketPrice}_${Date.now()}`;
+  const gameRef = generateGameReferenceId(Number(ticketPrice), roomId);
   const room: BingoRoom = {
     id: roomId,
+    gameReferenceId: gameRef,
     name,
     description: description || `${name} Arena • ${ticketPrice} Birr Ticket`,
     icon: icon || '🟡',
     ticketPrice: Number(ticketPrice),
-    minPlayers: Number(minPlayers) || 2,
+    minPlayers: Number(minPlayers) || 1,
     maxPlayers: Number(maxPlayers) || 400,
     status: 'WAITING',
     currentBall: null,
     drawnBalls: [],
     winningPatterns: winningPatterns || ['ONE_LINE', 'TWO_LINES', 'FOUR_CORNERS', 'FULL_HOUSE'],
     prizePool: 0,
-    countdownSeconds: 45,
+    platformFee: 0,
+    countdownSeconds: countdownSec,
     activePlayersCount: 0,
     ticketsSold: 0,
-    createdAt: new Date().toISOString(),
+    lastWinners: [],
+    createdAt: startTime,
+    startedAt: startTime,
+    endsAt: endTime,
   };
 
   db.rooms.set(roomId, room);
   firestoreGuard.safeWrite('rooms', 'createRoom', async () => {
     await adminDb.collection('rooms').doc(roomId).set(room);
   });
+
+  const io = getIO();
+  if (io) {
+    io.emit('room:updated', { room });
+    io.emit('rooms:updated', { rooms: Array.from(db.rooms.values()) });
+    io.emit('room:countdown', {
+      roomId: room.id,
+      countdownSeconds: countdownSec,
+      status: 'WAITING',
+      startedAt: startTime,
+      endsAt: endTime,
+    });
+  }
 
   db.logAudit(adminId, 'CREATE_ROOM', roomId, `Created new room ${name} with ticket price ${ticketPrice}`, 'New Arena', clientIp);
   res.json({ success: true, room });
@@ -1384,7 +1410,13 @@ apiRouter.post('/admin/rooms/update', (req: Request, res: Response) => {
   if (ticketPrice) room.ticketPrice = Number(ticketPrice);
   if (minPlayers) room.minPlayers = Number(minPlayers);
   if (maxPlayers) room.maxPlayers = Number(maxPlayers);
-  if (countdownSeconds) room.countdownSeconds = Number(countdownSeconds);
+  if (countdownSeconds) {
+    const sec = Number(countdownSeconds);
+    room.countdownSeconds = sec;
+    const nowMs = Date.now();
+    room.startedAt = new Date(nowMs).toISOString();
+    room.endsAt = new Date(nowMs + sec * 1000).toISOString();
+  }
 
   db.rooms.set(roomId, room);
   firestoreGuard.safeWrite('rooms', 'updateRoom', async () => {
@@ -1426,9 +1458,12 @@ apiRouter.post('/admin/games/action', async (req: Request, res: Response) => {
       }
 
       if (action === 'RESTART_COUNTDOWN') {
+        const settings = adminService.getSystemSettings();
+        const countdownSec = settings.countdownDurationSeconds || 45;
         const restartNow = new Date();
-        const restartEnd = new Date(restartNow.getTime() + 45000);
-        room.countdownSeconds = 45;
+        const restartEnd = new Date(restartNow.getTime() + countdownSec * 1000);
+        ballDrawer.stopBallDrawCycle(gameId);
+        room.countdownSeconds = countdownSec;
         room.status = 'WAITING';
         room.startedAt = restartNow.toISOString();
         room.endsAt = restartEnd.toISOString();
@@ -1437,7 +1472,7 @@ apiRouter.post('/admin/games/action', async (req: Request, res: Response) => {
         firestoreGuard.safeWrite('rooms', 'restartCountdown', async () => {
           await adminDb.collection('rooms').doc(gameId).update({
             status: 'WAITING',
-            countdownSeconds: 45,
+            countdownSeconds: countdownSec,
             startedAt: room.startedAt,
             endsAt: room.endsAt,
             updatedAt: restartNow.toISOString(),
@@ -1448,12 +1483,20 @@ apiRouter.post('/admin/games/action', async (req: Request, res: Response) => {
         if (io) {
           io.emit('room:updated', { room });
           io.emit('rooms:updated', { rooms: Array.from(db.rooms.values()) });
+          io.emit('room:countdown', {
+            roomId: room.id,
+            countdownSeconds: countdownSec,
+            status: 'WAITING',
+            startedAt: room.startedAt,
+            endsAt: room.endsAt,
+          });
         }
 
         db.logAudit(adminId, 'RESTART_COUNTDOWN', gameId, `Restarted countdown for ${room.name}`, 'Manual Restart', clientIp);
         res.json({ success: true, room });
         return;
       } else if (action === 'CANCEL') {
+        ballDrawer.stopBallDrawCycle(gameId);
         room.status = 'FINISHED';
         room.currentBall = null;
         room.drawnBalls = [];

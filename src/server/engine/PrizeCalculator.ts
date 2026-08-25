@@ -139,14 +139,14 @@ export class PrizeCalculator {
       return { calculatedWinners: [], transactions: [] };
     }
 
-    // 3. Authoritative financial calculation (80% Prize Pool, 20% Platform Fee)
+    // 3. Authoritative financial calculation (Winner Prize Pool = Total Sales - Platform Rake Fee)
     const sysSettings = adminService.getSystemSettings();
-    const prizePct = sysSettings.prizePercentage ?? 80;
     const platformFeePct = sysSettings.platformFeePercent ?? 20;
+    const prizePct = sysSettings.prizePercentage ?? (100 - platformFeePct);
 
     const totalTicketSales = ticketsSold * room.ticketPrice;
-    const finalPrizePool = Math.round(totalTicketSales * (prizePct / 100));
     const finalPlatformFee = Math.round(totalTicketSales * (platformFeePct / 100));
+    const finalPrizePool = Math.max(0, totalTicketSales - finalPlatformFee);
     const prizePerWinner = Math.max(0, Math.floor(finalPrizePool / validWinners.length));
 
     // If prize per winner is 0 (e.g. 0 Birr pool)

@@ -167,10 +167,13 @@ export class BallDrawer {
   /**
    * Resets room data and automatically creates the next game round.
    */
-  public async resetAndCreateNextGame(room: BingoRoom): Promise<void> {
-    if (room.status === 'RESETTING' || room.status === 'WAITING' || room.status === 'COUNTDOWN') {
+  public async resetAndCreateNextGame(room: BingoRoom, force: boolean = false): Promise<void> {
+    if (!force && (room.status === 'RESETTING' || room.status === 'WAITING' || room.status === 'COUNTDOWN')) {
       return;
     }
+
+    // Always stop any running ball draw cycle for this room
+    this.stopBallDrawCycle(room.id);
 
     logger.info(`[GAME] Resetting game round room=${room.id} prevGameRef=${room.gameReferenceId}`);
 
@@ -203,6 +206,7 @@ export class BallDrawer {
 
     const io = webSocketGateway.getIO();
     if (io) {
+      io.emit('rooms:updated', { rooms: Array.from(db.rooms.values()) });
       io.to(room.id).emit('room:snapshot', {
         room,
         tickets: [],

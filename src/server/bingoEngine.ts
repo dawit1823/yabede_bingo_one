@@ -10,6 +10,9 @@ import { adminService } from './adminService.js';
 import { logger } from './logger.js';
 import { firestoreGuard } from './firestoreGuard.js';
 import { ticketManager } from './engine/TicketManager.js';
+import { ballDrawer } from './engine/BallDrawer.js';
+import { webSocketGateway } from './engine/WebSocketGateway.js';
+import { getIO } from './socketHandler.js';
 import { BingoRoom, BingoTicket, GameWinner, WinningPattern, WalletTransaction } from '../types.js';
 import { generateCardMatrixByNumber } from '../lib/bingoUtils.js';
 
@@ -236,14 +239,11 @@ export function processBingoClaim(
   }
 
   const sysSettings = adminService.getSystemSettings();
-  const prizePct = sysSettings.prizePercentage ?? 80;
+  const platformFeePct = sysSettings.platformFeePercent ?? 20;
+  const prizePct = sysSettings.prizePercentage ?? (100 - platformFeePct);
   const totalPrizePool = Math.round(totalTicketSales * (prizePct / 100));
 
-  let prizeShare = Math.round(totalPrizePool * 0.5); // Default 50% for 1st pattern
-  if (matchedPattern === 'FULL_HOUSE') {
-    prizeShare = totalPrizePool;
-  }
-  prizeShare = Math.max(1, prizeShare);
+  const prizeShare = Math.max(1, totalPrizePool);
 
   ticket.status = 'BINGO_CLAIMED';
 
@@ -320,11 +320,12 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
     return { winners: [], room };
   }
 
-  // Formula: Prize Pool = (Total Value of All Confirmed Tickets Sold) × 80%
+  // Formula: Prize Pool = (Total Value of All Confirmed Tickets Sold) × (Winner Prize Share %)
   const ticketsSold = roomTickets.length;
   const totalTicketSales = ticketsSold * room.ticketPrice;
   const sysSettings = adminService.getSystemSettings();
-  const prizePct = sysSettings.prizePercentage ?? 80;
+  const platformFeePct = sysSettings.platformFeePercent ?? 20;
+  const prizePct = sysSettings.prizePercentage ?? (100 - platformFeePct);
   const totalPrizePool = Math.round(totalTicketSales * (prizePct / 100));
 
   if (totalPrizePool <= 0) {
@@ -418,8 +419,20 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
 export async function clearAndResetAllBingoGames(): Promise<BingoRoom[]> {
   logger.info('[BingoEngine] Resetting active Bingo game rounds...');
 
-  // 1. Reset in-memory tickets and reservations for all official rooms
+  const settings = adminService.getSystemSettings();
+  const countdownSec = settings.countdownDurationSeconds || 45;
+  const nowMs = Date.now();
+  const startTime = new Date(nowMs).toISOString();
+  const endTime = new Date(nowMs + countdownSec * 1000).toISOString();
+
+  // 1. Stop all active ball draw cycles and wipe reservations/tickets
+  const allCurrentRooms = Array.from(db.rooms.values());
+  for (const r of allCurrentRooms) {
+    ballDrawer.stopBallDrawCycle(r.id);
+  }
+
   for (const template of OFFICIAL_ROOMS) {
+    ballDrawer.stopBallDrawCycle(template.id);
     await ticketManager.clearTicketsForRoom(template.id);
   }
 
@@ -434,15 +447,41 @@ export async function clearAndResetAllBingoGames(): Promise<BingoRoom[]> {
       currentBall: null,
       drawnBalls: [],
       prizePool: 0,
-      countdownSeconds: 45,
+      platformFee: 0,
+      countdownSeconds: countdownSec,
       activePlayersCount: 0,
       ticketsSold: 0,
       lastWinners: [],
-      createdAt: new Date().toISOString(),
+      createdAt: startTime,
+      startedAt: startTime,
+      endsAt: endTime,
     };
 
     db.rooms.set(room.id, room);
     resetRooms.push(room);
+
+    webSocketGateway.broadcastGameReset(room.id, room);
+    webSocketGateway.broadcastRoomUpdate(room);
+    webSocketGateway.broadcastCountdown(room.id, countdownSec, 'WAITING', startTime, endTime);
+  }
+
+  const io = webSocketGateway.getIO() || getIO();
+  if (io) {
+    io.emit('rooms:updated', { rooms: resetRooms });
+    for (const room of resetRooms) {
+      io.to(room.id).emit('room:snapshot', {
+        room,
+        tickets: [],
+        reservations: {},
+        messages: db.chatMessages.get(room.id) || [],
+      });
+      io.to(room.id).emit('card:updated', {
+        roomId: room.id,
+        action: 'RESET_ALL',
+        reservations: {},
+        room,
+      });
+    }
   }
 
   logger.info('[BingoEngine] Active Bingo game rounds reset successfully.');

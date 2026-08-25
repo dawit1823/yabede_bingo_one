@@ -38,8 +38,9 @@ export class WebSocketGateway {
     endsAt?: string
   ): void {
     if (!ioInstance) return;
-    ioInstance.emit('room:countdown', { roomId, seconds, status, startedAt, endsAt });
-    ioInstance.to(roomId).emit('room:countdown', { roomId, seconds, status, startedAt, endsAt });
+    const payload = { roomId, seconds, countdownSeconds: seconds, status, startedAt, endsAt };
+    ioInstance.emit('room:countdown', payload);
+    ioInstance.to(roomId).emit('room:countdown', payload);
   }
 
   /**

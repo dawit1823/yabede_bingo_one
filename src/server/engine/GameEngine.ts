@@ -83,7 +83,7 @@ export class GameEngine {
     const rooms = this.rooms.getAllRooms();
     for (const room of rooms) {
       this.ballDrawer.stopBallDrawCycle(room.id);
-      await this.ballDrawer.resetAndCreateNextGame(room);
+      await this.ballDrawer.resetAndCreateNextGame(room, true);
     }
   }
 }

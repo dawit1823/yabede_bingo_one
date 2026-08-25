@@ -583,18 +583,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     const onRoomCountdown = (data: {
       roomId: string;
-      seconds: number;
+      seconds?: number;
+      countdownSeconds?: number;
       status: string;
       startedAt?: string;
       endsAt?: string;
     }) => {
       if (data?.roomId) {
+        const sec = typeof data.countdownSeconds === 'number' ? data.countdownSeconds : (data.seconds ?? 0);
         setStandardRooms((prev) =>
           prev.map((r) =>
             r.id === data.roomId
               ? {
                   ...r,
-                  countdownSeconds: data.seconds,
+                  countdownSeconds: sec,
                   status: (data.status as any) || r.status,
                   startedAt: data.startedAt || r.startedAt,
                   endsAt: data.endsAt || r.endsAt,

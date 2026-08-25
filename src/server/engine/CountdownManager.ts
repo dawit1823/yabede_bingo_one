@@ -28,14 +28,19 @@ export class CountdownManager {
         // --- 1. HANDLE RESULT SCREEN COUNTDOWN (FINISHED) ---
         if (room.status === 'FINISHED') {
           const now = Date.now();
-          const endsAtMs = room.endsAt ? new Date(room.endsAt).getTime() : now;
+          if (!room.startedAt || !room.endsAt) {
+            room.startedAt = new Date(now).toISOString();
+            room.endsAt = new Date(now + resultDurationSec * 1000).toISOString();
+            room.countdownSeconds = resultDurationSec;
+          }
+          const endsAtMs = new Date(room.endsAt).getTime();
           const remainingSeconds = Math.max(0, Math.ceil((endsAtMs - now) / 1000));
 
           room.countdownSeconds = remainingSeconds;
 
           if (remainingSeconds <= 0) {
             logger.info(`[RESULT SCREEN END] room=${room.id} - resetting and transitioning to next round`);
-            await ballDrawer.resetAndCreateNextGame(room);
+            await ballDrawer.resetAndCreateNextGame(room, true);
           } else {
             // Broadcast live 1s result screen ticker to clients (zero Firestore writes)
             webSocketGateway.broadcastCountdown(
@@ -55,7 +60,13 @@ export class CountdownManager {
         }
 
         const now = Date.now();
-        const endsAtMs = room.endsAt ? new Date(room.endsAt).getTime() : now + defaultDurationMs;
+        if (!room.startedAt || !room.endsAt) {
+          room.startedAt = new Date(now).toISOString();
+          room.endsAt = new Date(now + defaultDurationMs).toISOString();
+          room.countdownSeconds = defaultDurationSec;
+        }
+
+        const endsAtMs = new Date(room.endsAt).getTime();
         const remainingSeconds = Math.max(0, Math.ceil((endsAtMs - now) / 1000));
 
         room.countdownSeconds = remainingSeconds;
