@@ -106,6 +106,10 @@ class TelegramBotManager {
     this.sessions.set(chatId, { state: 'IDLE' });
   }
 
+  public getPendingReferralCode(telegramId: number): string | undefined {
+    return this.sessions.get(telegramId)?.pendingData?.referralCode;
+  }
+
   /**
    * Password Verification
    * Requirements:

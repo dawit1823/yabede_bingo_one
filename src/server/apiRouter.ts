@@ -6,7 +6,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { db, generateGameReferenceId } from './db.js';
+import { db, generateGameReferenceId, attributeReferral } from './db.js';
 import { adminDb } from './firebaseAdmin.js';
 import { userRepository } from './repositories/UserRepository.js';
 import { gameEngine } from './engine/GameEngine.js';
@@ -295,7 +295,11 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
 
     const tgUser = verification.user;
     const telegramId = Number(tgUser.id);
-    const referralCode = req.body.referralCode || (verification as any).start_param || undefined;
+    const referralCode =
+      req.body.referralCode ||
+      (verification as any).start_param ||
+      telegramBot.getPendingReferralCode(telegramId) ||
+      undefined;
 
     // Look up existing Telegram user or auto-register in Firestore & memory
     let user = db.getUserByTelegramId(telegramId);
@@ -343,6 +347,12 @@ const handleTelegramAuth = async (req: Request, res: Response) => {
             }
           }
         }
+
+        // Attribute referral for existing user if not already referred
+        if (!user.referredBy && referralCode) {
+          attributeReferral(db, adminService, user, referralCode);
+        }
+
         user.lastLogin = new Date().toISOString();
         db.saveUser(user);
         await userRepository.saveUser(user);
