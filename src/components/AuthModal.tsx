@@ -24,6 +24,7 @@ interface AuthModalProps {
   onLogout?: () => void;
   onOpenPhoneVerification?: () => void;
   language?: 'en' | 'am';
+  referralCode?: string;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -35,6 +36,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onLogout,
   onOpenPhoneVerification,
   language = 'am',
+  referralCode,
 }) => {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -61,11 +63,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setAuthLoading(true);
     setAuthError(null);
 
+    const ref =
+      referralCode ||
+      sessionStorage.getItem('yabede_referral_code') ||
+      localStorage.getItem('yabede_referral_code') ||
+      undefined;
+
     try {
       const res = await fetch(apiUrl('/api/auth/telegram'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData }),
+        body: JSON.stringify({ initData, referralCode: ref }),
       });
 
       const data = await res.json();

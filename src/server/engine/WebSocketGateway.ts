@@ -94,6 +94,38 @@ export class WebSocketGateway {
     ioInstance.emit('game:reset', { roomId, room });
     ioInstance.to(roomId).emit('game:reset', { roomId, room });
   }
+
+  /**
+   * Broadcasts game start failure and cancellation event.
+   */
+  public broadcastGameStartFailed(roomId: string, reason: string, room?: BingoRoom): void {
+    if (!ioInstance) return;
+    const payload = { roomId, reason, room, status: 'START_FAILED' };
+    ioInstance.emit('game:start_failed', payload);
+    ioInstance.to(roomId).emit('game:start_failed', payload);
+    ioInstance.emit('room:game_start_failed', payload);
+    ioInstance.to(roomId).emit('room:game_start_failed', payload);
+  }
+
+  /**
+   * Broadcasts ticket refund completion event for a room.
+   */
+  public broadcastGameRefunded(roomId: string, reason: string, refundedCount: number, totalRefunded: number): void {
+    if (!ioInstance) return;
+    const payload = { roomId, reason, refundedCount, totalRefunded, timestamp: new Date().toISOString() };
+    ioInstance.emit('room:refunded', payload);
+    ioInstance.to(roomId).emit('room:refunded', payload);
+  }
+
+  /**
+   * Broadcasts game recovery / clean reset event.
+   */
+  public broadcastGameRecovered(roomId: string, room: BingoRoom, message?: string): void {
+    if (!ioInstance) return;
+    const payload = { roomId, room, message: message || 'Game round recovered and reset to new game' };
+    ioInstance.emit('game:recovered', payload);
+    ioInstance.to(roomId).emit('game:recovered', payload);
+  }
 }
 
 export const webSocketGateway = new WebSocketGateway();

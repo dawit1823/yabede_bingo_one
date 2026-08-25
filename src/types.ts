@@ -158,7 +158,15 @@ export interface UserNotification {
 
 export type WinningPattern = 'ONE_LINE' | 'TWO_LINES' | 'FULL_HOUSE' | 'FOUR_CORNERS';
 
-export type RoomStatus = 'WAITING' | 'COUNTDOWN' | 'PLAYING' | 'FINISHED' | 'RESETTING';
+export type RoomStatus =
+  | 'WAITING'
+  | 'COUNTDOWN'
+  | 'STARTING'
+  | 'PLAYING'
+  | 'FINISHED'
+  | 'RESETTING'
+  | 'START_FAILED'
+  | 'CANCELLED';
 
 export type PrizeDistributionRule = 'WINNER_100' | 'HOST_10_WINNER_90' | 'SPLIT_30_70';
 
@@ -292,9 +300,13 @@ export interface BingoTicket {
   username?: string;
   matrix: (number | 'FREE')[][]; // 5x5 grid
   daubed: boolean[][];           // 5x5 boolean grid
-  status: 'ACTIVE' | 'BINGO_CLAIMED' | 'COMPLETED' | 'CANCELLED';
+  status: 'ACTIVE' | 'BINGO_CLAIMED' | 'COMPLETED' | 'CANCELLED' | 'REFUND_PENDING' | 'REFUNDED';
   purchasePrice: number;
   boughtAt: string;
+  refundedAt?: string;
+  refundReason?: string;
+  winningStatus?: 'WON' | 'LOST' | 'PENDING';
+  prizeWon?: number;
 }
 
 export interface GameWinner {

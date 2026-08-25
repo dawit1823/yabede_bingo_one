@@ -37,6 +37,56 @@ export class FirestoreRepository {
   }
 
   /**
+   * Batched checkpoint write for Game Cancellation / Start Failure with automatic ticket refunds.
+   * Persists updated room status, refunded tickets, and ledger refund transactions in a single atomic batch.
+   */
+  public async saveGameRefundBatch(
+    room: BingoRoom,
+    refundedTickets: BingoTicket[],
+    transactions: WalletTransaction[],
+    reason: string
+  ): Promise<void> {
+    await firestoreGuard.safeWrite('gameRefundBatch', 'saveGameRefundBatch', async () => {
+      const batch = adminDb.batch();
+      const nowIso = new Date().toISOString();
+
+      // 1. Update room status in Firestore
+      const roomPayload = {
+        status: room.status,
+        gameReferenceId: room.gameReferenceId,
+        prizePool: 0,
+        platformFee: 0,
+        ticketsSold: 0,
+        activePlayersCount: 0,
+        updatedAt: nowIso,
+      };
+      batch.set(adminDb.collection('rooms').doc(room.id), roomPayload, { merge: true });
+
+      // 2. Update all refunded tickets
+      for (const ticket of refundedTickets) {
+        batch.set(
+          adminDb.collection('tickets').doc(ticket.id),
+          {
+            status: 'REFUNDED',
+            refundedAt: ticket.refundedAt || nowIso,
+            refundReason: ticket.refundReason || reason,
+            updatedAt: nowIso,
+          },
+          { merge: true }
+        );
+      }
+
+      // 3. Persist refund transactions in ledger
+      for (const tx of transactions) {
+        batch.set(adminDb.collection('transactions').doc(tx.id), tx);
+      }
+
+      await batch.commit();
+      logger.info(`[FirestoreRepository] Saved atomic refund batch: ${refundedTickets.length} tickets, ${transactions.length} txs for room ${room.id}`);
+    }, true);
+  }
+
+  /**
    * Batched checkpoint write at Game End.
    * Persists room state, history record, winners, and transactions in a single atomic batch.
    */

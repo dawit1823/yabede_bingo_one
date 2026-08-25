@@ -1,8 +1,7 @@
 import { roomManager } from './RoomManager.js';
 import { ballDrawer } from './BallDrawer.js';
-import { firestoreRepository } from './FirestoreRepository.js';
 import { webSocketGateway } from './WebSocketGateway.js';
-import { db } from '../db.js';
+import { gameRecoveryManager } from './GameRecoveryManager.js';
 import { adminService } from '../adminService.js';
 import { logger } from '../logger.js';
 
@@ -74,67 +73,8 @@ export class CountdownManager {
         logger.debug(`[COUNTDOWN] room=${room.id} seconds=${remainingSeconds} status=${room.status}`);
 
         if (remainingSeconds <= 0) {
-          logger.debug(`[COUNTDOWN END] room=${room.id}`);
-
-          // 1. Authoritative verification of confirmed ticket purchases in memory
-          const confirmedTickets = Array.from(db.tickets.values()).filter(
-            (t) =>
-              t.roomId === room.id &&
-              room.gameReferenceId &&
-              t.gameReferenceId === room.gameReferenceId &&
-              t.status === 'ACTIVE' &&
-              typeof t.purchasePrice === 'number' &&
-              t.purchasePrice > 0 &&
-              Boolean(t.userId)
-          );
-
-          const confirmedCount = confirmedTickets.length;
-          const uniqueActivePlayers = new Set(confirmedTickets.map((t) => t.userId)).size;
-          const requiredMinPlayers = settings.minPlayers || room.minPlayers || 1;
-
-          room.ticketsSold = confirmedCount;
-          room.activePlayersCount = uniqueActivePlayers;
-
-          if (confirmedCount >= requiredMinPlayers) {
-            logger.info(`[GAME] Started room=${room.id} gameRef=${room.gameReferenceId || room.id} tickets=${confirmedCount} players=${uniqueActivePlayers}`);
-            room.status = 'PLAYING';
-            room.countdownSeconds = 0;
-            room.startedAt = new Date().toISOString();
-
-            // Save game start checkpoint to Firestore
-            await firestoreRepository.saveGameStartCheckpoint(room);
-
-            // Broadcast status change immediately to all clients
-            webSocketGateway.broadcastRoomUpdate(room);
-            webSocketGateway.broadcastCountdown(
-              room.id,
-              0,
-              'PLAYING',
-              room.startedAt,
-              room.endsAt
-            );
-
-            // Start ball drawing cycle
-            ballDrawer.startBallDrawCycle(room.id);
-          } else {
-            logger.info(`[GAME] Reset countdown room=${room.id} tickets=${confirmedCount} minRequired=${requiredMinPlayers}`);
-            const startTime = new Date(now).toISOString();
-            const endTime = new Date(now + defaultDurationMs).toISOString();
-
-            room.status = 'WAITING';
-            room.countdownSeconds = defaultDurationSec;
-            room.startedAt = startTime;
-            room.endsAt = endTime;
-
-            webSocketGateway.broadcastRoomUpdate(room);
-            webSocketGateway.broadcastCountdown(
-              room.id,
-              defaultDurationSec,
-              'WAITING',
-              startTime,
-              endTime
-            );
-          }
+          logger.info(`[COUNTDOWN END] room=${room.id} - delegating atomic game start to GameRecoveryManager`);
+          await gameRecoveryManager.attemptStartGame(room.id);
         } else {
           room.status = 'COUNTDOWN';
 

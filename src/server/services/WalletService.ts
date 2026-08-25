@@ -157,6 +157,39 @@ export class WalletService {
 
     return w;
   }
+
+  /**
+   * Idempotently process a single ticket refund transaction.
+   */
+  public async refundTicketTransaction(
+    userId: string,
+    amount: number,
+    ticketId: string,
+    roomId: string,
+    gameReferenceId?: string,
+    reason: string = 'Game cancelled or failed to start'
+  ): Promise<WalletTransaction | null> {
+    const user = await userRepository.getUserById(userId);
+    if (!user) return null;
+
+    user.walletBalance = (user.walletBalance || 0) + amount;
+    await userRepository.saveUser(user);
+
+    const tx: WalletTransaction = {
+      id: `tx_ref_${Date.now()}_${ticketId}`,
+      userId,
+      type: 'GAME_REFUND',
+      amount,
+      balanceAfter: user.walletBalance,
+      status: 'COMPLETED',
+      description: `Refund: ${reason}`,
+      reference: `REFUND_FAIL_${ticketId}`,
+      gameReferenceId,
+      createdAt: new Date().toISOString(),
+    };
+    await walletRepository.saveTransaction(tx);
+    return tx;
+  }
 }
 
 export const walletService = new WalletService();

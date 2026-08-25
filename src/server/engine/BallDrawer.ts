@@ -89,6 +89,13 @@ export class BallDrawer {
   }
 
   /**
+   * Checks if the ball draw loop or initial timeout is active for a room.
+   */
+  public isCycleActive(roomId: string): boolean {
+    return this.activeIntervals.has(roomId) || this.activeTimeouts.has(roomId);
+  }
+
+  /**
    * Stops the ball draw loop/timeout for a room.
    */
   public stopBallDrawCycle(roomId: string): void {

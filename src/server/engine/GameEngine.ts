@@ -7,6 +7,7 @@ import { ballDrawer, BallDrawer } from './BallDrawer.ts';
 import { countdownManager, CountdownManager } from './CountdownManager.ts';
 import { firestoreRepository, FirestoreRepository } from './FirestoreRepository.ts';
 import { webSocketGateway, WebSocketGateway } from './WebSocketGateway.ts';
+import { gameRecoveryManager, GameRecoveryManager } from './GameRecoveryManager.ts';
 import { db } from '../db.js';
 import { logger } from '../logger.js';
 import { BingoRoom } from '../../types.js';
@@ -20,6 +21,7 @@ export class GameEngine {
   public readonly countdown: CountdownManager = countdownManager;
   public readonly firestore: FirestoreRepository = firestoreRepository;
   public readonly ws: WebSocketGateway = webSocketGateway;
+  public readonly recovery: GameRecoveryManager = gameRecoveryManager;
 
   private isStarted = false;
 
@@ -41,23 +43,11 @@ export class GameEngine {
     // 1. Restore state & auto-initialize official rooms
     await this.rooms.restoreStateFromFirestore();
 
-    // 2. Start server countdown ticker
+    // 2. Run startup integrity check and automatic recovery for interrupted games
+    await this.recovery.recoverOnStartup();
+
+    // 3. Start server countdown ticker
     this.countdown.startTicker();
-
-    // 3. Crash recovery: resume ball drawing for official rooms and private groups in PLAYING status
-    for (const room of this.rooms.getAllRooms()) {
-      if (room.status === 'PLAYING') {
-        logger.info(`[GameEngine] Room ${room.id} was PLAYING on restart. Resuming ball drawer cycle...`);
-        this.ballDrawer.startBallDrawCycle(room.id);
-      }
-    }
-
-    for (const group of db.getAllPrivateGroups()) {
-      if (group.status === 'PLAYING') {
-        logger.info(`[GameEngine] Private group ${group.id} was PLAYING on restart. Resuming ball drawer cycle...`);
-        this.ballDrawer.startBallDrawCycle(group.id);
-      }
-    }
 
     this.isStarted = true;
     logger.info('[GameEngine] Bingo Game Engine is running.');
@@ -68,6 +58,7 @@ export class GameEngine {
    */
   public stop(): void {
     this.countdown.stopTicker();
+    this.recovery.stopWatchdog();
     const rooms = this.rooms.getAllRooms();
     for (const room of rooms) {
       this.ballDrawer.stopBallDrawCycle(room.id);

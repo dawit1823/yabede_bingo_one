@@ -100,6 +100,19 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [isPhoneVerificationOpen, setIsPhoneVerificationOpen] = useState<boolean>(false);
 
+  // Session-persistent Referral Code extracted during initialization
+  const [referralCode, setReferralCode] = useState<string>(() => {
+    try {
+      return (
+        sessionStorage.getItem('yabede_referral_code') ||
+        localStorage.getItem('yabede_referral_code') ||
+        ''
+      );
+    } catch {
+      return '';
+    }
+  });
+
   // App Data States
   const [socket, setSocket] = useState<Socket | null>(null);
   const [rooms, setRooms] = useState<BingoRoom[]>([]);
@@ -155,27 +168,64 @@ export default function App() {
       .catch(() => null);
   }, []);
 
-  // Initialize Telegram App & Real WebApp Session Verification
+  // Initialize Telegram App & Real WebApp Session Verification with Persistent Referral Extraction
   useEffect(() => {
     initTelegramApp();
 
-    // Retrieve real Telegram initData string and start parameters
-    const initData = window.Telegram?.WebApp?.initData || '';
+    // Comprehensive extraction of referralCode / start parameter from all Telegram & URL sources
     const urlParams = new URLSearchParams(window.location.search);
-    const startParam =
+    const hashParams = new URLSearchParams(
+      window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
+    );
+
+    let extractedReferralCode =
       window.Telegram?.WebApp?.initDataUnsafe?.start_param ||
       urlParams.get('startapp') ||
       urlParams.get('tgWebAppStartParam') ||
+      urlParams.get('referralCode') ||
       urlParams.get('ref') ||
       urlParams.get('start') ||
+      hashParams.get('startapp') ||
+      hashParams.get('tgWebAppStartParam') ||
+      hashParams.get('ref') ||
+      hashParams.get('start') ||
       '';
+
+    // Parse initData if start_param is encoded inside raw initData string
+    const initData = window.Telegram?.WebApp?.initData || '';
+    if (!extractedReferralCode && initData) {
+      try {
+        const parsedInit = new URLSearchParams(initData);
+        extractedReferralCode = parsedInit.get('start_param') || '';
+      } catch (e) {
+        console.warn('Failed to parse start_param from initData string', e);
+      }
+    }
+
+    if (extractedReferralCode && !extractedReferralCode.startsWith('group_')) {
+      const cleanRef = extractedReferralCode.trim();
+      setReferralCode(cleanRef);
+      try {
+        sessionStorage.setItem('yabede_referral_code', cleanRef);
+        localStorage.setItem('yabede_referral_code', cleanRef);
+      } catch (e) {
+        console.warn('Could not persist referral code in storage', e);
+      }
+    }
+
+    const effectiveReferral =
+      extractedReferralCode && !extractedReferralCode.startsWith('group_')
+        ? extractedReferralCode.trim()
+        : sessionStorage.getItem('yabede_referral_code') ||
+          localStorage.getItem('yabede_referral_code') ||
+          undefined;
 
     if (initData) {
       // Send real Telegram initData to backend for HMAC verification & auto-registration
       fetch(apiUrl('/api/auth/telegram'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData, referralCode: startParam || undefined }),
+        body: JSON.stringify({ initData, referralCode: effectiveReferral }),
       })
         .then(async (res) => {
           const data = await res.json();
@@ -203,8 +253,8 @@ export default function App() {
     }
 
     // Check Telegram Start Param for Group Invite (e.g. startapp=group_YABEDE77)
-    if (startParam && startParam.startsWith('group_')) {
-      const code = startParam.replace('group_', '').toUpperCase();
+    if (extractedReferralCode && extractedReferralCode.startsWith('group_')) {
+      const code = extractedReferralCode.replace('group_', '').toUpperCase();
       fetch(apiUrl('/api/private-groups/join-code'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1041,6 +1091,7 @@ export default function App() {
         currentUser={currentUser}
         isLoggedIn={isLoggedIn}
         language={language}
+        referralCode={referralCode}
         onOpenPhoneVerification={() => setIsPhoneVerificationOpen(true)}
         onAuthSuccess={(user) => {
           setCurrentUser(user);
