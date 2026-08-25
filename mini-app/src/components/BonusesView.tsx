@@ -18,7 +18,6 @@ export const BonusesView: React.FC<BonusesViewProps> = ({
 
   const referralLink = `https://t.me/yabede_bingo_bot/app?startapp=${user.referralCode}`;
 
-
   const handleCopyLink = () => {
     navigator.clipboard.writeText(referralLink);
     setCopiedLink(true);

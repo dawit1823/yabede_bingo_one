@@ -41,7 +41,7 @@ export const BonusesView: React.FC<BonusesViewProps> = ({
       .catch(() => null);
   }, []);
 
-  const referralLink = https://t.me/yabede_bingo_bot/app?startapp=${user.referralCode}`;
+  const referralLink = `https://t.me/yabede_bingo_bot/app?startapp=${user.referralCode}`;
 
 
   const handleCopyLink = () => {
