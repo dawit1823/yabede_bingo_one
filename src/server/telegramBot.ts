@@ -48,6 +48,15 @@ export interface BotReplyButton {
   request_contact?: boolean;
   callback_data?: string;
   url?: string;
+  web_app?: { url: string };
+}
+
+export function buildAppUrl(ref?: string): string {
+  const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+  if (!ref) return baseUrl;
+  let cleanRef = ref.trim();
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return `${baseUrl}${separator}ref=${encodeURIComponent(cleanRef)}`;
 }
 
 export interface BotResponse {
@@ -189,11 +198,12 @@ class TelegramBotManager {
     }
 
     if (text === '/openapp' || text.includes('Open Mini App')) {
+      const pendingRefCode = this.getPendingReferralCode(tgUser.id);
       return {
         chatId,
         text: '🎮 Click below to open Ahun Bingo Telegram Mini App:',
         replyMarkup: {
-          inline_keyboard: [[{ text: '🎮 Open Ahun Bingo', url: process.env.APP_URL || 'http://localhost:3000' }]],
+          inline_keyboard: [[{ text: '🎮 Open Ahun Bingo', web_app: { url: buildAppUrl(pendingRefCode) } }]],
         },
       };
     }
@@ -312,13 +322,17 @@ class TelegramBotManager {
     const existingUser = db.getUserByTelegramId(tgUser.id);
 
     if (existingUser) {
+      if (startParam) {
+        attributeReferral(db, adminService, existingUser, startParam);
+      }
+      const pendingRefCode = startParam || existingUser.referralCode || this.getPendingReferralCode(tgUser.id);
       return {
         chatId,
         text: `👋 Welcome back to Ahun Bingo, <b>${existingUser.firstName}</b>!\n\n💰 Wallet Balance: <b>${(existingUser?.walletBalance ?? 0).toLocaleString()} Birr</b>\n🏆 VIP Level: <b>L${existingUser?.vipLevel ?? 1}</b>\n\nTap below to launch the Mini App or manage your account:`,
         parseMode: 'HTML',
         replyMarkup: {
           inline_keyboard: [
-            [{ text: '🎮 Open Ahun Bingo', url: process.env.APP_URL || 'http://localhost:3000' }],
+            [{ text: '🎮 Open Ahun Bingo', web_app: { url: buildAppUrl(pendingRefCode) } }],
             [{ text: '👤 Profile', callback_data: 'cmd_profile' }, { text: '💳 Wallet', callback_data: 'cmd_wallet' }],
             [{ text: '🎟️ Invitations', callback_data: 'cmd_invitations' }, { text: '❓ Help', callback_data: 'cmd_help' }],
           ],
@@ -380,7 +394,7 @@ class TelegramBotManager {
         parseMode: 'HTML',
         replyMarkup: {
           inline_keyboard: [
-            [{ text: '🎮 Open Mini App', url: process.env.APP_URL || 'http://localhost:3000' }],
+            [{ text: '🎮 Open Mini App', web_app: { url: buildAppUrl(existingUser.referralCode || this.getPendingReferralCode(tgUser.id)) } }],
             [{ text: '👤 View Profile', callback_data: 'cmd_profile' }, { text: '💳 Wallet', callback_data: 'cmd_wallet' }],
           ],
         },
@@ -445,7 +459,7 @@ class TelegramBotManager {
           inline_keyboard: [
             [{ text: '🔑 Login', callback_data: 'cmd_login' }],
             [{ text: '🔑 Forgot Password', callback_data: 'cmd_forgot' }],
-            [{ text: '🎮 Open Mini App', url: process.env.APP_URL || 'http://localhost:3000' }],
+            [{ text: '🎮 Open Mini App', web_app: { url: buildAppUrl(this.getPendingReferralCode(tgUser.id)) } }],
           ],
         },
       };
@@ -463,7 +477,7 @@ class TelegramBotManager {
           parseMode: 'HTML',
           replyMarkup: {
             inline_keyboard: [
-              [{ text: '🎮 Open Ahun Bingo (መጫወቻውን ክፈት)', url: process.env.APP_URL || 'http://localhost:3000' }],
+              [{ text: '🎮 Open Ahun Bingo (መጫወቻውን ክፈት)', web_app: { url: buildAppUrl(currentExistingTgUser.referralCode || this.getPendingReferralCode(tgUser.id)) } }],
               [{ text: '💰 My Wallet (የኪስ ቦርሳ)', callback_data: 'cmd_wallet' }],
             ],
           },
@@ -659,7 +673,7 @@ class TelegramBotManager {
         parseMode: 'HTML',
         replyMarkup: {
           inline_keyboard: [
-            [{ text: '🎮 Open Mini App', url: process.env.APP_URL || 'http://localhost:3000' }],
+            [{ text: '🎮 Open Mini App', web_app: { url: buildAppUrl(userReferralCode) } }],
             [{ text: '👤 View Profile', callback_data: 'cmd_profile' }, { text: '💳 Wallet', callback_data: 'cmd_wallet' }],
           ],
         },
@@ -768,6 +782,8 @@ class TelegramBotManager {
     this.resetSession(chatId);
 
     const token = jwt.sign({ uid: user.id, telegramId: user.telegramId }, JWT_SECRET, { expiresIn: '7d' });
+    const userAppUrl = buildAppUrl(user.referralCode);
+    const tokenUrl = `${userAppUrl}${userAppUrl.includes('?') ? '&' : '?'}token=${token}`;
 
     return {
       chatId,
@@ -775,7 +791,7 @@ class TelegramBotManager {
       parseMode: 'HTML',
       replyMarkup: {
         inline_keyboard: [
-          [{ text: '🎮 Open Yabede Bingo', url: `${process.env.APP_URL || 'http://localhost:3000'}?token=${token}` }],
+          [{ text: '🎮 Open Yabede Bingo', web_app: { url: tokenUrl } }],
           [{ text: '💳 Wallet', callback_data: 'cmd_wallet' }, { text: '👤 Profile', callback_data: 'cmd_profile' }],
         ],
       },
@@ -901,7 +917,7 @@ class TelegramBotManager {
       parseMode: 'HTML',
       replyMarkup: {
         inline_keyboard: [
-          [{ text: '🎮 Open Mini App', url: process.env.APP_URL || 'http://localhost:3000' }],
+          [{ text: '🎮 Open Mini App', web_app: { url: buildAppUrl(user.referralCode) } }],
           [{ text: '💳 Wallet', callback_data: 'cmd_wallet' }, { text: '🎟️ Invitations', callback_data: 'cmd_invitations' }],
         ],
       },
@@ -925,7 +941,7 @@ class TelegramBotManager {
       text: `💳 <b>Wallet Ledger & Balances</b>\n\n💵 Real Balance: <b>${(user?.walletBalance ?? 0).toLocaleString()} Birr</b>\n🎁 Bonus Balance: <b>${(user?.bonusBalance ?? 0).toLocaleString()} Birr</b>\n\nTo deposit or withdraw money via Telebirr or CBE, please open the Mini App:`,
       parseMode: 'HTML',
       replyMarkup: {
-        inline_keyboard: [[{ text: '🎮 Open Wallet in App', url: process.env.APP_URL || 'http://localhost:3000' }]],
+        inline_keyboard: [[{ text: '🎮 Open Wallet in App', web_app: { url: buildAppUrl(user.referralCode) } }]],
       },
     };
   }
@@ -954,12 +970,14 @@ class TelegramBotManager {
       text: `🎟️ <b>Pending Private Group Invitations (${pending.length}):</b>\n\n${lines}\n\nOpen the Mini App to accept and join the bingo room!`,
       parseMode: 'HTML',
       replyMarkup: {
-        inline_keyboard: [[{ text: '🎮 Join Game in App', url: process.env.APP_URL || 'http://localhost:3000' }]],
+        inline_keyboard: [[{ text: '🎮 Join Game in App', web_app: { url: buildAppUrl(user.referralCode) } }]],
       },
     };
   }
 
   private handleHelpCommand(chatId: number): BotResponse {
+    const session = this.getSession(chatId);
+    const pendingRef = session.pendingData?.referralCode;
     return {
       chatId,
       text: `❓ <b>Yabede Bingo Help & Commands Guide</b>\n\n<b>Bot Commands:</b>\n/start - Start bot and show menu\n/register - Register new account via contact share\n/login - Log into existing account\n/profile - View profile & referral code\n/wallet - View wallet balance\n/invitations - View private group invitations\n/openapp - Open Telegram Mini App\n/help - Show this help menu\n/logout - Log out current session`,
@@ -967,7 +985,7 @@ class TelegramBotManager {
       replyMarkup: {
         inline_keyboard: [
           [{ text: '📝 Register Now', callback_data: 'cmd_register' }],
-          [{ text: '🎮 Open Mini App', url: process.env.APP_URL || 'http://localhost:3000' }],
+          [{ text: '🎮 Open Mini App', web_app: { url: buildAppUrl(pendingRef) } }],
         ],
       },
     };
