@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { UserProfile } from '../types';
 import { triggerHaptic } from '../lib/telegramSDK';
 import { apiUrl } from '../lib/apiConfig';
-import { KeyRound, ArrowRight, X, Link as LinkIcon } from 'lucide-react';
+import { KeyRound, ArrowRight, X, ClipboardCopy } from 'lucide-react';
 
 interface JoinPrivateGroupModalProps {
   user: UserProfile;
@@ -24,6 +24,20 @@ export const JoinPrivateGroupModal: React.FC<JoinPrivateGroupModalProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const handlePaste = async () => {
+    try {
+      if (navigator.clipboard) {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          setCode(text.toUpperCase().trim());
+          triggerHaptic('light');
+        }
+      }
+    } catch {
+      // Clipboard permissions denied
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,9 +78,9 @@ export const JoinPrivateGroupModal: React.FC<JoinPrivateGroupModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-2.5 sm:p-4 animate-in fade-in pb-safe">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-4 sm:p-6 space-y-4 sm:space-y-5 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-3xl max-w-md w-full p-4 sm:p-6 space-y-4 sm:space-y-5 shadow-2xl my-auto max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
               <KeyRound className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -89,16 +103,27 @@ export const JoinPrivateGroupModal: React.FC<JoinPrivateGroupModalProps> = ({
         </div>
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-2xl p-3 font-semibold">
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-2xl p-3 font-semibold shrink-0">
             ⚠️ {error}
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-xs font-bold text-slate-300 block mb-2">
-              {language === 'am' ? 'የመጋበዣ ኮድ (Invitation Code)' : 'Group Invitation Code / Link'}
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold text-slate-300">
+                {language === 'am' ? 'የመጋበዣ ኮድ (Invitation Code)' : 'Group Invitation Code / Link'}
+              </label>
+              <button
+                type="button"
+                onClick={handlePaste}
+                className="text-[11px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 active:scale-95 transition"
+              >
+                <ClipboardCopy className="w-3.5 h-3.5" />
+                <span>{language === 'am' ? 'ለጥፍ' : 'Paste'}</span>
+              </button>
+            </div>
+
             <div className="relative">
               <input
                 type="text"
@@ -106,7 +131,7 @@ export const JoinPrivateGroupModal: React.FC<JoinPrivateGroupModalProps> = ({
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
                 placeholder="e.g. YABEDE77 or t.me/...code"
                 maxLength={30}
-                className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3.5 text-center text-lg tracking-widest font-black text-amber-400 focus:outline-none focus:border-amber-500 placeholder:text-slate-600 uppercase"
+                className="w-full min-h-[48px] bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3.5 text-center text-lg tracking-widest font-black text-amber-400 focus:outline-none focus:border-amber-500 placeholder:text-slate-600 uppercase"
                 required
               />
             </div>
@@ -115,10 +140,10 @@ export const JoinPrivateGroupModal: React.FC<JoinPrivateGroupModalProps> = ({
           <button
             type="submit"
             disabled={loading || !code.trim()}
-            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/25 hover:brightness-110 active:scale-98 transition flex items-center justify-center gap-2"
+            className="w-full min-h-[48px] py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/25 hover:brightness-110 active:scale-98 transition flex items-center justify-center gap-2"
           >
             {loading ? (
-              <span>Connecting...</span>
+              <span>{language === 'am' ? 'በመገናኘት ላይ...' : 'Connecting...'}</span>
             ) : (
               <>
                 <span>{language === 'am' ? 'ተቀላቀል' : 'Join Group Lobby'}</span>

@@ -14,13 +14,15 @@ import {
   Trash2,
   Send,
   MessageSquare,
-  ShieldCheck,
   X,
   CheckCircle2,
   Clock,
   Sparkles,
   Ban,
-  RefreshCw
+  RefreshCw,
+  Trophy,
+  ShieldCheck,
+  Check
 } from 'lucide-react';
 
 interface PrivateGroupLobbyModalProps {
@@ -234,7 +236,8 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
       });
     } else {
       navigator.clipboard.writeText(inviteUrl);
-      alert('Invitation link copied to clipboard!');
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
     }
     triggerHaptic('medium');
   };
@@ -410,26 +413,20 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
 
     setMessages((prev) => [...prev, newMsg]);
     setChatText('');
-
-    try {
-      // Send chat
-    } catch (err) {
-      console.error(err);
-    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-end sm:items-center justify-center p-2 sm:p-4 animate-in fade-in">
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col justify-between overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-3xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl flex flex-col my-auto max-h-[92vh] sm:max-h-[88vh] overflow-y-auto space-y-4">
         {/* Header Bar */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-2 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-black text-lg sm:text-xl shrink-0">
               🎟️
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <h3 className="text-base sm:text-lg font-black text-white truncate max-w-[140px] sm:max-w-none">{group.name}</h3>
+                <h3 className="text-sm sm:text-base font-black text-white truncate max-w-[150px] sm:max-w-none">{group.name}</h3>
                 <span
                   className={`px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black tracking-wide border shrink-0 ${
                     group.status === 'PLAYING'
@@ -447,11 +444,6 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
               <p className="text-[11px] sm:text-xs text-slate-400 truncate">
                 Host: <span className="text-amber-300 font-bold">@{group.hostName}</span> • Code:{' '}
                 <span className="text-emerald-400 font-extrabold">{group.code}</span>
-                {group.gameReferenceId && (
-                  <>
-                    {' '}• Ref: <span className="text-amber-400 font-mono font-bold">{group.gameReferenceId}</span>
-                  </>
-                )}
               </p>
             </div>
           </div>
@@ -461,65 +453,65 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
               onClick={handleManualRefreshGroup}
               disabled={isRefreshing}
               title="Refresh Group Status"
-              className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 active:scale-95 transition disabled:opacity-50 cursor-pointer"
+              className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 active:scale-95 transition disabled:opacity-50 cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
             >
               <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
 
             <button
               onClick={handleCopyCode}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center gap-1"
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center gap-1 min-h-[36px]"
               title="Copy Code"
             >
-              <Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               <span className="hidden sm:inline">{copiedCode ? 'Copied!' : 'Code'}</span>
             </button>
 
             <button
               onClick={handleShareLink}
-              className="p-2 rounded-xl bg-amber-500 text-slate-950 font-black text-xs flex items-center gap-1 shadow-lg shadow-amber-500/20"
+              className="p-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow-lg shadow-amber-500/20 active:scale-95 transition min-h-[36px]"
               title="Invite Players"
             >
               <Share2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               <span className="hidden sm:inline">Invite</span>
             </button>
 
-            <button onClick={onClose} className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white">
+            <button onClick={onClose} className="p-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white min-h-[36px] min-w-[36px] flex items-center justify-center">
               <X className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
         </div>
 
         {actionError && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-2xl p-3 font-semibold">
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded-2xl p-3 font-semibold shrink-0">
             ⚠️ {actionError}
           </div>
         )}
 
         {/* Prize Pool & Game Status Banner */}
-        <div className="bg-gradient-to-r from-amber-950/60 via-slate-950 to-emerald-950/60 border border-amber-500/30 rounded-2xl p-4 flex items-center justify-between shadow-inner">
+        <div className="bg-gradient-to-r from-amber-950/60 via-slate-950 to-emerald-950/60 border border-amber-500/30 rounded-2xl p-3.5 sm:p-4 flex items-center justify-between shadow-inner shrink-0">
           <div>
             <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">
-              Group Prize Pool (100% Real Ticket Sales)
+              {language === 'am' ? 'የግሩፑ ሽልማት (Prize Pool)' : 'Group Prize Pool'}
             </span>
-            <div className="text-2xl font-black text-amber-400 flex items-center gap-1.5">
-              <Coins className="w-6 h-6 text-amber-400 animate-bounce" />
+            <div className="text-xl sm:text-2xl font-black text-amber-400 flex items-center gap-1.5">
+              <Coins className="w-5 h-5 sm:w-6 sm:h-6 text-amber-400 animate-bounce" />
               <span>{(group?.prizePool ?? 0).toLocaleString()} Birr</span>
             </div>
           </div>
 
           <div className="text-right">
-            <span className="text-[10px] text-slate-400 block font-bold">
-              Ticket Price: <span className="text-emerald-400 font-extrabold">{group.ticketPrice} Birr</span>
+            <span className="text-[10px] sm:text-xs text-slate-400 block font-bold">
+              {language === 'am' ? 'ትኬት ዋጋ' : 'Ticket Price'}: <span className="text-emerald-400 font-extrabold">{group.ticketPrice} Birr</span>
             </span>
-            <span className="text-[10px] text-slate-400 block font-bold">
-              Pattern: <span className="text-amber-300 font-extrabold">{group.winningPattern}</span>
+            <span className="text-[10px] sm:text-xs text-slate-400 block font-bold">
+              {language === 'am' ? 'ደንብ' : 'Pattern'}: <span className="text-amber-300 font-extrabold">{group.winningPattern}</span>
             </span>
           </div>
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex border-b border-slate-800">
+        <div className="flex border-b border-slate-800 shrink-0">
           <button
             onClick={() => setActiveTab('lobby')}
             className={`flex-1 py-2 font-black text-xs flex items-center justify-center gap-2 border-b-2 transition ${
@@ -529,7 +521,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>Players Lobby ({members.length}/{group.maxPlayers})</span>
+            <span>{language === 'am' ? 'ተጫዋቾች' : 'Players Lobby'} ({members.length}/{group.maxPlayers})</span>
           </button>
 
           <button
@@ -541,47 +533,47 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
             }`}
           >
             <MessageSquare className="w-4 h-4" />
-            <span>Group Chat ({messages.length})</span>
+            <span>{language === 'am' ? 'ውይይት' : 'Group Chat'} ({messages.length})</span>
           </button>
         </div>
 
         {/* Tab Body */}
-        <div className="flex-1 overflow-y-auto pr-1 space-y-3 min-h-[220px]">
+        <div className="space-y-3">
           {activeTab === 'lobby' ? (
             <div className="space-y-3">
               {/* Members List */}
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                 {members.map((m) => {
                   const mIsHost = m.userId === group.hostId;
 
                   return (
                     <div
                       key={m.userId}
-                      className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3 flex items-center justify-between gap-2"
+                      className="bg-slate-950/80 border border-slate-800 rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-2"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-amber-400 text-sm">
-                          {m.firstName.charAt(0)}
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-amber-400 text-xs sm:text-sm shrink-0">
+                          {m.firstName ? m.firstName.charAt(0) : '👤'}
                         </div>
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-bold text-white">{m.firstName}</span>
-                            <span className="text-[10px] text-slate-400">(@{m.username})</span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-bold text-white truncate max-w-[100px] sm:max-w-[140px]">{m.firstName || 'Player'}</span>
+                            <span className="text-[10px] text-slate-400 truncate">(@{m.username || 'user'})</span>
                             {mIsHost && (
-                              <span className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black">
+                              <span className="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black shrink-0">
                                 HOST
                               </span>
                             )}
                           </div>
                           <p className="text-[10px] text-slate-400">
-                            Tickets Purchased: <span className="text-emerald-400 font-bold">{m.ticketCount}</span>
+                            {language === 'am' ? 'ትኬቶች' : 'Tickets'}: <span className="text-emerald-400 font-bold">{m.ticketCount}</span>
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 shrink-0">
                         <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-black border ${
+                          className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-black border ${
                             m.status === 'READY'
                               ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                               : m.status === 'JOINED'
@@ -600,7 +592,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
                             className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-slate-800"
                             title="Remove member & refund tickets"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                           </button>
                         )}
                       </div>
@@ -611,63 +603,69 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
 
               {/* Host Actions Bar */}
               {isHost && group.status === 'LOBBY' && (
-                <div className="flex gap-2 pt-2">
+                <div className="flex gap-2 pt-1">
                   <button
                     onClick={() => setShowInviteModal(true)}
-                    className="flex-1 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700"
+                    className="flex-1 min-h-[44px] py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 active:scale-95 transition"
                   >
                     <UserPlus className="w-4 h-4" />
-                    <span>Invite User</span>
+                    <span>{language === 'am' ? 'ተጠቃሚ ጋብዝ' : 'Invite User'}</span>
                   </button>
 
                   <button
                     onClick={() => setShowCancelConfirm(true)}
-                    className="py-2.5 px-3 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold text-xs flex items-center justify-center gap-1 border border-red-500/30"
+                    className="min-h-[44px] py-2.5 px-3 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold text-xs flex items-center justify-center gap-1 border border-red-500/30 active:scale-95 transition"
                   >
                     <Ban className="w-4 h-4" />
-                    <span>Cancel Game</span>
+                    <span>{language === 'am' ? 'ጨዋታ ሰርዝ' : 'Cancel Game'}</span>
                   </button>
                 </div>
               )}
             </div>
           ) : (
             /* Group Chat Panel */
-            <div className="space-y-2 flex flex-col h-full justify-between">
-              <div className="space-y-2 max-h-[220px] overflow-y-auto">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`p-2.5 rounded-2xl text-xs ${
-                      msg.system
-                        ? 'bg-amber-500/10 border border-amber-500/20 text-amber-300 text-center font-bold'
-                        : msg.userId === user.id
-                        ? 'bg-amber-500/20 border border-amber-500/30 text-white ml-8'
-                        : 'bg-slate-950 border border-slate-800 text-slate-200 mr-8'
-                    }`}
-                  >
-                    {!msg.system && (
-                      <div className="font-extrabold text-[10px] text-slate-400 mb-0.5">
-                        @{msg.username}
-                      </div>
-                    )}
-                    <div>{msg.text}</div>
+            <div className="space-y-2 flex flex-col justify-between">
+              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                {messages.length === 0 ? (
+                  <div className="text-center py-6 text-slate-500 text-xs">
+                    {language === 'am' ? 'መልእክት የለም። ሰላም ይበሉ!' : 'No messages yet. Say hello to the group!'}
                   </div>
-                ))}
+                ) : (
+                  messages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`p-2.5 rounded-2xl text-xs ${
+                        msg.system
+                          ? 'bg-amber-500/10 border border-amber-500/20 text-amber-300 text-center font-bold'
+                          : msg.userId === user.id
+                          ? 'bg-amber-500/20 border border-amber-500/30 text-white ml-6'
+                          : 'bg-slate-950 border border-slate-800 text-slate-200 mr-6'
+                      }`}
+                    >
+                      {!msg.system && (
+                        <div className="font-extrabold text-[10px] text-slate-400 mb-0.5">
+                          @{msg.username || 'user'}
+                        </div>
+                      )}
+                      <div>{msg.text}</div>
+                    </div>
+                  ))
+                )}
               </div>
 
               {/* Chat Input */}
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-1">
                 <input
                   type="text"
                   value={chatText}
                   onChange={(e) => setChatText(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
-                  placeholder="Type a group message..."
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  placeholder={language === 'am' ? 'የግሩፕ መልእክት ጻፉ...' : 'Type a group message...'}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
                 />
                 <button
                   onClick={handleSendChat}
-                  className="p-2 rounded-2xl bg-amber-500 text-slate-950 font-bold"
+                  className="px-4 py-2.5 rounded-2xl bg-amber-500 text-slate-950 font-bold active:scale-95 transition"
                 >
                   <Send className="w-4 h-4" />
                 </button>
@@ -677,52 +675,68 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
         </div>
 
         {/* Footer Actions / Controls */}
-        <div className="border-t border-slate-800 pt-3 space-y-3">
+        <div className="border-t border-slate-800 pt-3 space-y-3 shrink-0">
           {group.status === 'LOBBY' && (
             <div className="space-y-3">
-              {/* Pick Lucky Cards Button & Selected Badges */}
+              {/* Pick Lucky Cards Button & Horizontally Scrollable Selected Badges */}
               <div className="bg-gradient-to-r from-amber-500/10 via-yellow-500/10 to-amber-500/10 rounded-2xl p-3 border border-amber-500/30 flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">🎯</span>
-                    <div>
-                      <h4 className="text-xs font-black text-amber-300">Choose Lucky Card Numbers</h4>
-                      <p className="text-[10px] text-slate-400">Pick card numbers (1 - 400) before game starts</p>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-lg sm:text-xl shrink-0">🎯</span>
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-black text-amber-300 truncate">
+                        {language === 'am' ? 'የእድል ካርድ ቁጥሮች ምረጥ' : 'Choose Lucky Card Numbers'}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 truncate">
+                        {language === 'am' ? 'ካርድ ቁጥር ምረጡ (1 - 400)' : 'Pick card numbers (1 - 400)'}
+                      </p>
                     </div>
                   </div>
                   <button
                     onClick={() => setShowCardSelection(true)}
-                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 active:scale-95 transition flex items-center gap-1.5"
+                    className="px-3 sm:px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 active:scale-95 transition flex items-center gap-1.5 shrink-0"
                   >
-                    <span>Select Cards</span>
+                    <span>{language === 'am' ? 'ካርዶች ምረጥ' : 'Select Cards'}</span>
                     <Sparkles className="w-3.5 h-3.5 fill-slate-950" />
                   </button>
                 </div>
 
                 {userTickets.filter((t) => t.roomId === group.id).length > 0 && (
-                  <div className="pt-2 border-t border-amber-500/20 flex flex-wrap items-center gap-1.5">
-                    <span className="text-[10px] font-bold text-slate-300">Selected Cards ({userTickets.filter((t) => t.roomId === group.id).length}):</span>
-                    {userTickets
-                      .filter((t) => t.roomId === group.id)
-                      .map((t) => (
-                        <span key={t.id || t.cardNumber} className="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-300 font-extrabold text-[10px]">
-                          #{formatCardNumber(t.cardNumber || 1)}
-                        </span>
-                      ))}
+                  <div className="pt-2 border-t border-amber-500/20">
+                    <div className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap py-1 scrollbar-none">
+                      <span className="text-[10px] font-bold text-slate-300 shrink-0">
+                        {language === 'am' ? 'የተመረጡ' : 'Selected'} ({userTickets.filter((t) => t.roomId === group.id).length}):
+                      </span>
+                      {userTickets
+                        .filter((t) => t.roomId === group.id)
+                        .map((t) => (
+                          <span
+                            key={t.id || t.cardNumber}
+                            className="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-400/40 text-amber-300 font-extrabold text-[10px] shrink-0"
+                          >
+                            #{formatCardNumber(t.cardNumber || 1)}
+                          </span>
+                        ))}
+                    </div>
                   </div>
                 )}
               </div>
 
               {/* Quick Ticket Purchasing Section */}
-              <div className="bg-slate-950 rounded-2xl p-3 border border-slate-800 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-300">Quick Buy:</span>
-                  <div className="flex gap-1">
-                    {[1, 2, 3].map((cnt) => (
+              <div className="bg-slate-950 rounded-2xl p-3 border border-slate-800 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+                  <span className="text-xs font-bold text-slate-300 shrink-0">
+                    {language === 'am' ? 'ፈጣን ግዢ:' : 'Quick Buy:'}
+                  </span>
+                  <div className="flex gap-1 shrink-0">
+                    {[1, 2, 3, 5].map((cnt) => (
                       <button
                         key={cnt}
-                        onClick={() => setTicketQuantity(cnt)}
-                        className={`px-3 py-1 rounded-xl text-xs font-extrabold border ${
+                        onClick={() => {
+                          setTicketQuantity(cnt);
+                          triggerHaptic('light');
+                        }}
+                        className={`px-2.5 py-1 rounded-xl text-xs font-extrabold border transition ${
                           ticketQuantity === cnt
                             ? 'bg-amber-500 text-slate-950 border-amber-400'
                             : 'bg-slate-800 text-slate-300 border-slate-700'
@@ -737,34 +751,36 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
                 <button
                   onClick={handleBuyTickets}
                   disabled={loading}
-                  className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 active:scale-95 transition"
+                  className="w-full sm:w-auto min-h-[44px] px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 active:scale-95 transition flex items-center justify-center gap-1.5"
                 >
-                  {loading ? 'Buying...' : `Quick Buy (${group.ticketPrice * ticketQuantity} Birr)`}
+                  {loading
+                    ? (language === 'am' ? 'በመግዛት ላይ...' : 'Buying...')
+                    : `${language === 'am' ? 'ግዛ' : 'Quick Buy'} (${group.ticketPrice * ticketQuantity} Birr)`}
                 </button>
               </div>
 
               {/* Ready & Start Action Buttons */}
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 {myTicketCount > 0 && (
                   <button
                     onClick={handleToggleReady}
-                    className={`flex-1 py-3 rounded-2xl font-black text-xs border transition ${
+                    className={`flex-1 min-h-[44px] py-3 rounded-2xl font-black text-xs border transition flex items-center justify-center gap-1.5 active:scale-95 ${
                       isReady
                         ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
                         : 'bg-slate-800 text-slate-200 border-slate-700 hover:border-slate-600'
                     }`}
                   >
-                    {isReady ? '✓ You are READY' : 'Mark as READY'}
+                    {isReady ? '✓ You are READY' : (language === 'am' ? 'ተዘጋጅቻለሁ (Mark Ready)' : 'Mark as READY')}
                   </button>
                 )}
 
                 {isHost && (
                   <button
                     onClick={handleStartGame}
-                    className="flex-1 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-xs shadow-xl shadow-amber-500/25 hover:brightness-110 flex items-center justify-center gap-1.5"
+                    className="flex-1 min-h-[44px] py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-xs shadow-xl shadow-amber-500/25 hover:brightness-110 flex items-center justify-center gap-1.5 active:scale-95 transition"
                   >
                     <Play className="w-4 h-4 fill-slate-950" />
-                    <span>Start Game Now</span>
+                    <span>{language === 'am' ? 'ጨዋታውን አሁን ጀምር' : 'Start Game Now'}</span>
                   </button>
                 )}
               </div>
@@ -774,10 +790,10 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           {group.status === 'PLAYING' && (
             <button
               onClick={() => onPlayActiveGame(group, userTickets)}
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-red-500 to-amber-500 text-white font-black text-sm shadow-xl shadow-red-500/25 animate-pulse flex items-center justify-center gap-2"
+              className="w-full min-h-[48px] py-3.5 rounded-2xl bg-gradient-to-r from-red-500 to-amber-500 text-white font-black text-sm shadow-xl shadow-red-500/25 animate-pulse flex items-center justify-center gap-2"
             >
               <Sparkles className="w-5 h-5" />
-              <span>GAME IS LIVE! Join Drawing Canvas</span>
+              <span>{language === 'am' ? 'ጨዋታው ጀምሯል! ወደ ጨዋታው ግባ' : 'GAME IS LIVE! Join Drawing Canvas'}</span>
             </button>
           )}
         </div>
@@ -787,7 +803,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
       {showInviteModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
-            <h4 className="text-base font-black text-white">Invite Registered User</h4>
+            <h4 className="text-base font-black text-white">{language === 'am' ? 'ተጠቃሚ ጋብዝ' : 'Invite Registered User'}</h4>
             <input
               type="text"
               value={inviteInput}
@@ -798,15 +814,15 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
             <div className="flex gap-2">
               <button
                 onClick={() => setShowInviteModal(false)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs min-h-[40px]"
               >
-                Cancel
+                {language === 'am' ? 'ይቅር' : 'Cancel'}
               </button>
               <button
                 onClick={handleSendInvite}
-                className="flex-1 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs"
+                className="flex-1 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs min-h-[40px]"
               >
-                Send Invite
+                {language === 'am' ? 'ጋብዝ' : 'Send Invite'}
               </button>
             </div>
           </div>
@@ -822,22 +838,22 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
                 <Ban className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="text-sm font-black text-white">Cancel Private Game?</h4>
-                <p className="text-[11px] text-slate-400">This action will refund 100% of tickets to all players.</p>
+                <h4 className="text-sm font-black text-white">{language === 'am' ? 'ጨዋታውን መሰረዝ ይፈልጋሉ?' : 'Cancel Private Game?'}</h4>
+                <p className="text-[11px] text-slate-400">{language === 'am' ? 'ሁሉም የተገዙ ትኬቶች ሙሉ በሙሉ ይመለሳሉ።' : 'This action will refund 100% of tickets to all players.'}</p>
               </div>
             </div>
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => setShowCancelConfirm(false)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs min-h-[40px]"
               >
-                Keep Game
+                {language === 'am' ? 'ተወው' : 'Keep Game'}
               </button>
               <button
                 onClick={handleCancelGame}
-                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-black text-xs hover:bg-red-600 transition"
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-black text-xs hover:bg-red-600 transition min-h-[40px]"
               >
-                Yes, Cancel Game
+                {language === 'am' ? 'አዎ፣ ሰርዝ' : 'Yes, Cancel Game'}
               </button>
             </div>
           </div>
@@ -853,22 +869,22 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
                 <Trash2 className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="text-sm font-black text-white">Remove Player?</h4>
-                <p className="text-[11px] text-slate-400">Their tickets will be immediately refunded.</p>
+                <h4 className="text-sm font-black text-white">{language === 'am' ? 'ተጫዋቹን ማስወገድ ይፈልጋሉ?' : 'Remove Player?'}</h4>
+                <p className="text-[11px] text-slate-400">{language === 'am' ? 'ትኬቶቻቸው ወዲያውኑ ይመለሳሉ።' : 'Their tickets will be immediately refunded.'}</p>
               </div>
             </div>
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => setMemberToRemove(null)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs min-h-[40px]"
               >
-                Cancel
+                {language === 'am' ? 'ይቅር' : 'Cancel'}
               </button>
               <button
                 onClick={() => handleRemoveMember(memberToRemove)}
-                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-black text-xs hover:bg-red-600 transition"
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-black text-xs hover:bg-red-600 transition min-h-[40px]"
               >
-                Confirm Remove
+                {language === 'am' ? 'አስወግድ' : 'Confirm Remove'}
               </button>
             </div>
           </div>
@@ -883,7 +899,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
               ⚠️
             </div>
             <div>
-              <h4 className="text-sm font-black text-white">Private Game Cancelled</h4>
+              <h4 className="text-sm font-black text-white">{language === 'am' ? 'የግል ጨዋታው ተሰርዟል' : 'Private Game Cancelled'}</h4>
               <p className="text-xs text-slate-300 mt-1">{cancellationNotice}</p>
             </div>
             <button
@@ -891,7 +907,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
                 setCancellationNotice(null);
                 onClose();
               }}
-              className="w-full py-2.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs hover:bg-amber-400 transition"
+              className="w-full py-2.5 rounded-xl bg-amber-500 text-slate-950 font-black text-xs hover:bg-amber-400 transition min-h-[40px]"
             >
               OK, Return to Lobby
             </button>

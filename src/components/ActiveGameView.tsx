@@ -7,7 +7,7 @@ import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds } fro
 import { apiUrl } from '../lib/apiConfig';
 import { logger } from '../lib/logger';
 import confetti from 'canvas-confetti';
-import { MessageSquare, Send, Sparkles, Trophy, Volume2, CheckCircle2, AlertCircle, History, RefreshCw, ChevronDown, ChevronUp, Grid } from 'lucide-react';
+import { MessageSquare, Send, Sparkles, Trophy, Volume2, CheckCircle2, AlertCircle, History, RefreshCw, ChevronDown, ChevronUp, Grid, Users } from 'lucide-react';
 
 interface ActiveGameViewProps {
   room: BingoRoom;
@@ -285,11 +285,46 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
       }
     };
 
+    const handlePrivateWinner = (data: { winner?: any; group?: any }) => {
+      if (data && (room.id.startsWith('grp_') || room.id.startsWith('private_'))) {
+        setShowWinnerModal(true);
+      }
+    };
+
+    const handlePrivateWaitingHost = (data: { groupId?: string; group?: any }) => {
+      if (data && (data.groupId === room.id || room.id.startsWith('grp_'))) {
+        setShowWinnerModal(true);
+      }
+    };
+
+    const handlePrivateEnded = (data: { groupId?: string; group?: any }) => {
+      if (data && (data.groupId === room.id || room.id.startsWith('grp_'))) {
+        setShowWinnerModal(true);
+      }
+    };
+
+    const handlePrivatePlayAgain = (data: { groupId?: string }) => {
+      if (data && data.groupId === room.id && onReturnToCardSelection) {
+        onReturnToCardSelection();
+      }
+    };
+
+    const handlePrivateClosed = (data: { groupId?: string }) => {
+      if (data && data.groupId === room.id && onReturnToCardSelection) {
+        onReturnToCardSelection();
+      }
+    };
+
     socket.on('room:snapshot', handleRoomSnapshot);
     socket.on('ticket:bought', handleTicketBought);
     socket.on('room:stats_updated', handleStatsUpdated);
     socket.on('private_group:stats_updated', handleStatsUpdated);
     socket.on('room:updated', handleRoomUpdated);
+    socket.on('private_group:winner', handlePrivateWinner);
+    socket.on('private_group:waiting_host', handlePrivateWaitingHost);
+    socket.on('private_group:ended', handlePrivateEnded);
+    socket.on('private_group:play_again', handlePrivatePlayAgain);
+    socket.on('private_group:closed', handlePrivateClosed);
 
     return () => {
       socket.off('room:snapshot', handleRoomSnapshot);
@@ -297,6 +332,11 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
       socket.off('room:stats_updated', handleStatsUpdated);
       socket.off('private_group:stats_updated', handleStatsUpdated);
       socket.off('room:updated', handleRoomUpdated);
+      socket.off('private_group:winner', handlePrivateWinner);
+      socket.off('private_group:waiting_host', handlePrivateWaitingHost);
+      socket.off('private_group:ended', handlePrivateEnded);
+      socket.off('private_group:play_again', handlePrivatePlayAgain);
+      socket.off('private_group:closed', handlePrivateClosed);
     };
   }, [socket, room?.id, user?.id, room?.gameReferenceId]);
 
@@ -676,9 +716,21 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
               </div>
             )}
 
-            <div className="pt-2 text-[11px] text-amber-300 font-extrabold animate-pulse">
-              ⏱ Next Game Round Starting Shortly ({activeCountdown}s)...
-            </div>
+            {room.id.startsWith('grp_') ? (
+              <div className="pt-3 space-y-2 max-w-sm mx-auto">
+                <button
+                  onClick={() => onReturnToCardSelection && onReturnToCardSelection()}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                >
+                  <Users className="w-4 h-4" />
+                  <span>{language === 'am' ? 'ወደ ግሩፕ ሎቢ ተመለስ' : 'Return to Private Group Lobby'}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="pt-2 text-[11px] text-amber-300 font-extrabold animate-pulse">
+                ⏱ Next Game Round Starting Shortly ({activeCountdown}s)...
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -1106,7 +1158,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 text-center text-amber-300 font-extrabold text-xs flex flex-col items-center justify-center gap-1.5">
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 text-center text-amber-300 font-extrabold text-xs flex flex-col items-center justify-center gap-2">
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
                       <span>Waiting for the group host to decide next step...</span>
@@ -1114,6 +1166,17 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
                     <span className="text-[10px] text-slate-400 font-medium">
                       Group session will auto-close if host does not respond within 60s
                     </span>
+                    <button
+                      onClick={() => {
+                        setShowWinnerModal(false);
+                        if (onReturnToCardSelection) {
+                          onReturnToCardSelection();
+                        }
+                      }}
+                      className="w-full mt-2 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 active:scale-95 transition cursor-pointer"
+                    >
+                      {language === 'am' ? 'ወደ ግሩፕ ሎቢ ተመለስ' : '🔙 Return to Private Group Lobby'}
+                    </button>
                   </div>
                 )}
               </div>

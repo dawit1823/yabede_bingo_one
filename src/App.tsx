@@ -301,8 +301,10 @@ export default function App() {
       if (activeRoom && activeRoom.status === 'FINISHED') {
         resetGameState(activeRoom.id);
       }
+    } else if (activeTab === 'active_game' && !activeRoom && !selectedCardRoom) {
+      setActiveTab('home');
     }
-  }, [activeTab, activeGameId, activeRoom, resetGameState]);
+  }, [activeTab, activeGameId, activeRoom, selectedCardRoom, resetGameState]);
 
   // Connect Socket.IO
   useEffect(() => {
@@ -573,6 +575,7 @@ export default function App() {
     newSocket.on('private_group:play_again', (data: { groupId: string; group: any }) => {
       setUserTickets((prev) => prev.filter((t) => t.roomId !== data.groupId));
       setActiveRoom(null);
+      setActiveTab('home');
       setActivePrivateGroupId(data.groupId);
     });
 
@@ -581,7 +584,7 @@ export default function App() {
       setActivePrivateGroupId((prev) => (prev === data.groupId ? null : prev));
       setActiveTab('home');
       if (data.message) {
-        alert(data.message);
+        logger.info('[Private Group Closed]', data.message);
       }
     });
 
@@ -997,8 +1000,10 @@ export default function App() {
                 onClaimBingo={handleClaimBingo}
                 onReturnToCardSelection={() => {
                   if (activeRoom.id.startsWith('grp_')) {
-                    setActivePrivateGroupId(activeRoom.id);
+                    const grpId = activeRoom.id;
                     setActiveRoom(null);
+                    setActiveTab('home');
+                    setActivePrivateGroupId(grpId);
                   } else {
                     const roomToSelect = rooms.find((r) => r.id === activeRoom.id) || activeRoom;
                     setSelectedCardRoom(roomToSelect);

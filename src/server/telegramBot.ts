@@ -9,7 +9,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { adminAuth, adminDb } from './firebaseAdmin.js';
-import { db } from './db.js';
+import { db, attributeReferral } from './db.js';
 import { adminService } from './adminService.js';
 import { UserProfile } from '../types.js';
 
@@ -514,26 +514,6 @@ class TelegramBotManager {
       const welcomeGiftAmount = welcomeConfig.enabled ? welcomeConfig.amountBirr : 0;
       const dynamicBonus = adminService.getRegistrationBonusAmount();
 
-      // Check referral and prevent self-referral
-      let referredByUserId: string | undefined = existingUser?.referredBy;
-      if (!referredByUserId && data.referralCode) {
-        let cleanRef = data.referralCode.trim();
-        if (cleanRef.startsWith('ref_')) {
-          cleanRef = cleanRef.substring(4);
-        }
-        const referrer = Array.from(db.users.values()).find(
-          (u) =>
-            u.telegramId !== data.telegramId &&
-            u.id !== uid &&
-            (u.referralCode.toLowerCase() === cleanRef.toLowerCase() ||
-              u.id.toLowerCase() === cleanRef.toLowerCase() ||
-              (u.telegramId && String(u.telegramId) === cleanRef))
-        );
-        if (referrer) {
-          referredByUserId = referrer.id;
-        }
-      }
-
       // 2. Create Firebase Auth user (if available)
       try {
         await adminAuth.createUser({
@@ -548,14 +528,11 @@ class TelegramBotManager {
       let userProfile: UserProfile;
 
       if (existingUser) {
-        // Update existing user profile with phone and referral
+        // Update existing user profile with phone
         existingUser.phone = data.phoneNumber;
         existingUser.firstName = data.firstName || existingUser.firstName;
         existingUser.lastName = data.lastName || existingUser.lastName;
         existingUser.username = data.username || existingUser.username;
-        if (!existingUser.referredBy && referredByUserId) {
-          existingUser.referredBy = referredByUserId;
-        }
         existingUser.updatedAt = new Date().toISOString();
         existingUser.lastLogin = new Date().toISOString();
         userProfile = existingUser;
@@ -572,7 +549,7 @@ class TelegramBotManager {
           photoUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${uid}`,
           language: (data.languageCode === 'am' ? 'am' : 'en'),
           referralCode: userReferralCode,
-          referredBy: referredByUserId,
+          referredBy: undefined,
           referralCount: 0,
           referralEarnings: 0,
           walletBalance: welcomeGiftAmount,
@@ -616,39 +593,8 @@ class TelegramBotManager {
         });
       }
 
-      // 6. Credit referral bonus to referrer if valid and newly attributed
-      if (referredByUserId && (!existingUser || !existingUser.referredBy)) {
-        const refTxRef = `REFERRAL_JOIN_${uid}`;
-        const alreadyRewarded = db.transactions.some(
-          (tx) => tx.userId === referredByUserId && tx.type === 'REFERRAL_BONUS' && tx.reference === refTxRef
-        );
-
-        if (!alreadyRewarded) {
-          const refConfig = adminService.getReferralBonusConfig();
-          const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
-          const referrer = db.getUserById(referredByUserId);
-          if (referrer) {
-            referrer.referralCount = (referrer.referralCount || 0) + 1;
-            if (refBonus > 0) {
-              db.updateWalletBalance(
-                referredByUserId,
-                refBonus,
-                'REFERRAL_BONUS',
-                `Referral reward for inviting ${data.firstName || 'new player'}`,
-                refTxRef
-              );
-              referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
-              db.addNotification({
-                userId: referredByUserId,
-                title: '🎉 Referral Bonus Received!',
-                message: `You earned ${refBonus} Birr for inviting ${data.firstName || 'a friend'}!`,
-                type: 'SYSTEM',
-              });
-            }
-            db.saveUser(referrer);
-          }
-        }
-      }
+      // 6. Single consolidated referral attribution & crediting
+      attributeReferral(db, adminService, userProfile, data.referralCode);
 
       // 7. Safely attempt Cloud Firestore persistent sync (non-blocking)
       try {

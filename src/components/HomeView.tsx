@@ -435,11 +435,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
                     <div className="grid grid-cols-2 gap-2 bg-slate-950 p-2.5 rounded-xl sm:rounded-2xl text-center border border-slate-800/80">
                       <div>
-                        <span className="text-[9px] text-slate-400 block">Ticket Price</span>
+                        <span className="text-[9px] text-slate-400 block">{language === 'am' ? 'የትኬት ዋጋ' : 'Ticket Price'}</span>
                         <span className="text-xs font-black text-emerald-400">{grp.ticketPrice} Birr</span>
                       </div>
                       <div>
-                        <span className="text-[9px] text-slate-400 block">Prize Pool</span>
+                        <span className="text-[9px] text-slate-400 block">{language === 'am' ? 'የሽልማት ፈንድ' : 'Prize Pool'}</span>
                         <span className="text-xs font-black text-amber-400">{grp.prizePool} Birr</span>
                       </div>
                     </div>
@@ -451,7 +451,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       }}
                       className="w-full min-h-[44px] py-2.5 rounded-xl sm:rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-black text-xs flex items-center justify-center gap-1.5 active:scale-95 transition"
                     >
-                      <span>Open Group Lobby</span>
+                      <span>{language === 'am' ? 'ወደ ግሩፕ ሎቢ ግባ' : 'Open Group Lobby'}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>

@@ -71,6 +71,94 @@ export function syncRoomSequenceFromRef(roomId: string, gameRef?: string) {
   }
 }
 
+export function attributeReferral(
+  database: FirestoreDatabaseStore,
+  adminSvc: typeof adminService,
+  newUser: UserProfile,
+  rawReferralCode?: string
+): void {
+  if (!newUser || !newUser.id) return;
+
+  let referrer: UserProfile | undefined = undefined;
+
+  // 1. Strip 'ref_' prefix, trim, lowercase-compare
+  if (rawReferralCode) {
+    let cleanRef = rawReferralCode.trim();
+    if (cleanRef.toLowerCase().startsWith('ref_')) {
+      cleanRef = cleanRef.substring(4).trim();
+    }
+
+    if (cleanRef) {
+      const lowerClean = cleanRef.toLowerCase();
+      // Match referrer by referralCode, id, or telegramId (never the new user themselves)
+      referrer = Array.from(database.users.values()).find(
+        (u) =>
+          u.id !== newUser.id &&
+          (!newUser.telegramId || u.telegramId !== newUser.telegramId) &&
+          (
+            (u.referralCode && u.referralCode.toLowerCase() === lowerClean) ||
+            (u.id && u.id.toLowerCase() === lowerClean) ||
+            (u.telegramId && String(u.telegramId) === cleanRef)
+          )
+      );
+    }
+  }
+
+  // 2. If referrer not matched by rawReferralCode, check existing referredBy on newUser
+  if (!referrer && newUser.referredBy) {
+    const existingRef = database.getUserById(newUser.referredBy);
+    if (
+      existingRef &&
+      existingRef.id !== newUser.id &&
+      (!newUser.telegramId || existingRef.telegramId !== newUser.telegramId)
+    ) {
+      referrer = existingRef;
+    }
+  }
+
+  if (!referrer) return;
+
+  // 3. Set newUser.referredBy = referrer.id (only if not already set)
+  if (!newUser.referredBy) {
+    newUser.referredBy = referrer.id;
+    database.saveUser(newUser);
+  }
+
+  // 4. Idempotency: skip if a REFERRAL_BONUS transaction with reference REFERRAL_JOIN_${newUser.id} already exists
+  const refTxRef = `REFERRAL_JOIN_${newUser.id}`;
+  const alreadyRewarded = database.transactions.some(
+    (tx) => tx.userId === referrer!.id && tx.type === 'REFERRAL_BONUS' && tx.reference === refTxRef
+  );
+
+  if (alreadyRewarded) {
+    return;
+  }
+
+  // 5. Read bonus amount from adminService.getReferralBonusConfig() (enabled + amountBirr)
+  const refConfig = adminSvc.getReferralBonusConfig();
+  const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
+
+  // 6. Credit referrer via db.updateWalletBalance(), increment referralCount/referralEarnings, save referrer, send notification
+  referrer.referralCount = (referrer.referralCount || 0) + 1;
+  if (refBonus > 0) {
+    database.updateWalletBalance(
+      referrer.id,
+      refBonus,
+      'REFERRAL_BONUS',
+      `Referral reward for inviting ${newUser.firstName || newUser.username || 'new player'}`,
+      refTxRef
+    );
+    referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
+    database.addNotification({
+      userId: referrer.id,
+      title: '🎉 Referral Bonus Received!',
+      message: `You earned ${refBonus} Birr for inviting ${newUser.firstName || newUser.username || 'a friend'}!`,
+      type: 'SYSTEM',
+    });
+  }
+  database.saveUser(referrer);
+}
+
 export const OFFICIAL_ROOMS: BingoRoom[] = [
   {
     id: 'room_10',
@@ -528,16 +616,6 @@ class FirestoreDatabaseStore {
     const userId = `usr_p_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const userReferralCode = `REF${Math.floor(100000 + Math.random() * 900000)}`;
 
-    let referredByUserId: string | undefined = undefined;
-    if (params.referralCode) {
-      const referrer = Array.from(this.users.values()).find(
-        (u) => u.referralCode.toLowerCase() === params.referralCode?.toLowerCase()
-      );
-      if (referrer) {
-        referredByUserId = referrer.id;
-      }
-    }
-
     const welcomeConfig = adminService.getWelcomeGiftConfig();
     const initialWalletBalance = welcomeConfig.enabled ? welcomeConfig.amountBirr : 0;
     const regBonus = adminService.getRegistrationBonusAmount();
@@ -553,7 +631,7 @@ class FirestoreDatabaseStore {
       photoUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${userId}`,
       language: 'am',
       referralCode: userReferralCode,
-      referredBy: referredByUserId || undefined,
+      referredBy: undefined,
       referralCount: 0,
       referralEarnings: 0,
       walletBalance: initialWalletBalance,
@@ -609,38 +687,8 @@ class FirestoreDatabaseStore {
       });
     }
 
-    if (referredByUserId) {
-      const refTxRef = `REFERRAL_JOIN_${userId}`;
-      const alreadyRewarded = this.transactions.some(
-        (tx) => tx.userId === referredByUserId && tx.type === 'REFERRAL_BONUS' && tx.reference === refTxRef
-      );
-
-      if (!alreadyRewarded) {
-        const refConfig = adminService.getReferralBonusConfig();
-        const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
-        const referrer = this.getUserById(referredByUserId);
-        if (referrer) {
-          referrer.referralCount = (referrer.referralCount || 0) + 1;
-          if (refBonus > 0) {
-            this.updateWalletBalance(
-              referredByUserId,
-              refBonus,
-              'REFERRAL_BONUS',
-              `Referral reward for inviting ${params.firstName || 'new player'}`,
-              refTxRef
-            );
-            referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
-            this.addNotification({
-              userId: referredByUserId,
-              title: '🎉 Referral Bonus Received!',
-              message: `You earned ${refBonus} Birr for inviting ${params.firstName || 'a new friend'}!`,
-              type: 'SYSTEM',
-            });
-          }
-          this.saveUser(referrer);
-        }
-      }
-    }
+    // Single consolidated referral attribution & crediting
+    attributeReferral(this, adminService, user, params.referralCode);
 
     return { user, accessToken, refreshToken };
   }
@@ -828,26 +876,6 @@ class FirestoreDatabaseStore {
     const initialWalletBalance = welcomeConfig.enabled ? welcomeConfig.amountBirr : 0;
     const regBonus = adminService.getRegistrationBonusAmount();
 
-    // Check referral
-    let referredByUserId: string | undefined = undefined;
-    if (referralCode) {
-      let cleanRef = referralCode.trim();
-      if (cleanRef.startsWith('ref_')) {
-        cleanRef = cleanRef.substring(4);
-      }
-      const referrer = Array.from(this.users.values()).find(
-        (u) =>
-          u.telegramId !== tgUser.id &&
-          u.id !== newUserId &&
-          (u.referralCode.toLowerCase() === cleanRef.toLowerCase() ||
-            u.id.toLowerCase() === cleanRef.toLowerCase() ||
-            (u.telegramId && String(u.telegramId) === cleanRef))
-      );
-      if (referrer) {
-        referredByUserId = referrer.id;
-      }
-    }
-
     const normalizedPhone = tgUser.phone ? this.normalizePhone(tgUser.phone) : undefined;
 
     const newUser: UserProfile = {
@@ -860,7 +888,7 @@ class FirestoreDatabaseStore {
       photoUrl: tgUser.photo_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${tgUser.id}`,
       language: tgUser.language_code === 'am' ? 'am' : 'en',
       referralCode: userReferralCode,
-      referredBy: referredByUserId,
+      referredBy: undefined,
       referralCount: 0,
       referralEarnings: 0,
       walletBalance: initialWalletBalance,
@@ -892,39 +920,8 @@ class FirestoreDatabaseStore {
       });
     }
 
-    // Credit Referral Bonus to Referrer if valid
-    if (referredByUserId) {
-      const refTxRef = `REFERRAL_JOIN_${newUserId}`;
-      const alreadyRewarded = this.transactions.some(
-        (tx) => tx.userId === referredByUserId && tx.type === 'REFERRAL_BONUS' && tx.reference === refTxRef
-      );
-
-      if (!alreadyRewarded) {
-        const refConfig = adminService.getReferralBonusConfig();
-        const refBonus = refConfig.enabled ? refConfig.amountBirr : 0;
-        const referrer = this.getUserById(referredByUserId);
-        if (referrer) {
-          referrer.referralCount = (referrer.referralCount || 0) + 1;
-          if (refBonus > 0) {
-            this.updateWalletBalance(
-              referredByUserId,
-              refBonus,
-              'REFERRAL_BONUS',
-              `Referral reward for inviting ${tgUser.first_name || 'new player'}`,
-              refTxRef
-            );
-            referrer.referralEarnings = (referrer.referralEarnings || 0) + refBonus;
-            this.addNotification({
-              userId: referredByUserId,
-              title: '🎉 Referral Bonus Received!',
-              message: `You earned ${refBonus} Birr for inviting ${tgUser.first_name || 'a friend'}!`,
-              type: 'SYSTEM',
-            });
-          }
-          this.saveUser(referrer);
-        }
-      }
-    }
+    // Single consolidated referral attribution & crediting
+    attributeReferral(this, adminService, newUser, referralCode);
 
     return newUser;
   }
