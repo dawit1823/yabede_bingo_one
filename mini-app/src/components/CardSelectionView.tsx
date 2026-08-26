@@ -23,7 +23,7 @@ interface CardSelectionViewProps {
   room: BingoRoom;
   user: UserProfile;
   onBack: () => void;
-  onCardPurchased: (ticket: BingoTicket) => void;
+  onCardPurchased?: (ticket: BingoTicket) => void;
   onCardDeselected?: (cardNumber: number) => void;
   onEnterGame?: () => void;
   language: 'en' | 'am';
@@ -66,7 +66,7 @@ const CardItem = React.memo<CardItemProps>(
       <button
         disabled={isDisabled}
         onClick={() => onToggle(num)}
-        className={`py-1 px-0.5 rounded-lg border text-center transition flex flex-col items-center justify-center gap-0.5 relative active:scale-95 touch-manipulation min-h-[30px] cursor-pointer ${
+        className={`py-1.5 px-0.5 rounded-lg border text-center transition flex items-center justify-center relative active:scale-95 touch-manipulation min-h-[28px] cursor-pointer ${
           isPurchasedByMe
             ? 'bg-emerald-600 text-white border-emerald-300 shadow-sm font-black ring-1 ring-emerald-400 hover:bg-emerald-700'
             : isReservedByMe
@@ -79,19 +79,6 @@ const CardItem = React.memo<CardItemProps>(
         }`}
       >
         <span className="text-[10px] font-black tracking-tight leading-none">{formatCardNumber(num)}</span>
-        <span
-          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-            isPurchasedByMe
-              ? 'bg-emerald-200'
-              : isReservedByMe
-              ? 'bg-emerald-200 animate-ping'
-              : isPurchasedByOther
-              ? 'bg-red-200'
-              : isReservedByOther
-              ? 'bg-amber-950'
-              : 'bg-emerald-400'
-          }`}
-        />
       </button>
     );
   },
@@ -133,7 +120,7 @@ const BingoCardGrid = React.memo<BingoCardGridProps>(
     onToggleCard,
   }) => {
     return (
-      <div className="grid grid-cols-7 sm:grid-cols-9 md:grid-cols-10 gap-1 max-h-[calc(100vh-280px)] sm:max-h-[calc(100vh-320px)] min-h-[300px] overflow-y-auto pr-1 pb-24 sm:pb-28 scroll-smooth">
+      <div className="grid grid-cols-7 sm:grid-cols-9 md:grid-cols-10 gap-1 flex-1 overflow-y-auto pr-1 pb-2 scroll-smooth">
         {filteredCards.map((num) => {
           const res = reservations[num];
           const isOptimistic = optimisticSelections.has(num);
@@ -262,89 +249,85 @@ export const SelectedCardsPanel: React.FC<SelectedCardsPanelProps> = React.memo(
 
   if (mySelectedCards.length === 0) {
     return (
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-2 pb-safe shadow-lg">
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-2 text-xs text-slate-400 px-1">
-          <div className="flex items-center gap-1.5">
-            <Grid className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span className="font-semibold text-slate-300 text-[10px] sm:text-xs">
-              {language === 'am'
-                ? 'ምንም ካርድ አልተመረጠም • ለመምረጥ ከላይ ያሉትን ካርዶች ይንኩ'
-                : 'No cards selected • Tap any card to select'}
-            </span>
-          </div>
-          <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md shrink-0">
-            {liveRoom.ticketPrice || 0} Birr / Card
+      <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-3 shadow-md flex items-center justify-between gap-2 text-xs text-slate-400">
+        <div className="flex items-center gap-1.5">
+          <Grid className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <span className="font-semibold text-slate-300 text-[10px] sm:text-xs">
+            {language === 'am'
+              ? 'ምንም ካርድ አልተመረጠም • ለመምረጥ ከላይ ያሉትን ካርዶች ይንኩ'
+              : 'No cards selected • Tap any card above to select'}
           </span>
         </div>
+        <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md shrink-0">
+          {liveRoom.ticketPrice || 0} Birr / Card
+        </span>
       </div>
     );
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-xl border-t border-emerald-500/40 p-2 sm:p-2.5 pb-safe shadow-[0_-8px_30px_rgba(0,0,0,0.85)]">
-      <div className="max-w-3xl mx-auto space-y-1.5">
-        {/* Compact Header */}
-        <div className="flex items-center justify-between text-xs font-black text-slate-200 px-1">
-          <div className="flex items-center gap-1.5">
-            <Trophy className="w-3 h-3 text-emerald-400" />
-            <span className="text-emerald-400 font-black text-xs">
-              {language === 'am' ? 'የተመረጡ' : 'Selected'} ({mySelectedCards.length})
-            </span>
-            <span className="text-[10px] text-amber-300 font-mono">
-              • {totalPrice} Birr
-            </span>
-          </div>
-
-          <span className="text-[9px] text-slate-400">
-            {language === 'am' ? 'ለማስወገድ X ይጫኑ' : 'Tap X to remove'}
+    <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-3 sm:p-4 shadow-xl space-y-2.5">
+      {/* Header */}
+      <div className="flex items-center justify-between text-xs font-black text-slate-200 px-0.5">
+        <div className="flex items-center gap-1.5">
+          <Trophy className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="text-emerald-400 font-black text-xs sm:text-sm">
+            {language === 'am' ? 'የተመረጡ ካርዶች' : 'Selected Cards'} ({mySelectedCards.length})
+          </span>
+          <span className="text-[11px] sm:text-xs text-amber-300 font-mono font-bold">
+            • {totalPrice} Birr
           </span>
         </div>
 
-        {/* Horizontal Scrollable Selected Cards List */}
-        <div
-          ref={horizontalScrollRef}
-          className="flex gap-1.5 overflow-x-auto pb-1 pt-0.5 px-0.5 snap-x snap-mandatory touch-pan-x scroll-smooth no-scrollbar"
-        >
-          <AnimatePresence mode="popLayout">
-            {mySelectedCards.map((card) => (
-              <SelectedCardPreviewItem
-                key={card.cardNumber}
-                cardNumber={card.cardNumber}
-                status={card.status}
-                ticketPrice={liveRoom.ticketPrice || 0}
-                onDeselect={onDeselectCard}
-                isToggling={togglingCard === card.cardNumber}
-                language={language}
-              />
-            ))}
-          </AnimatePresence>
-        </div>
-
-        {/* Compact Enter Game Arena Button */}
-        <button
-          onClick={() => {
-            if (onEnterGame) {
-              onEnterGame();
-            } else {
-              onBack();
-            }
-          }}
-          className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-white font-black text-xs shadow-lg border border-emerald-300/40 flex items-center justify-between hover:brightness-110 active:scale-[0.98] transition cursor-pointer"
-        >
-          <div className="flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
-            <span>
-              {language === 'am'
-                ? `${mySelectedCards.length} ካርድ • ወደ ጨዋታው ግባ`
-                : `${mySelectedCards.length} Card${mySelectedCards.length > 1 ? 's' : ''} • Enter Game`}
-            </span>
-          </div>
-          <div className="flex items-center gap-1 bg-slate-950/40 px-2 py-0.5 rounded-lg text-amber-300 text-[10px] font-black">
-            <span>{language === 'am' ? 'ጀምር' : 'JOIN'}</span>
-            <ArrowLeft className="w-3 h-3 rotate-180" />
-          </div>
-        </button>
+        <span className="text-[9px] sm:text-[10px] text-slate-400">
+          {language === 'am' ? 'ለማስወገድ X ይጫኑ' : 'Tap X to remove'}
+        </span>
       </div>
+
+      {/* Horizontal Scrollable Selected Cards List */}
+      <div
+        ref={horizontalScrollRef}
+        className="flex gap-2 overflow-x-auto pb-1.5 pt-0.5 px-0.5 snap-x snap-mandatory touch-pan-x scroll-smooth no-scrollbar"
+      >
+        <AnimatePresence mode="popLayout">
+          {mySelectedCards.map((card) => (
+            <SelectedCardPreviewItem
+              key={card.cardNumber}
+              cardNumber={card.cardNumber}
+              status={card.status}
+              ticketPrice={liveRoom.ticketPrice || 0}
+              onDeselect={onDeselectCard}
+              isToggling={togglingCard === card.cardNumber}
+              language={language}
+            />
+          ))}
+        </AnimatePresence>
+      </div>
+
+      {/* Enter Game Arena Button */}
+      <button
+        onClick={() => {
+          if (onEnterGame) {
+            onEnterGame();
+          } else {
+            onBack();
+          }
+        }}
+        className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-white font-black text-xs sm:text-sm shadow-lg border border-emerald-300/40 flex items-center justify-between hover:brightness-110 active:scale-[0.98] transition cursor-pointer"
+      >
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+          <span>
+            {language === 'am'
+              ? `${mySelectedCards.length} ካርድ • ወደ ጨዋታው ግባ`
+              : `${mySelectedCards.length} Card${mySelectedCards.length > 1 ? 's' : ''} • Enter Game`}
+          </span>
+        </div>
+        <div className="flex items-center gap-1 bg-slate-950/40 px-2.5 py-1 rounded-lg text-amber-300 text-xs font-black">
+          <span>{language === 'am' ? 'ጀምር' : 'JOIN'}</span>
+          <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
+        </div>
+      </button>
     </div>
   );
 });
@@ -926,26 +909,6 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
           </div>
         </div>
 
-        {/* 4-Color Status Legend */}
-        <div className="flex flex-wrap items-center justify-around gap-2 bg-slate-950 p-2.5 rounded-2xl border border-slate-800 text-[10px] font-bold">
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-md bg-white border border-slate-300 shadow-sm inline-block" />
-            <span className="text-slate-300">Available</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-md bg-amber-400 border border-amber-500 shadow-sm inline-block" />
-            <span className="text-amber-300">Reserved (Hold)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-md bg-emerald-500 border border-emerald-400 shadow-sm inline-block" />
-            <span className="text-emerald-300">Selected (Mine)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-md bg-red-600 border border-red-500 shadow-sm inline-block" />
-            <span className="text-red-300">Purchased (Other)</span>
-          </div>
-        </div>
-
         {/* Search & Filter Tabs */}
         <div className="flex flex-col sm:flex-row items-center gap-2">
           {/* Search Box */}
@@ -991,8 +954,8 @@ export const CardSelectionView: React.FC<CardSelectionViewProps> = ({
       </div>
 
       {/* 400 Cards Grid */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-2xl space-y-3">
-        <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-2xl space-y-3 h-[400px] mb-5 flex flex-col">
+        <div className="flex items-center justify-between text-xs font-bold text-slate-300 shrink-0">
           <span className="flex items-center gap-1.5">
             <Grid className="w-4 h-4 text-amber-400" />
             <span>Select a Bingo Card to Preview & Buy</span>

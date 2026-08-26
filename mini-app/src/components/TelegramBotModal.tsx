@@ -15,8 +15,9 @@ interface BotMessageItem {
 interface TelegramBotModalProps {
   isOpen: boolean;
   onClose: () => void;
-  currentUser: UserProfile;
+  currentUser?: UserProfile;
   onAuthSuccess?: (user: UserProfile) => void;
+  language?: 'en' | 'am';
 }
 
 export const TelegramBotModal: React.FC<TelegramBotModalProps> = ({

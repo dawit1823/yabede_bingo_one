@@ -117,7 +117,11 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
   const [messageInput, setMessageInput] = React.useState<string>('');
   const [localDaubed, setLocalDaubed] = React.useState<Record<string, boolean[][]>>({});
   const [nextDrawSeconds, setNextDrawSeconds] = React.useState<number>(3);
-  const [liveRoomStats, setLiveRoomStats] = React.useState<RoomStats | null>(null);
+  const [liveRoomStats, setLiveRoomStats] = React.useState<{
+    prizePool?: number;
+    ticketsSold?: number;
+    activePlayersCount?: number;
+  } | null>(null);
   const [showWinnerModal, setShowWinnerModal] = React.useState<boolean>(true);
   const [liveTickets, setLiveTickets] = React.useState<BingoTicket[]>(tickets || []);
   const [isRefreshing, setIsRefreshing] = React.useState<boolean>(false);

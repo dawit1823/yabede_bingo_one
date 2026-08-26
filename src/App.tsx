@@ -1161,7 +1161,7 @@ export default function App() {
               prizePool: group.prizePool,
               minPlayers: 2,
               maxPlayers: group.maxPlayers,
-              activePlayersCount: group.playerCount,
+              activePlayersCount: group.playerCount || group.activePlayersCount || 0,
               countdownSeconds: group.countdownSeconds,
               status: group.status === 'PLAYING' ? 'PLAYING' : 'WAITING',
               drawnBalls: group.drawnBalls,

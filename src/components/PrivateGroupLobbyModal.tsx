@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, PrivateGroup, GroupMember, GroupMessage, BingoRoom } from '../types';
 import { CardSelectionView } from './CardSelectionView';
 import { formatCardNumber } from '../lib/bingoUtils';
@@ -22,7 +22,8 @@ import {
   RefreshCw,
   Trophy,
   ShieldCheck,
-  Check
+  Check,
+  AlertCircle
 } from 'lucide-react';
 
 interface PrivateGroupLobbyModalProps {
@@ -52,6 +53,8 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
   const [inviteInput, setInviteInput] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [chatText, setChatText] = useState('');
+  const [sendingChat, setSendingChat] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'lobby' | 'chat'>('lobby');
   const [loading, setLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -62,6 +65,19 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
   const [memberToRemove, setMemberToRemove] = useState<string | null>(null);
   const [cancellationNotice, setCancellationNotice] = useState<string | null>(null);
 
+  const userTicketsRef = useRef<any[]>([]);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    userTicketsRef.current = userTickets;
+  }, [userTickets]);
+
+  useEffect(() => {
+    if (activeTab === 'chat' && chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [messages, activeTab]);
+
   // Fetch initial details
   const fetchGroupDetails = async () => {
     try {
@@ -71,7 +87,9 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
         if (data.group) {
           setGroup(data.group);
           setMembers(data.members || []);
-          setMessages(data.messages || []);
+          if (data.messages && Array.isArray(data.messages)) {
+            setMessages(data.messages);
+          }
 
           // Fetch user tickets for this private group
           const tktRes = await fetch(apiUrl(`/api/bingo/room-status/${groupId}?userId=${user.id}`));
@@ -132,7 +150,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
         const handleGroupStarted = (data: { groupId: string; group: PrivateGroup }) => {
           if (data.groupId === groupId && data.group) {
             setGroup(data.group);
-            onPlayActiveGame(data.group, userTickets);
+            onPlayActiveGame(data.group, userTicketsRef.current);
           }
         };
 
@@ -143,10 +161,20 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           }
         };
 
+        const handleNewChatMessage = (msg: GroupMessage) => {
+          if (msg && msg.groupId === groupId) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === msg.id)) return prev;
+              return [...prev, msg];
+            });
+          }
+        };
+
         socket.on('private_group:updated', handleGroupUpdated);
         socket.on('private_group:stats_updated', handleStatsUpdated);
         socket.on('private_group:started', handleGroupStarted);
         socket.on('private_group:cancelled', handleGroupCancelled);
+        socket.on('private_group:message', handleNewChatMessage);
 
         return () => {
           clearInterval(interval);
@@ -155,6 +183,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           socket.off('private_group:stats_updated', handleStatsUpdated);
           socket.off('private_group:started', handleGroupStarted);
           socket.off('private_group:cancelled', handleGroupCancelled);
+          socket.off('private_group:message', handleNewChatMessage);
         };
       }
 
@@ -162,7 +191,33 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
     }
   }, [isOpen, groupId, socket, user.id]);
 
-  if (!isOpen || !group) return null;
+  if (!isOpen) return null;
+
+  if (!group) {
+    return (
+      <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 text-center space-y-4 shadow-2xl">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
+            <RefreshCw className="w-6 h-6 animate-spin text-amber-400" />
+          </div>
+          <div>
+            <h3 className="text-base font-black text-white">
+              {language === 'am' ? 'የግሩፕ መረጃ በመጫን ላይ...' : 'Loading Private Group...'}
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              {language === 'am' ? 'እባክዎ ትንሽ ይጠብቁ' : 'Connecting to private lobby and syncing cards'}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs active:scale-95 transition cursor-pointer"
+          >
+            {language === 'am' ? 'ዝጋ' : 'Close'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (showCardSelection && group) {
     const groupRoom: BingoRoom = {
@@ -401,20 +456,57 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
     }
   };
 
-  const handleSendChat = async () => {
-    if (!chatText.trim()) return;
+  const handleSendChat = async (presetText?: string) => {
+    const textToSend = (typeof presetText === 'string' ? presetText : chatText).trim();
+    if (!textToSend || !group || sendingChat) return;
 
+    setChatError(null);
+    setSendingChat(true);
+    setChatText('');
+
+    const tempId = `gmsg_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const newMsg: GroupMessage = {
-      id: `gmsg_${Date.now()}`,
+      id: tempId,
       groupId: group.id,
       userId: user.id,
-      username: user.username,
-      text: chatText.trim(),
+      username: user.username || 'Player',
+      text: textToSend,
       timestamp: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, newMsg]);
-    setChatText('');
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === newMsg.id)) return prev;
+      return [...prev, newMsg];
+    });
+    triggerHaptic('light');
+
+    if (socket) {
+      socket.emit('private_group:chat', {
+        groupId: group.id,
+        userId: user.id,
+        text: textToSend,
+      });
+    }
+
+    try {
+      const res = await fetch(apiUrl('/api/private-groups/message'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groupId: group.id,
+          userId: user.id,
+          text: textToSend,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.warn('[PrivateGroupChat] Sync error:', data.error);
+      }
+    } catch (err: any) {
+      console.error('[PrivateGroupChat] network error:', err);
+    } finally {
+      setSendingChat(false);
+    }
   };
 
   return (
@@ -626,50 +718,121 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
             </div>
           ) : (
             /* Group Chat Panel */
-            <div className="space-y-2 flex flex-col justify-between">
-              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+            <div className="space-y-3 flex flex-col justify-between">
+              {chatError && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-2 text-red-300 text-[11px] font-bold flex items-center justify-between">
+                  <span>{chatError}</span>
+                  <button onClick={() => setChatError(null)} className="text-red-400 font-bold px-1">✕</button>
+                </div>
+              )}
+
+              <div
+                ref={chatScrollRef}
+                className="space-y-2.5 max-h-[260px] min-h-[160px] overflow-y-auto pr-1 flex flex-col"
+              >
                 {messages.length === 0 ? (
-                  <div className="text-center py-6 text-slate-500 text-xs">
-                    {language === 'am' ? 'መልእክት የለም። ሰላም ይበሉ!' : 'No messages yet. Say hello to the group!'}
+                  <div className="text-center py-6 space-y-3">
+                    <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto text-lg">
+                      💬
+                    </div>
+                    <p className="text-slate-400 text-xs font-medium">
+                      {language === 'am' ? 'መልእክት የለም። ሰላም ይበሉ!' : 'No messages yet. Say hello to the group!'}
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleSendChat('👋 Hello everyone!')}
+                        className="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700 transition active:scale-95 cursor-pointer"
+                      >
+                        👋 Hello everyone!
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendChat('🎟️ Cards chosen, ready to win!')}
+                        className="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700 transition active:scale-95 cursor-pointer"
+                      >
+                        🎟️ Ready to play!
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendChat('🍀 Good luck to all!')}
+                        className="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700 transition active:scale-95 cursor-pointer"
+                      >
+                        🍀 Good luck!
+                      </button>
+                    </div>
                   </div>
                 ) : (
-                  messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`p-2.5 rounded-2xl text-xs ${
-                        msg.system
-                          ? 'bg-amber-500/10 border border-amber-500/20 text-amber-300 text-center font-bold'
-                          : msg.userId === user.id
-                          ? 'bg-amber-500/20 border border-amber-500/30 text-white ml-6'
-                          : 'bg-slate-950 border border-slate-800 text-slate-200 mr-6'
-                      }`}
-                    >
-                      {!msg.system && (
-                        <div className="font-extrabold text-[10px] text-slate-400 mb-0.5">
-                          @{msg.username || 'user'}
-                        </div>
-                      )}
-                      <div>{msg.text}</div>
-                    </div>
-                  ))
+                  messages.map((msg) => {
+                    const isMe = msg.userId === user.id;
+                    const timeStr = msg.timestamp
+                      ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : '';
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`flex flex-col ${
+                          msg.system
+                            ? 'items-center my-1'
+                            : isMe
+                            ? 'items-end ml-8'
+                            : 'items-start mr-8'
+                        }`}
+                      >
+                        {msg.system ? (
+                          <div className="px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-bold">
+                            {msg.text}
+                          </div>
+                        ) : (
+                          <div
+                            className={`p-2.5 rounded-2xl text-xs max-w-full break-words shadow-sm ${
+                              isMe
+                                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-br-xs'
+                                : 'bg-slate-950 border border-slate-800 text-slate-200 rounded-bl-xs'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3 text-[10px] opacity-80 mb-0.5 font-bold">
+                              <span className={isMe ? 'text-emerald-100' : 'text-amber-400'}>
+                                {isMe ? 'You' : `@${msg.username || 'player'}`}
+                              </span>
+                              {timeStr && <span className="text-[9px] opacity-75">{timeStr}</span>}
+                            </div>
+                            <div className="leading-relaxed">{msg.text}</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
 
-              {/* Chat Input */}
+              {/* Chat Input Bar */}
               <div className="flex gap-2 pt-1">
                 <input
                   type="text"
                   value={chatText}
+                  disabled={sendingChat}
                   onChange={(e) => setChatText(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendChat();
+                    }
+                  }}
                   placeholder={language === 'am' ? 'የግሩፕ መልእክት ጻፉ...' : 'Type a group message...'}
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 transition disabled:opacity-50"
                 />
                 <button
-                  onClick={handleSendChat}
-                  className="px-4 py-2.5 rounded-2xl bg-amber-500 text-slate-950 font-bold active:scale-95 transition"
+                  type="button"
+                  disabled={!chatText.trim() || sendingChat}
+                  onClick={() => handleSendChat()}
+                  className="px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:hover:bg-amber-500 text-slate-950 font-bold active:scale-95 transition cursor-pointer flex items-center justify-center shrink-0"
                 >
-                  <Send className="w-4 h-4" />
+                  {sendingChat ? (
+                    <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>

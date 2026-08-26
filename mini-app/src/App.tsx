@@ -487,9 +487,7 @@ export default function App() {
             room={selectedCardRoom}
             user={currentUser}
             onBack={() => setSelectedCardRoom(null)}
-            onProceedToGame={(ticketsCount) => handleJoinActiveGame(selectedCardRoom, ticketsCount)}
-            onOpenDeposit={() => setActiveTab('wallet')}
-            onUpdateBalance={(newBal) => setCurrentUser((prev) => ({ ...prev, walletBalance: newBal }))}
+            onEnterGame={() => handleJoinActiveGame(selectedCardRoom)}
             language={language}
             socket={socket}
           />
@@ -544,7 +542,30 @@ export default function App() {
           <WalletView
             user={currentUser}
             transactions={transactions}
-            onUpdateBalance={(newBal) => setCurrentUser((prev) => ({ ...prev, walletBalance: newBal }))}
+            onDeposit={async (params) => {
+              const res = await fetch(apiUrl('/api/wallet/deposit'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: currentUser.id, ...params }),
+              });
+              const data = await res.json();
+              if (data.success) {
+                refreshUserProfile();
+              }
+              return data;
+            }}
+            onWithdraw={async (params) => {
+              const res = await fetch(apiUrl('/api/wallet/withdraw'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: currentUser.id, ...params }),
+              });
+              const data = await res.json();
+              if (data.success) {
+                refreshUserProfile();
+              }
+              return data;
+            }}
             language={language}
           />
         )}
@@ -554,8 +575,6 @@ export default function App() {
           <BonusesView
             user={currentUser}
             referralStat={referralStat}
-            onUpdateBalance={(newBal) => setCurrentUser((prev) => ({ ...prev, walletBalance: newBal }))}
-            onUpdateBonus={(newBonus) => setCurrentUser((prev) => ({ ...prev, bonusBalance: newBonus }))}
             language={language}
           />
         )}
@@ -563,8 +582,7 @@ export default function App() {
         {/* Leaderboard Tab */}
         {activeTab === 'leaderboard' && (
           <LeaderboardView
-            leaderboard={leaderboard}
-            currentUser={currentUser}
+            entries={leaderboard}
             language={language}
           />
         )}
@@ -572,7 +590,7 @@ export default function App() {
         {/* Game History Tab */}
         {activeTab === 'history' && (
           <GameHistoryView
-            userId={currentUser.id}
+            user={currentUser}
             language={language}
           />
         )}

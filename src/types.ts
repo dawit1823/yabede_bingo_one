@@ -166,7 +166,8 @@ export type RoomStatus =
   | 'FINISHED'
   | 'RESETTING'
   | 'START_FAILED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'WAITING_HOST_DECISION';
 
 export type PrizeDistributionRule = 'WINNER_100' | 'HOST_10_WINNER_90' | 'SPLIT_30_70';
 
@@ -184,6 +185,7 @@ export interface PrivateGroup {
   hostName: string;
   ticketPrice: number;
   maxPlayers: number;
+  playerCount?: number;
   maxTicketsPerPlayer: number;
   winningPattern: WinningPattern;
   prizeDistribution: PrizeDistributionRule;
@@ -416,6 +418,7 @@ export interface AuditLog {
   action: string;
   targetUserId?: string;
   details: string;
+  description?: string;
   reason?: string;
   ipAddress?: string;
   gameReferenceId?: string;

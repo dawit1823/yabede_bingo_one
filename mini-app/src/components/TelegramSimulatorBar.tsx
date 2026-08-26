@@ -5,24 +5,28 @@ import { Moon, Sun, Smartphone, Bot } from 'lucide-react';
 
 interface TelegramSimulatorBarProps {
   currentUser: UserProfile;
-  allDemoUsers: UserProfile[];
+  allDemoUsers?: UserProfile[];
+  demoUsers?: UserProfile[];
   onSwitchUser: (user: UserProfile) => void;
-  isDarkMode: boolean;
-  onToggleTheme: () => void;
-  language: 'en' | 'am';
-  onToggleLanguage: () => void;
+  isDarkMode?: boolean;
+  onToggleTheme?: () => void;
+  language?: 'en' | 'am';
+  onToggleLanguage?: () => void;
   onOpenBot?: () => void;
+  onlineUsersCount?: number;
 }
 
 export const TelegramSimulatorBar: React.FC<TelegramSimulatorBarProps> = ({
   currentUser: _currentUser,
-  allDemoUsers: _allDemoUsers,
+  allDemoUsers,
+  demoUsers,
   onSwitchUser: _onSwitchUser,
   isDarkMode,
   onToggleTheme,
   language,
   onToggleLanguage,
   onOpenBot,
+  onlineUsersCount,
 }) => {
   return (
     <div className="bg-slate-900 border-b border-slate-800 text-slate-200 text-xs py-2 px-3 flex flex-wrap items-center justify-between gap-2 shadow-inner">

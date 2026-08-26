@@ -5,11 +5,17 @@ import { triggerHaptic } from '../lib/telegramSDK';
 interface RegistrationGateModalProps {
   isOpen: boolean;
   onOpenBot: () => void;
+  onClose?: () => void;
+  bonusAmount?: number;
+  language?: 'en' | 'am';
 }
 
 export const RegistrationGateModal: React.FC<RegistrationGateModalProps> = ({
   isOpen,
   onOpenBot,
+  onClose,
+  bonusAmount,
+  language,
 }) => {
   if (!isOpen) return null;
 

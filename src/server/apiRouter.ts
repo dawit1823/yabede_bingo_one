@@ -2951,6 +2951,61 @@ apiRouter.get('/private-groups/details/:idOrCode', (req: Request, res: Response)
   res.json(result);
 });
 
+apiRouter.post('/private-groups/message', (req: Request, res: Response) => {
+  try {
+    const { groupId, userId, text } = req.body;
+    if (!groupId || !userId || !text || !text.trim()) {
+      res.status(400).json({ error: 'groupId, userId, and text are required' });
+      return;
+    }
+
+    const group = db.privateGroups.get(groupId);
+    if (!group) {
+      res.status(404).json({ error: 'Private group not found' });
+      return;
+    }
+
+    const members = db.groupMembers.get(groupId) || [];
+    const isMember = members.some((m) => m.userId === userId && m.status !== 'DECLINED') || group.hostId === userId;
+    if (!isMember) {
+      res.status(403).json({ error: 'Only group members can post messages in this private group' });
+      return;
+    }
+
+    const user = db.getUserById(userId);
+    const username = user?.username || 'Player';
+
+    const msgs = db.groupMessages.get(groupId) || [];
+    const msg = {
+      id: `gmsg_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      groupId,
+      userId,
+      username,
+      text: text.trim(),
+      timestamp: new Date().toISOString(),
+    };
+
+    msgs.push(msg);
+    if (msgs.length > 100) msgs.shift();
+    db.groupMessages.set(groupId, msgs);
+
+    // Save to Firestore
+    firestoreGuard.safeWrite('groupMessages', 'sendPrivateGroupMessage', async () => {
+      await adminDb.collection('groupMessages').doc(msg.id).set(msg);
+    }, false);
+
+    // Broadcast in real-time via Socket.IO
+    const io = getIO();
+    if (io) {
+      io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:message', msg);
+    }
+
+    res.json({ success: true, message: msg });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to send group message' });
+  }
+});
+
 apiRouter.post('/private-groups/invite', (req: Request, res: Response) => {
   try {
     const { groupId, invitedIdentifier, hostUserId } = req.body;

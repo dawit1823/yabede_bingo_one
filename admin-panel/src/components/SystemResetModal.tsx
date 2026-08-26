@@ -18,13 +18,15 @@ import { apiUrl } from '@shared/apiConfig';
 interface SystemResetModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess?: () => void;
+  onResetSuccess?: () => void;
 }
 
 export const SystemResetModal: React.FC<SystemResetModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  onResetSuccess,
 }) => {
   const [confirmationInput, setConfirmationInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -59,7 +61,8 @@ export const SystemResetModal: React.FC<SystemResetModalProps> = ({
       }
 
       setResetResult(data);
-      onSuccess();
+      if (onSuccess) onSuccess();
+      if (onResetSuccess) onResetSuccess();
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to execute system data reset.');
     } finally {

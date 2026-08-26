@@ -340,22 +340,34 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
 
     socket.on('private_group:chat', (data: { groupId: string; userId: string; text: string }) => {
       const { groupId, userId, text } = data;
+      if (!groupId || !userId || !text || !text.trim()) return;
+
+      const group = db.privateGroups.get(groupId);
+      if (!group) return;
+
+      const members = db.groupMembers.get(groupId) || [];
+      const isMember = members.some((m) => m.userId === userId && m.status !== 'DECLINED') || group.hostId === userId;
+      if (!isMember) return;
+
       const user = db.getUserById(userId);
-      if (!user || !text.trim()) return;
+      const username = user?.username || 'Player';
 
       const msgs = db.groupMessages.get(groupId) || [];
       const msg = {
-        id: `gmsg_${Date.now()}`,
+        id: `gmsg_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
         groupId,
         userId,
-        username: user.username,
+        username,
         text: text.trim(),
         timestamp: new Date().toISOString(),
       };
 
       msgs.push(msg);
-      if (msgs.length > 50) msgs.shift();
+      if (msgs.length > 100) msgs.shift();
       db.groupMessages.set(groupId, msgs);
+
+      // Async Firestore write
+      adminDb.collection('groupMessages').doc(msg.id).set(msg).catch(() => {});
 
       io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:message', msg);
     });
