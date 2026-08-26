@@ -66,47 +66,32 @@ const CardItem = React.memo<CardItemProps>(
       <button
         disabled={isDisabled}
         onClick={() => onToggle(num)}
-        className={`py-3 px-2 rounded-2xl border text-center transition flex flex-col items-center justify-center gap-0.5 relative active:scale-95 touch-manipulation min-h-[52px] cursor-pointer ${
+        className={`py-1 px-0.5 rounded-lg border text-center transition flex flex-col items-center justify-center gap-0.5 relative active:scale-95 touch-manipulation min-h-[30px] cursor-pointer ${
           isPurchasedByMe
-            ? 'bg-emerald-600 text-white border-emerald-300 shadow-lg font-black ring-2 ring-emerald-400 hover:bg-emerald-700'
+            ? 'bg-emerald-600 text-white border-emerald-300 shadow-sm font-black ring-1 ring-emerald-400 hover:bg-emerald-700'
             : isReservedByMe
-            ? 'bg-emerald-500 text-white border-emerald-300 shadow-md font-black ring-2 ring-emerald-300 hover:bg-emerald-600 animate-pulse'
+            ? 'bg-emerald-500 text-white border-emerald-300 shadow-sm font-black ring-1 ring-emerald-300 hover:bg-emerald-600 animate-pulse'
             : isPurchasedByOther
-            ? 'bg-red-600/90 text-white border-red-700 font-bold opacity-90 cursor-not-allowed shadow-sm'
+            ? 'bg-red-600/90 text-white border-red-700 font-bold opacity-90 cursor-not-allowed shadow-none'
             : isReservedByOther
-            ? 'bg-amber-500 text-slate-950 border-amber-600 font-bold opacity-90 cursor-not-allowed shadow-sm'
-            : 'bg-white text-slate-900 border-slate-300 hover:bg-emerald-50 font-extrabold shadow-sm'
+            ? 'bg-amber-500 text-slate-950 border-amber-600 font-bold opacity-90 cursor-not-allowed shadow-none'
+            : 'bg-white text-slate-900 border-slate-300 hover:bg-emerald-50 font-extrabold shadow-none'
         }`}
       >
-        <span className="text-xs font-black tracking-tight">{formatCardNumber(num)}</span>
+        <span className="text-[10px] font-black tracking-tight leading-none">{formatCardNumber(num)}</span>
         <span
-          className={`text-[8px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tighter ${
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
             isPurchasedByMe
-              ? 'bg-emerald-950/80 text-emerald-100 border border-emerald-300'
+              ? 'bg-emerald-200'
               : isReservedByMe
-              ? 'bg-emerald-950/80 text-emerald-100 border border-emerald-300'
+              ? 'bg-emerald-200 animate-ping'
               : isPurchasedByOther
-              ? 'bg-red-950/80 text-red-100 border border-red-400'
+              ? 'bg-red-200'
               : isReservedByOther
-              ? 'bg-amber-950/80 text-amber-100 border border-amber-400'
-              : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+              ? 'bg-amber-950'
+              : 'bg-emerald-400'
           }`}
-        >
-          {isPurchasedByMe
-            ? 'CONFIRMED'
-            : isReservedByMe
-            ? 'SELECTED'
-            : isPurchasedByOther
-            ? 'SOLD'
-            : isReservedByOther
-            ? 'HOLD'
-            : 'AVAILABLE'}
-        </span>
-        {isPurchasedByOther && reservation?.username && (
-          <span className="text-[8px] text-slate-200 font-mono truncate max-w-full">
-            @{reservation.username}
-          </span>
-        )}
+        />
       </button>
     );
   },
@@ -148,7 +133,7 @@ const BingoCardGrid = React.memo<BingoCardGridProps>(
     onToggleCard,
   }) => {
     return (
-      <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2.5 max-h-[calc(100vh-280px)] sm:max-h-[calc(100vh-300px)] min-h-[320px] overflow-y-auto pr-1 pb-6 scroll-smooth">
+      <div className="grid grid-cols-7 sm:grid-cols-9 md:grid-cols-10 gap-1 max-h-[calc(100vh-280px)] sm:max-h-[calc(100vh-300px)] min-h-[320px] overflow-y-auto pr-1 pb-6 scroll-smooth">
         {filteredCards.map((num) => {
           const res = reservations[num];
           const isOptimistic = optimisticSelections.has(num);

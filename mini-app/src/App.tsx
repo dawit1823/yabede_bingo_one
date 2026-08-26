@@ -510,14 +510,28 @@ export default function App() {
             onClaimBingo={handleClaimBingo}
             onReturnToCardSelection={() => {
               if (activeRoom) {
-                setSelectedCardRoom(activeRoom);
-                setActiveTab('home');
+                if (activeRoom.id.startsWith('grp_') || activeRoom.id.startsWith('private_')) {
+                  const grpId = activeRoom.id;
+                  setActiveRoom(null);
+                  setActiveTab('home');
+                  setActivePrivateGroupId(grpId);
+                } else {
+                  setSelectedCardRoom(activeRoom);
+                  setActiveTab('home');
+                }
               }
             }}
             onPlayAgain={() => {
               if (activeRoom) {
-                setSelectedCardRoom(activeRoom);
-                setActiveTab('home');
+                if (activeRoom.id.startsWith('grp_') || activeRoom.id.startsWith('private_')) {
+                  const grpId = activeRoom.id;
+                  setActiveRoom(null);
+                  setActiveTab('home');
+                  setActivePrivateGroupId(grpId);
+                } else {
+                  setSelectedCardRoom(activeRoom);
+                  setActiveTab('home');
+                }
               }
             }}
             language={language}
@@ -634,6 +648,31 @@ export default function App() {
           groupId={activePrivateGroupId}
           isOpen={Boolean(activePrivateGroupId)}
           onClose={() => setActivePrivateGroupId(null)}
+          onPlayActiveGame={(grp, tickets) => {
+            const groupRoom: BingoRoom = {
+              id: grp.id,
+              name: grp.name,
+              description: `Private Group Game (Code: ${grp.code})`,
+              icon: '🎟️',
+              ticketPrice: grp.ticketPrice,
+              minPlayers: 2,
+              maxPlayers: grp.maxPlayers,
+              status: grp.status === 'LOBBY' ? 'WAITING' : grp.status === 'COUNTDOWN' ? 'COUNTDOWN' : grp.status === 'PLAYING' ? 'PLAYING' : 'FINISHED',
+              currentBall: grp.currentBall ?? null,
+              drawnBalls: grp.drawnBalls || [],
+              winningPatterns: [grp.winningPattern],
+              prizePool: grp.prizePool,
+              countdownSeconds: grp.countdownSeconds || 0,
+              activePlayersCount: grp.activePlayersCount || 0,
+              ticketsSold: grp.ticketsSold || 0,
+              gameReferenceId: grp.gameReferenceId,
+              createdAt: grp.createdAt,
+            };
+            setActiveRoom(groupRoom);
+            setUserTickets(tickets);
+            setActivePrivateGroupId(null);
+            setActiveTab('active_game');
+          }}
           user={currentUser}
           language={language}
           socket={socket}

@@ -3219,14 +3219,15 @@ apiRouter.get('/bingo/room-status/:roomId', async (req: Request, res: Response) 
     }
 
     // In-memory active card reservations (zero Firestore read quota)
-    const reservations: Record<number, any> = ticketManager.getRoomReservations(roomId, room.gameReferenceId);
+    const canonicalRoomId = room.id;
+    const reservations: Record<number, any> = ticketManager.getRoomReservations(canonicalRoomId, room.gameReferenceId);
 
     let myTickets: BingoTicket[] = [];
     if (userId) {
       const userIdStr = String(userId);
       myTickets = Array.from(db.tickets.values()).filter(
         (t) =>
-          t.roomId === roomId &&
+          (t.roomId === canonicalRoomId || t.roomId === roomId) &&
           t.userId === userIdStr &&
           t.status === 'ACTIVE' &&
           (!room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId)

@@ -180,6 +180,8 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
       prizePool: group.prizePool,
       countdownSeconds: group.countdownSeconds || 0,
       activePlayersCount: members.length,
+      ticketsSold: group.ticketsSold || 0,
+      gameReferenceId: group.gameReferenceId,
       createdAt: group.createdAt,
     };
 
@@ -417,7 +419,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-3xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl flex flex-col my-auto max-h-[92vh] sm:max-h-[88vh] overflow-y-auto space-y-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-3xl w-full max-w-lg mx-auto sm:my-8 my-2 px-3 sm:px-6 py-4 sm:py-6 shadow-2xl flex flex-col my-auto max-h-[92vh] sm:max-h-[88vh] overflow-y-auto space-y-4">
         {/* Header Bar */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-2 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">

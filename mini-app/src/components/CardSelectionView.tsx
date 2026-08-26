@@ -66,47 +66,32 @@ const CardItem = React.memo<CardItemProps>(
       <button
         disabled={isDisabled}
         onClick={() => onToggle(num)}
-        className={`py-3 px-2 rounded-2xl border text-center transition flex flex-col items-center justify-center gap-0.5 relative active:scale-95 touch-manipulation min-h-[52px] cursor-pointer ${
+        className={`py-1 px-0.5 rounded-lg border text-center transition flex flex-col items-center justify-center gap-0.5 relative active:scale-95 touch-manipulation min-h-[30px] cursor-pointer ${
           isPurchasedByMe
-            ? 'bg-emerald-600 text-white border-emerald-300 shadow-lg font-black ring-2 ring-emerald-400 hover:bg-emerald-700'
+            ? 'bg-emerald-600 text-white border-emerald-300 shadow-sm font-black ring-1 ring-emerald-400 hover:bg-emerald-700'
             : isReservedByMe
-            ? 'bg-emerald-500 text-white border-emerald-300 shadow-md font-black ring-2 ring-emerald-300 hover:bg-emerald-600 animate-pulse'
+            ? 'bg-emerald-500 text-white border-emerald-300 shadow-sm font-black ring-1 ring-emerald-300 hover:bg-emerald-600 animate-pulse'
             : isPurchasedByOther
-            ? 'bg-red-600/90 text-white border-red-700 font-bold opacity-90 cursor-not-allowed shadow-sm'
+            ? 'bg-red-600/90 text-white border-red-700 font-bold opacity-90 cursor-not-allowed shadow-none'
             : isReservedByOther
-            ? 'bg-amber-500 text-slate-950 border-amber-600 font-bold opacity-90 cursor-not-allowed shadow-sm'
-            : 'bg-white text-slate-900 border-slate-300 hover:bg-emerald-50 font-extrabold shadow-sm'
+            ? 'bg-amber-500 text-slate-950 border-amber-600 font-bold opacity-90 cursor-not-allowed shadow-none'
+            : 'bg-white text-slate-900 border-slate-300 hover:bg-emerald-50 font-extrabold shadow-none'
         }`}
       >
-        <span className="text-xs font-black tracking-tight">{formatCardNumber(num)}</span>
+        <span className="text-[10px] font-black tracking-tight leading-none">{formatCardNumber(num)}</span>
         <span
-          className={`text-[8px] font-black px-1.5 py-0.2 rounded-full uppercase tracking-tighter ${
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
             isPurchasedByMe
-              ? 'bg-emerald-950/80 text-emerald-100 border border-emerald-300'
+              ? 'bg-emerald-200'
               : isReservedByMe
-              ? 'bg-emerald-950/80 text-emerald-100 border border-emerald-300'
+              ? 'bg-emerald-200 animate-ping'
               : isPurchasedByOther
-              ? 'bg-red-950/80 text-red-100 border border-red-400'
+              ? 'bg-red-200'
               : isReservedByOther
-              ? 'bg-amber-950/80 text-amber-100 border border-amber-400'
-              : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+              ? 'bg-amber-950'
+              : 'bg-emerald-400'
           }`}
-        >
-          {isPurchasedByMe
-            ? 'CONFIRMED'
-            : isReservedByMe
-            ? 'SELECTED'
-            : isPurchasedByOther
-            ? 'SOLD'
-            : isReservedByOther
-            ? 'HOLD'
-            : 'AVAILABLE'}
-        </span>
-        {isPurchasedByOther && reservation?.username && (
-          <span className="text-[8px] text-slate-200 font-mono truncate max-w-full">
-            @{reservation.username}
-          </span>
-        )}
+        />
       </button>
     );
   },
@@ -148,7 +133,7 @@ const BingoCardGrid = React.memo<BingoCardGridProps>(
     onToggleCard,
   }) => {
     return (
-      <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2.5 max-h-[calc(100vh-280px)] sm:max-h-[calc(100vh-320px)] min-h-[300px] overflow-y-auto pr-1 pb-32 sm:pb-36 scroll-smooth">
+      <div className="grid grid-cols-7 sm:grid-cols-9 md:grid-cols-10 gap-1 max-h-[calc(100vh-280px)] sm:max-h-[calc(100vh-320px)] min-h-[300px] overflow-y-auto pr-1 pb-24 sm:pb-28 scroll-smooth">
         {filteredCards.map((num) => {
           const res = reservations[num];
           const isOptimistic = optimisticSelections.has(num);
@@ -187,11 +172,11 @@ const SelectedCardPreviewItem = React.memo<{
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, scale: 0.8, y: 15 }}
+      initial={{ opacity: 0, scale: 0.8, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.8, y: 15 }}
-      transition={{ duration: 0.2, ease: 'easeOut' }}
-      className={`border-2 rounded-2xl p-2.5 min-w-[150px] max-w-[160px] shrink-0 snap-center shadow-xl flex flex-col justify-between gap-1.5 relative transition-colors ${
+      exit={{ opacity: 0, scale: 0.8, y: 10 }}
+      transition={{ duration: 0.15, ease: 'easeOut' }}
+      className={`border rounded-xl p-1 min-w-[80px] max-w-[90px] shrink-0 snap-center shadow-md flex flex-col justify-between gap-1 relative transition-colors ${
         isConfirmed
           ? 'bg-slate-900 border-emerald-500 shadow-emerald-950/40'
           : isOptimistic
@@ -199,14 +184,16 @@ const SelectedCardPreviewItem = React.memo<{
           : 'bg-slate-900 border-emerald-400/80'
       }`}
     >
-      {/* Top Header */}
-      <div className="flex items-center justify-between gap-1 border-b border-slate-800 pb-1">
-        <div className="flex flex-col">
-          <span className="text-[11px] font-black text-emerald-400 leading-tight">
-            Card {formatCardNumber(cardNumber)}
-          </span>
-          <span className="text-[9px] font-bold text-amber-300 font-mono">
-            {ticketPrice} Birr
+      {/* Top Header with mini dot and close button */}
+      <div className="flex items-center justify-between gap-0.5 border-b border-slate-800 pb-0.5">
+        <div className="flex items-center gap-1 min-w-0">
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+              isConfirmed ? 'bg-emerald-400' : isOptimistic ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'
+            }`}
+          />
+          <span className="text-[10px] font-black text-emerald-400 leading-none truncate">
+            #{formatCardNumber(cardNumber)}
           </span>
         </div>
 
@@ -216,58 +203,23 @@ const SelectedCardPreviewItem = React.memo<{
             e.stopPropagation();
             onDeselect(cardNumber);
           }}
-          className="p-1 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/40 border border-red-500/30 transition text-[10px] font-bold shrink-0 active:scale-95 disabled:opacity-50 cursor-pointer"
+          className="p-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/40 border border-red-500/30 transition text-[8px] font-bold shrink-0 active:scale-95 disabled:opacity-50 cursor-pointer"
           title="Deselect Card"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="w-2.5 h-2.5" />
         </button>
       </div>
 
-      {/* Selection Status Badge */}
-      <div className="flex items-center justify-between text-[8px] font-black uppercase">
-        <span
-          className={`px-1.5 py-0.5 rounded-full flex items-center gap-1 border ${
-            isConfirmed
-              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-              : isOptimistic
-              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-              : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-          }`}
-        >
-          {isConfirmed ? (
-            <>
-              <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" />
-              <span>{language === 'am' ? 'የተረጋገጠ' : 'CONFIRMED'}</span>
-            </>
-          ) : isOptimistic ? (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping inline-block" />
-              <span>{language === 'am' ? 'በመምረጥ ላይ...' : 'SELECTING...'}</span>
-            </>
-          ) : (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-              <span>{language === 'am' ? 'የተመረጠ' : 'SELECTED'}</span>
-            </>
-          )}
-        </span>
-      </div>
-
-      {/* Mini 5x5 Grid Preview */}
-      <div className="grid grid-cols-5 gap-0.5 text-center text-[7px] font-mono font-black">
-        {['B', 'I', 'N', 'G', 'O'].map((l, idx) => (
-          <div key={idx} className="text-amber-400 font-sans text-[7px] font-black">
-            {l}
-          </div>
-        ))}
+      {/* Mini 5x5 Grid Preview without header labels to save vertical space */}
+      <div className="grid grid-cols-5 gap-0.5 text-center text-[6px] font-mono font-bold leading-none">
         {matrix.map((row, rIdx) =>
           row.map((cell, cIdx) => (
             <div
               key={`${rIdx}-${cIdx}`}
-              className={`p-0.5 rounded text-[7px] ${
+              className={`p-0.5 rounded-[2px] ${
                 cell === 'FREE'
-                  ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40 font-black'
-                  : 'bg-slate-800 text-slate-200'
+                  ? 'bg-amber-500/40 text-amber-300 font-black'
+                  : 'bg-slate-800/90 text-slate-300'
               }`}
             >
               {cell === 'FREE' ? '★' : cell}
@@ -310,17 +262,17 @@ export const SelectedCardsPanel: React.FC<SelectedCardsPanelProps> = React.memo(
 
   if (mySelectedCards.length === 0) {
     return (
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-3 pb-safe shadow-lg">
-        <div className="max-w-3xl mx-auto flex items-center justify-between gap-3 text-xs text-slate-400 px-1">
-          <div className="flex items-center gap-2">
-            <Grid className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="font-semibold text-slate-300 text-[11px] sm:text-xs">
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/90 backdrop-blur-md border-t border-slate-800 p-2 pb-safe shadow-lg">
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-2 text-xs text-slate-400 px-1">
+          <div className="flex items-center gap-1.5">
+            <Grid className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="font-semibold text-slate-300 text-[10px] sm:text-xs">
               {language === 'am'
                 ? 'ምንም ካርድ አልተመረጠም • ለመምረጥ ከላይ ያሉትን ካርዶች ይንኩ'
-                : 'No cards selected • Tap any available card above to select'}
+                : 'No cards selected • Tap any card to select'}
             </span>
           </div>
-          <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg shrink-0">
+          <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md shrink-0">
             {liveRoom.ticketPrice || 0} Birr / Card
           </span>
         </div>
@@ -329,33 +281,29 @@ export const SelectedCardsPanel: React.FC<SelectedCardsPanelProps> = React.memo(
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-xl border-t-2 border-emerald-500/50 p-3 sm:p-4 pb-safe shadow-[0_-12px_40px_rgba(0,0,0,0.85)]">
-      <div className="max-w-3xl mx-auto space-y-2.5">
-        {/* Header */}
+    <div className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/95 backdrop-blur-xl border-t border-emerald-500/40 p-2 sm:p-2.5 pb-safe shadow-[0_-8px_30px_rgba(0,0,0,0.85)]">
+      <div className="max-w-3xl mx-auto space-y-1.5">
+        {/* Compact Header */}
         <div className="flex items-center justify-between text-xs font-black text-slate-200 px-1">
-          <div className="flex items-center gap-2">
-            <div className="p-1 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
-              <Trophy className="w-3.5 h-3.5" />
-            </div>
-            <div>
-              <span className="text-emerald-400 font-black text-xs sm:text-sm">
-                {language === 'am' ? 'የተመረጡ ካርዶች' : 'Selected Cards'} ({mySelectedCards.length})
-              </span>
-              <span className="text-[10px] text-slate-400 block font-normal">
-                {totalPrice} Birr Total
-              </span>
-            </div>
+          <div className="flex items-center gap-1.5">
+            <Trophy className="w-3 h-3 text-emerald-400" />
+            <span className="text-emerald-400 font-black text-xs">
+              {language === 'am' ? 'የተመረጡ' : 'Selected'} ({mySelectedCards.length})
+            </span>
+            <span className="text-[10px] text-amber-300 font-mono">
+              • {totalPrice} Birr
+            </span>
           </div>
 
-          <span className="text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-full font-bold">
-            {language === 'am' ? 'ለማስወገድ X ይጫኑ' : 'Tap X to deselect'}
+          <span className="text-[9px] text-slate-400">
+            {language === 'am' ? 'ለማስወገድ X ይጫኑ' : 'Tap X to remove'}
           </span>
         </div>
 
-        {/* Horizontal Scrollable Selected Cards List with Motion Animations */}
+        {/* Horizontal Scrollable Selected Cards List */}
         <div
           ref={horizontalScrollRef}
-          className="flex gap-2.5 overflow-x-auto pb-1.5 pt-0.5 px-0.5 snap-x snap-mandatory touch-pan-x scroll-smooth no-scrollbar"
+          className="flex gap-1.5 overflow-x-auto pb-1 pt-0.5 px-0.5 snap-x snap-mandatory touch-pan-x scroll-smooth no-scrollbar"
         >
           <AnimatePresence mode="popLayout">
             {mySelectedCards.map((card) => (
@@ -372,7 +320,7 @@ export const SelectedCardsPanel: React.FC<SelectedCardsPanelProps> = React.memo(
           </AnimatePresence>
         </div>
 
-        {/* Enter Game Arena / Confirm Button */}
+        {/* Compact Enter Game Arena Button */}
         <button
           onClick={() => {
             if (onEnterGame) {
@@ -381,19 +329,19 @@ export const SelectedCardsPanel: React.FC<SelectedCardsPanelProps> = React.memo(
               onBack();
             }
           }}
-          className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-white font-black text-xs sm:text-sm shadow-2xl border border-emerald-300 flex items-center justify-between hover:brightness-110 active:scale-[0.98] transition cursor-pointer"
+          className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-white font-black text-xs shadow-lg border border-emerald-300/40 flex items-center justify-between hover:brightness-110 active:scale-[0.98] transition cursor-pointer"
         >
-          <div className="flex items-center gap-2.5">
-            <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
             <span>
               {language === 'am'
-                ? `${mySelectedCards.length} ካርድ ${mySelectedCards.length > 1 ? 'ዎች' : ''} ተመርጠዋል • ወደ ጨዋታው ግባ`
-                : `${mySelectedCards.length} Card${mySelectedCards.length > 1 ? 's' : ''} Selected • Enter Game Arena`}
+                ? `${mySelectedCards.length} ካርድ • ወደ ጨዋታው ግባ`
+                : `${mySelectedCards.length} Card${mySelectedCards.length > 1 ? 's' : ''} • Enter Game`}
             </span>
           </div>
-          <div className="flex items-center gap-1.5 bg-slate-950/40 px-3 py-1 rounded-xl text-amber-300 text-xs font-black border border-amber-400/30">
+          <div className="flex items-center gap-1 bg-slate-950/40 px-2 py-0.5 rounded-lg text-amber-300 text-[10px] font-black">
             <span>{language === 'am' ? 'ጀምር' : 'JOIN'}</span>
-            <ArrowLeft className="w-4 h-4 rotate-180" />
+            <ArrowLeft className="w-3 h-3 rotate-180" />
           </div>
         </button>
       </div>

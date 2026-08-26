@@ -7,7 +7,7 @@ import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds } fro
 import { apiUrl } from '@shared/apiConfig';
 import { logger } from '@shared/logger';
 import confetti from 'canvas-confetti';
-import { MessageSquare, Send, Sparkles, Trophy, Volume2, CheckCircle2, AlertCircle, History, RefreshCw, ChevronDown, ChevronUp, Grid } from 'lucide-react';
+import { MessageSquare, Send, Sparkles, Trophy, Volume2, CheckCircle2, AlertCircle, History, RefreshCw, ChevronDown, ChevronUp, Grid, Users } from 'lucide-react';
 
 interface ActiveGameViewProps {
   room: BingoRoom;
@@ -668,9 +668,21 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
               </div>
             )}
 
-            <div className="pt-2 text-[11px] text-amber-300 font-extrabold animate-pulse">
-              ⏱ Next Game Round Starting Shortly ({activeCountdown}s)...
-            </div>
+            {room.id.startsWith('grp_') || room.id.startsWith('private_') ? (
+              <div className="pt-3 space-y-2 max-w-sm mx-auto">
+                <button
+                  onClick={() => onReturnToCardSelection && onReturnToCardSelection()}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                >
+                  <Users className="w-4 h-4" />
+                  <span>{language === 'am' ? 'ወደ ግሩፕ ሎቢ ተመለስ' : 'Return to Private Group Lobby'}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="pt-2 text-[11px] text-amber-300 font-extrabold animate-pulse">
+                ⏱ Next Game Round Starting Shortly ({activeCountdown}s)...
+              </div>
+            )}
           </div>
         </div>
       ) : (

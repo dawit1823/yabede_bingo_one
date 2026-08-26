@@ -54,8 +54,14 @@ export class TicketManager {
     const resMap: Record<number, CardReservation> = {};
     const now = Date.now();
 
+    // Resolve canonical group id / code if this is a private group
+    const groupRes = db.getPrivateGroupByIdOrCode(roomId);
+    const group = groupRes?.group || db.privateGroups.get(roomId);
+    const targetRoomId = group ? group.id : roomId;
+    const targetGroupCode = group ? group.code : null;
+
     for (const [key, res] of this.inMemoryReservations.entries()) {
-      if (res.roomId === roomId) {
+      if (res.roomId === roomId || res.roomId === targetRoomId || (targetGroupCode && res.roomId === targetGroupCode)) {
         // Filter by gameReferenceId to isolate rounds logically
         if (gameReferenceId && res.gameReferenceId && res.gameReferenceId !== gameReferenceId) {
           continue;
@@ -72,13 +78,13 @@ export class TicketManager {
     // Merge in-memory active tickets as SOLD to ensure consistency
     for (const ticket of db.tickets.values()) {
       if (
-        ticket.roomId === roomId &&
+        (ticket.roomId === roomId || ticket.roomId === targetRoomId || (targetGroupCode && ticket.roomId === targetGroupCode)) &&
         ticket.status === 'ACTIVE' &&
         (!gameReferenceId || !ticket.gameReferenceId || ticket.gameReferenceId === gameReferenceId)
       ) {
         if (!resMap[ticket.cardNumber]) {
           resMap[ticket.cardNumber] = {
-            id: `${roomId}_${ticket.cardNumber}`,
+            id: `${targetRoomId}_${ticket.cardNumber}`,
             roomId: ticket.roomId,
             gameReferenceId: ticket.gameReferenceId,
             cardNumber: ticket.cardNumber,
