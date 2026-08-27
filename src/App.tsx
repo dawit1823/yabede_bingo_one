@@ -32,6 +32,7 @@ import { PrivateGroupLobbyModal } from './components/PrivateGroupLobbyModal';
 import { TelegramBotModal } from './components/TelegramBotModal';
 import { RegistrationGateModal } from './components/RegistrationGateModal';
 import { TelegramPhoneVerificationModal } from './components/TelegramPhoneVerificationModal';
+import { ConfettiOverlay } from './components/ConfettiOverlay';
 import { Wrench } from 'lucide-react';
 import { getRemainingSeconds } from './lib/bingoUtils';
 import { apiUrl, getSocketUrl } from './lib/apiConfig';
@@ -1246,6 +1247,9 @@ export default function App() {
           setIsBotOpen(true);
         }}
       />
+
+      {/* Confetti Celebration Animation */}
+      <ConfettiOverlay trigger={Boolean(winNotification)} />
 
       {/* OFF-PAGE BINGO WIN CELEBRATION MODAL */}
       {winNotification && (

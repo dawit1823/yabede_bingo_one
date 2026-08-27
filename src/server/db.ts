@@ -1689,19 +1689,22 @@ class FirestoreDatabaseStore {
     const group = this.privateGroups.get(groupId);
     if (!group) return null;
 
-    const activeTickets = Array.from(this.tickets.values()).filter(
-      (t) => t.roomId === groupId && t.status === 'ACTIVE'
+    const roundTickets = Array.from(this.tickets.values()).filter(
+      (t) =>
+        t.roomId === groupId &&
+        (!group.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === group.gameReferenceId) &&
+        (t.status === 'ACTIVE' || t.status === 'BINGO_CLAIMED' || t.status === 'COMPLETED')
     );
 
     const members = this.groupMembers.get(groupId) || [];
     const sumMemberTickets = members.reduce((acc, m) => acc + (m.ticketCount || 0), 0);
-    const ticketsSold = Math.max(activeTickets.length, sumMemberTickets);
+    const ticketsSold = Math.max(roundTickets.length, sumMemberTickets);
 
     const totalSales = ticketsSold * group.ticketPrice;
     const platformFee = Math.round(totalSales * 0.1);
-    const prizePool = Math.max(0, totalSales - (totalSales * 0.1));
+    const prizePool = Math.max(0, totalSales - platformFee);
     const uniquePlayers = new Set([
-      ...activeTickets.map((t) => t.userId),
+      ...roundTickets.map((t) => t.userId),
       ...members.filter((m) => (m.ticketCount || 0) > 0).map((m) => m.userId),
     ]).size;
 
@@ -1710,7 +1713,7 @@ class FirestoreDatabaseStore {
     group.totalSales = totalSales;
     group.platformFee = platformFee;
     group.prizePool = prizePool;
-    group.activePlayersCount = uniquePlayers;
+    group.activePlayersCount = Math.max(uniquePlayers, members.length > 0 ? 1 : 0);
 
     adminDb.collection('groupGames').doc(group.id).set({
       ticketsSold,
@@ -1718,7 +1721,7 @@ class FirestoreDatabaseStore {
       totalSales,
       platformFee,
       prizePool,
-      activePlayersCount: uniquePlayers,
+      activePlayersCount: group.activePlayersCount,
       updatedAt: new Date().toISOString(),
     }, { merge: true }).catch(console.error);
 
@@ -1728,7 +1731,7 @@ class FirestoreDatabaseStore {
       totalSales,
       platformFee,
       prizePool,
-      activePlayersCount: uniquePlayers,
+      activePlayersCount: group.activePlayersCount,
     };
   }
 

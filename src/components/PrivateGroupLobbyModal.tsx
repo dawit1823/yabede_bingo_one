@@ -161,6 +161,34 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           }
         };
 
+        const handleWaitingHost = (data: { groupId?: string; group?: PrivateGroup; winners?: any[] }) => {
+          if (data && (data.groupId === groupId || !data.groupId)) {
+            if (data.group) setGroup(data.group);
+            fetchGroupDetails();
+          }
+        };
+
+        const handleGroupEnded = (data: { groupId?: string; group?: PrivateGroup }) => {
+          if (data && (data.groupId === groupId || !data.groupId)) {
+            if (data.group) setGroup(data.group);
+            fetchGroupDetails();
+          }
+        };
+
+        const handlePlayAgainEvent = (data: { groupId?: string; group?: PrivateGroup }) => {
+          if (data && data.groupId === groupId) {
+            if (data.group) setGroup(data.group);
+            setUserTickets([]);
+            fetchGroupDetails();
+          }
+        };
+
+        const handleGroupClosed = (data: { groupId?: string; message?: string }) => {
+          if (data && data.groupId === groupId) {
+            onClose();
+          }
+        };
+
         const handleNewChatMessage = (msg: GroupMessage) => {
           if (msg && msg.groupId === groupId) {
             setMessages((prev) => {
@@ -183,6 +211,10 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
         socket.on('private_group:stats_updated', handleStatsUpdated);
         socket.on('private_group:started', handleGroupStarted);
         socket.on('private_group:cancelled', handleGroupCancelled);
+        socket.on('private_group:waiting_host', handleWaitingHost);
+        socket.on('private_group:ended', handleGroupEnded);
+        socket.on('private_group:play_again', handlePlayAgainEvent);
+        socket.on('private_group:closed', handleGroupClosed);
         socket.on('private_group:message', handleNewChatMessage);
 
         return () => {
@@ -192,6 +224,10 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           socket.off('private_group:stats_updated', handleStatsUpdated);
           socket.off('private_group:started', handleGroupStarted);
           socket.off('private_group:cancelled', handleGroupCancelled);
+          socket.off('private_group:waiting_host', handleWaitingHost);
+          socket.off('private_group:ended', handleGroupEnded);
+          socket.off('private_group:play_again', handlePlayAgainEvent);
+          socket.off('private_group:closed', handleGroupClosed);
           socket.off('private_group:message', handleNewChatMessage);
         };
       }
@@ -415,6 +451,55 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
       fetchGroupDetails();
     } catch (err: any) {
       setActionError(err.message || 'Error cancelling game');
+    }
+  };
+
+  const handlePlayAgain = async () => {
+    setActionError(null);
+    try {
+      const res = await fetch(apiUrl('/api/private-groups/play-again'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groupId: group.id,
+          hostUserId: user.id,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to restart game');
+      }
+
+      triggerHaptic('heavy');
+      setUserTickets([]);
+      fetchGroupDetails();
+    } catch (err: any) {
+      setActionError(err.message || 'Error restarting game');
+    }
+  };
+
+  const handleCloseGroup = async () => {
+    setActionError(null);
+    try {
+      const res = await fetch(apiUrl('/api/private-groups/close-group'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groupId: group.id,
+          hostUserId: user.id,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to close group');
+      }
+
+      triggerHaptic('medium');
+      onClose();
+    } catch (err: any) {
+      setActionError(err.message || 'Error closing group');
     }
   };
 
@@ -961,11 +1046,91 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           {group.status === 'PLAYING' && (
             <button
               onClick={() => onPlayActiveGame(group, userTickets)}
-              className="w-full min-h-[48px] py-3.5 rounded-2xl bg-gradient-to-r from-red-500 to-amber-500 text-white font-black text-sm shadow-xl shadow-red-500/25 animate-pulse flex items-center justify-center gap-2"
+              className="w-full min-h-[48px] py-3.5 rounded-2xl bg-gradient-to-r from-red-500 to-amber-500 text-white font-black text-sm shadow-xl shadow-red-500/25 animate-pulse flex items-center justify-center gap-2 cursor-pointer"
             >
               <Sparkles className="w-5 h-5" />
               <span>{language === 'am' ? 'ጨዋታው ጀምሯል! ወደ ጨዋታው ግባ' : 'GAME IS LIVE! Join Drawing Canvas'}</span>
             </button>
+          )}
+
+          {(group.status === 'WAITING_HOST_DECISION' || group.status === 'FINISHED') && (
+            <div className="space-y-3">
+              <div className="bg-slate-950 border border-amber-500/30 rounded-2xl p-4 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto text-2xl font-black border border-amber-500/40">
+                  🏆
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-white">
+                    {language === 'am' ? 'የጨዋታው አሸናፊዎች' : 'Game Finished - Winners Announced'}
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    {language === 'am' ? 'ሽልማቱ በቀጥታ ወደ አሸናፊዎች ቦርሳ ገብቷል' : 'Winnings have been credited directly to player wallets'}
+                  </p>
+                </div>
+
+                {group.lastWinners && group.lastWinners.length > 0 ? (
+                  <div className="space-y-2 max-h-[160px] overflow-y-auto">
+                    {group.lastWinners.map((w: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 flex items-center justify-between gap-2"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-7 h-7 rounded-full bg-amber-500/20 text-amber-300 flex items-center justify-center font-bold text-xs shrink-0">
+                            #{idx + 1}
+                          </div>
+                          <div className="text-left min-w-0">
+                            <p className="text-xs font-bold text-white truncate">@{w.username || 'Player'}</p>
+                            <p className="text-[10px] text-slate-400">
+                              Card #{formatCardNumber(w.cardNumber || 1)} • {w.patternName || w.pattern}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-xs font-black text-emerald-400 block">
+                            +{(w.prizeAmount ?? 0).toLocaleString()} Birr
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-400 py-1">
+                    {language === 'am' ? 'ምንም አሸናፊ አልተገኘም' : 'Game completed with no claims'}
+                  </div>
+                )}
+              </div>
+
+              {isHost ? (
+                <div className="flex gap-2">
+                  <button
+                    onClick={handlePlayAgain}
+                    className="flex-1 min-h-[44px] py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-xs shadow-xl shadow-amber-500/25 hover:brightness-110 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>{language === 'am' ? 'እንደገና ተጫወት' : 'Play Again'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleCloseGroup}
+                    className="min-h-[44px] py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 active:scale-95 transition cursor-pointer"
+                  >
+                    <span>{language === 'am' ? 'ግሩፑን ዝጋ' : 'Close Group'}</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 text-center">
+                  <p className="text-xs text-slate-400 flex items-center justify-center gap-1.5 font-medium">
+                    <Clock className="w-4 h-4 text-amber-400 animate-spin" />
+                    <span>
+                      {language === 'am'
+                        ? 'አስተናጋጁ (Host) ቀጣዩን ውሳኔ እስኪያደርግ በመጠበቅ ላይ...'
+                        : 'Waiting for host decision (Play Again or Close)...'}
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

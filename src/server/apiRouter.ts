@@ -3242,7 +3242,7 @@ apiRouter.get('/bingo/room-status/:roomId', async (req: Request, res: Response) 
     let room = db.rooms.get(roomId);
     if (!room) {
       const groupRes = db.getPrivateGroupByIdOrCode(roomId);
-      const group = groupRes.group || db.privateGroups.get(roomId);
+      const group = groupRes?.group || db.privateGroups.get(roomId);
       if (group) {
         db.recalculatePrivateGroupStats(group.id);
         room = {
@@ -3253,7 +3253,7 @@ apiRouter.get('/bingo/room-status/:roomId', async (req: Request, res: Response) 
           ticketPrice: group.ticketPrice,
           minPlayers: 2,
           maxPlayers: group.maxPlayers,
-          status: group.status === 'LOBBY' ? 'WAITING' : group.status === 'COUNTDOWN' ? 'COUNTDOWN' : group.status === 'PLAYING' ? 'PLAYING' : 'FINISHED',
+          status: group.status === 'LOBBY' ? 'WAITING' : group.status === 'COUNTDOWN' ? 'COUNTDOWN' : group.status === 'PLAYING' ? 'PLAYING' : group.status === 'WAITING_HOST_DECISION' ? 'WAITING_HOST_DECISION' : 'FINISHED',
           currentBall: group.currentBall ?? null,
           drawnBalls: group.drawnBalls || [],
           winningPatterns: [group.winningPattern],
@@ -3263,8 +3263,10 @@ apiRouter.get('/bingo/room-status/:roomId', async (req: Request, res: Response) 
           activePlayersCount: group.activePlayersCount || (db.groupMembers.get(group.id) || []).length,
           ticketsSold: group.ticketsSold || 0,
           gameReferenceId: group.gameReferenceId,
+          lastWinners: (group as any).lastWinners || [],
           createdAt: group.createdAt,
         };
+        (room as any).hostId = group.hostId;
       }
     }
 

@@ -127,18 +127,22 @@ export function checkWinningPattern(
   drawnBalls: number[],
   pattern: WinningPattern
 ): boolean {
-  // Create daubed matrix based on drawn numbers + FREE space
+  if (!ticket || !ticket.matrix || !Array.isArray(ticket.matrix)) return false;
+  if (!Array.isArray(drawnBalls) || drawnBalls.length === 0) return false;
+
+  // Create boolean daubed matrix based on drawn numbers + FREE space
   const daubedMatrix: boolean[][] = ticket.matrix.map((row) =>
     row.map((cell) => cell === 'FREE' || drawnBalls.includes(cell as number))
   );
 
-  if (pattern === 'FOUR_CORNERS') {
-    return (
-      daubedMatrix[0][0] &&
-      daubedMatrix[0][4] &&
-      daubedMatrix[4][0] &&
-      daubedMatrix[4][4]
-    );
+  const hasCorners =
+    Boolean(daubedMatrix[0][0]) &&
+    Boolean(daubedMatrix[0][4]) &&
+    Boolean(daubedMatrix[4][0]) &&
+    Boolean(daubedMatrix[4][4]);
+
+  if (pattern === 'FOUR_CORNERS' || (pattern as string) === 'CORNERS') {
+    return hasCorners;
   }
 
   if (pattern === 'FULL_HOUSE') {
@@ -158,29 +162,24 @@ export function checkWinningPattern(
     if (daubedMatrix.every((row) => row[c])) lineCount++;
   }
 
-  // Diagonals
-  if (
-    daubedMatrix[0][0] &&
-    daubedMatrix[1][1] &&
-    daubedMatrix[2][2] &&
-    daubedMatrix[3][3] &&
-    daubedMatrix[4][4]
-  ) {
+  // Main diagonal
+  if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][i])) {
     lineCount++;
   }
 
-  if (
-    daubedMatrix[0][4] &&
-    daubedMatrix[1][3] &&
-    daubedMatrix[2][2] &&
-    daubedMatrix[3][1] &&
-    daubedMatrix[4][0]
-  ) {
+  // Anti diagonal
+  if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][4 - i])) {
     lineCount++;
   }
 
   if (pattern === 'ONE_LINE') return lineCount >= 1;
   if (pattern === 'TWO_LINES') return lineCount >= 2;
+  if (
+    pattern === 'ONE_LINE_FAST_AND_CORNERS' ||
+    (pattern as string) === 'ONE_LINE_AND_CORNERS'
+  ) {
+    return lineCount >= 1 || hasCorners;
+  }
 
   return false;
 }
