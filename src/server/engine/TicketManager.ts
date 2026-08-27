@@ -306,8 +306,9 @@ export class TicketManager {
     }
 
     // --- PURCHASE ---
-    // Check max tickets limit (max 50 cards per player per room)
-    const maxCards = sysSettings.maxCardsPerPlayer || 50;
+    // Check max tickets limit (max cards per player per room or private group)
+    const privateGroup = db.privateGroups.get(roomId);
+    const maxCards = privateGroup ? (privateGroup.maxTicketsPerPlayer || 3) : (sysSettings.maxCardsPerPlayer || 50);
     const userActiveTickets = Array.from(db.tickets.values()).filter(
       (t) =>
         t.roomId === roomId &&
@@ -316,7 +317,7 @@ export class TicketManager {
         (!room.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === room.gameReferenceId)
     );
     if (userActiveTickets.length >= maxCards) {
-      throw new Error(`Maximum limit of ${maxCards} cards per player reached for this round.`);
+      throw new Error(`Maximum limit of ${maxCards} card(s) per player reached for this round.`);
     }
 
     // Check if another player owns or holds this card in current round

@@ -18,13 +18,14 @@ export class WinnerValidator {
       row.map((cell) => cell === 'FREE' || drawnBalls.includes(cell as number))
     );
 
-    if (pattern === 'FOUR_CORNERS') {
-      return (
-        daubedMatrix[0][0] &&
-        daubedMatrix[0][4] &&
-        daubedMatrix[4][0] &&
-        daubedMatrix[4][4]
-      );
+    const hasCorners =
+      Boolean(daubedMatrix[0][0]) &&
+      Boolean(daubedMatrix[0][4]) &&
+      Boolean(daubedMatrix[4][0]) &&
+      Boolean(daubedMatrix[4][4]);
+
+    if (pattern === 'FOUR_CORNERS' || pattern === 'CORNERS') {
+      return hasCorners;
     }
 
     if (pattern === 'FULL_HOUSE') {
@@ -56,6 +57,10 @@ export class WinnerValidator {
 
     if (pattern === 'TWO_LINES') {
       return lineCount >= 2;
+    }
+
+    if (pattern === 'ONE_LINE_FAST_AND_CORNERS' || pattern === 'ONE_LINE_AND_CORNERS') {
+      return lineCount >= 1 || hasCorners;
     }
 
     return false;

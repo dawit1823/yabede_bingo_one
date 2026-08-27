@@ -19,7 +19,8 @@ export const CreatePrivateGroupModal: React.FC<CreatePrivateGroupModalProps> = (
   onCreated,
   language,
 }) => {
-  const [name, setName] = useState(`${user.firstName}'s Private Group`);
+  const getDefaultName = () => (user.username ? `@${user.username}'s Group` : `${user.firstName}'s Private Group`);
+  const [name, setName] = useState(getDefaultName());
   const [ticketPrice, setTicketPrice] = useState<number>(50);
   const [maxPlayers, setMaxPlayers] = useState<number>(10);
   const [maxTicketsPerPlayer, setMaxTicketsPerPlayer] = useState<number>(3);
@@ -28,6 +29,13 @@ export const CreatePrivateGroupModal: React.FC<CreatePrivateGroupModalProps> = (
   const [autoStartReady, setAutoStartReady] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setName(getDefaultName());
+      setError(null);
+    }
+  }, [isOpen, user?.username, user?.firstName]);
 
   if (!isOpen) return null;
 
@@ -42,7 +50,7 @@ export const CreatePrivateGroupModal: React.FC<CreatePrivateGroupModalProps> = (
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           hostId: user.id,
-          name: name.trim() || `${user.firstName}'s Private Group`,
+          name: name.trim() || getDefaultName(),
           ticketPrice,
           maxPlayers,
           maxTicketsPerPlayer,
@@ -208,7 +216,33 @@ export const CreatePrivateGroupModal: React.FC<CreatePrivateGroupModalProps> = (
                 }`}
               >
                 <div className="text-xs font-extrabold text-white">One Line Fast</div>
-                <div className="text-[10px]">Any 1 row/col completed</div>
+                <div className="text-[10px]">Any 1 row/col/diagonal</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWinningPattern('FOUR_CORNERS')}
+                className={`p-3 rounded-2xl border text-left transition ${
+                  winningPattern === 'FOUR_CORNERS' || (winningPattern as string) === 'CORNERS'
+                    ? 'bg-amber-500/10 border-amber-500 text-amber-300 font-bold'
+                    : 'bg-slate-950 border-slate-800 text-slate-400'
+                }`}
+              >
+                <div className="text-xs font-extrabold text-white">Corners (4 ማዕዘን)</div>
+                <div className="text-[10px]">All 4 corner numbers</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWinningPattern('ONE_LINE_FAST_AND_CORNERS')}
+                className={`p-3 rounded-2xl border text-left transition ${
+                  winningPattern === 'ONE_LINE_FAST_AND_CORNERS'
+                    ? 'bg-amber-500/10 border-amber-500 text-amber-300 font-bold'
+                    : 'bg-slate-950 border-slate-800 text-slate-400'
+                }`}
+              >
+                <div className="text-xs font-extrabold text-white">One Line + Corners</div>
+                <div className="text-[10px]">Any 1 line or 4 corners</div>
               </button>
             </div>
           </div>

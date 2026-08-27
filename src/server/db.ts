@@ -1479,11 +1479,15 @@ class FirestoreDatabaseStore {
     const ticketPrice = Number(params.ticketPrice) || 50;
     const gameReferenceId = generateGameReferenceId(ticketPrice, groupId);
 
+    const hostDisplayName = host.username ? `@${host.username}` : host.firstName;
+    const defaultGroupName = `${hostDisplayName}'s Private Group`;
+    const finalName = params.name && String(params.name).trim().length > 0 ? String(params.name).trim() : defaultGroupName;
+
     const group: PrivateGroup = {
       id: groupId,
       gameReferenceId,
       code,
-      name: params.name ? String(params.name).trim() : `${host.firstName}'s Private Group`,
+      name: finalName,
       imageUrl: params.imageUrl,
       hostId: host.id,
       hostName: host.username,
@@ -1739,6 +1743,22 @@ class FirestoreDatabaseStore {
 
     const group = this.privateGroups.get(groupId);
     if (!group) throw new Error('Group not found');
+
+    if (group.status !== 'LOBBY') {
+      throw new Error('Ticket sales are closed for this private group.');
+    }
+
+    const existingUserTickets = Array.from(this.tickets.values()).filter(
+      (t) =>
+        t.roomId === group.id &&
+        t.userId === uid &&
+        t.status === 'ACTIVE' &&
+        (!group.gameReferenceId || !t.gameReferenceId || t.gameReferenceId === group.gameReferenceId)
+    );
+    const maxAllowed = group.maxTicketsPerPlayer || 10;
+    if (existingUserTickets.length + tktCount > maxAllowed) {
+      throw new Error(`Exceeds maximum limit of ${maxAllowed} ticket(s) per player for this private group.`);
+    }
 
     if (!group.gameReferenceId) {
       group.gameReferenceId = generateGameReferenceId(group.ticketPrice, group.id);

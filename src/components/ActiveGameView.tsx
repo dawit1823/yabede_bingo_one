@@ -419,21 +419,38 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
       row.map((cell, cIdx) => isCellMarked(ticket.id, rIdx, cIdx, cell))
     );
 
-    for (const pattern of room.winningPatterns) {
-      if (pattern === 'FOUR_CORNERS') {
-        if (daubedMatrix[0][0] && daubedMatrix[0][4] && daubedMatrix[4][0] && daubedMatrix[4][4]) return true;
+    const hasCorners =
+      Boolean(daubedMatrix[0][0]) &&
+      Boolean(daubedMatrix[0][4]) &&
+      Boolean(daubedMatrix[4][0]) &&
+      Boolean(daubedMatrix[4][4]);
+
+    // Check lines
+    let lineCount = 0;
+    for (let r = 0; r < 5; r++) {
+      if (daubedMatrix[r].every((c) => c)) lineCount++;
+    }
+    for (let c = 0; c < 5; c++) {
+      if (daubedMatrix.every((r) => r[c])) lineCount++;
+    }
+    if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][i])) lineCount++;
+    if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][4 - i])) lineCount++;
+
+    const patterns = Array.isArray(room.winningPatterns) && room.winningPatterns.length > 0
+      ? room.winningPatterns
+      : [(room as any).winningPattern || 'FULL_HOUSE'];
+
+    for (const pattern of patterns) {
+      if (pattern === 'FOUR_CORNERS' || (pattern as string) === 'CORNERS') {
+        if (hasCorners) return true;
       } else if (pattern === 'FULL_HOUSE') {
         if (daubedMatrix.every((r) => r.every((c) => c))) return true;
       } else if (pattern === 'ONE_LINE') {
-        // Rows
-        if (daubedMatrix.some((r) => r.every((c) => c))) return true;
-        // Cols
-        for (let c = 0; c < 5; c++) {
-          if (daubedMatrix.every((r) => r[c])) return true;
-        }
-        // Diagonals
-        if (daubedMatrix[0][0] && daubedMatrix[1][1] && daubedMatrix[2][2] && daubedMatrix[3][3] && daubedMatrix[4][4]) return true;
-        if (daubedMatrix[0][4] && daubedMatrix[1][3] && daubedMatrix[2][2] && daubedMatrix[3][1] && daubedMatrix[4][0]) return true;
+        if (lineCount >= 1) return true;
+      } else if (pattern === 'TWO_LINES') {
+        if (lineCount >= 2) return true;
+      } else if (pattern === 'ONE_LINE_FAST_AND_CORNERS' || (pattern as string) === 'ONE_LINE_AND_CORNERS') {
+        if (lineCount >= 1 || hasCorners) return true;
       }
     }
     return false;
@@ -582,7 +599,9 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
       </div>
 
       {/* Live Current Ball Callout / Winner Results Screen */}
-      {room.status === 'FINISHED' ? (
+      {room.status === 'FINISHED' ||
+      room.status === 'WAITING_HOST_DECISION' ||
+      (room.lastWinners && room.lastWinners.length > 0 && room.status !== 'PLAYING') ? (
         <div className="bg-gradient-to-br from-amber-950/80 via-slate-900 to-amber-950/80 border-2 border-amber-500 rounded-3xl p-4 sm:p-6 text-center shadow-2xl relative overflow-hidden space-y-4 animate-fade-in w-full">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10 space-y-3.5">
@@ -720,15 +739,40 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
               </div>
             )}
 
-            {room.id.startsWith('grp_') ? (
+            {room.id.startsWith('grp_') || room.status === 'WAITING_HOST_DECISION' ? (
               <div className="pt-3 space-y-2 max-w-sm mx-auto">
-                <button
-                  onClick={() => onReturnToCardSelection && onReturnToCardSelection()}
-                  className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
-                >
-                  <Users className="w-4 h-4" />
-                  <span>{language === 'am' ? 'ወደ ግሩፕ ሎቢ ተመለስ' : 'Return to Private Group Lobby'}</span>
-                </button>
+                {isHost ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => onPlayAgain && onPlayAgain()}
+                        className="py-3.5 px-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 text-white font-black text-xs sm:text-sm shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
+                      >
+                        🎮 {language === 'am' ? 'እንደገና ተጫወት' : 'Play Again'}
+                      </button>
+                      <button
+                        onClick={() => onCloseGroup && onCloseGroup()}
+                        className="py-3.5 px-3 rounded-2xl bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 text-white font-black text-xs sm:text-sm shadow-xl shadow-rose-600/20 flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
+                      >
+                        🚪 {language === 'am' ? 'ግሩፑን ዝጋ' : 'Close Group'}
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => onReturnToCardSelection && onReturnToCardSelection()}
+                      className="w-full py-2.5 px-4 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 font-bold text-xs hover:bg-slate-800 transition active:scale-95 cursor-pointer"
+                    >
+                      {language === 'am' ? 'ወደ ሎቢ ተመለስ' : 'Return to Lobby'}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => onReturnToCardSelection && onReturnToCardSelection()}
+                    className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>{language === 'am' ? 'ወደ ግሩፕ ሎቢ ተመለስ' : 'Return to Private Group Lobby'}</span>
+                  </button>
+                )}
               </div>
             ) : (
               <div className="pt-2 text-[11px] text-amber-300 font-extrabold animate-pulse">

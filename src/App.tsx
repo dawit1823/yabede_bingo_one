@@ -550,8 +550,24 @@ export default function App() {
       setChatMessages((prev) => [...prev, msg]);
     });
 
-    const handleWinEvent = (data: { winner: any; room?: any; group?: any; message?: string }) => {
+    const handleWinEvent = (data: { winner: any; winners?: any[]; room?: any; group?: any; message?: string }) => {
       const winner = data.winner;
+      const winnersList = data.winners || (winner ? [winner] : []);
+      const targetId = data.room?.id || data.group?.id;
+
+      if (targetId) {
+        setActiveRoom((prev) => {
+          if (prev && prev.id === targetId) {
+            return {
+              ...prev,
+              status: data.group?.status || 'WAITING_HOST_DECISION',
+              lastWinners: winnersList.length > 0 ? winnersList : prev.lastWinners,
+            };
+          }
+          return prev;
+        });
+      }
+
       if (winner && winner.userId === currentUser.id) {
         audioEngine.playWin();
         triggerHaptic('heavy');
@@ -571,6 +587,33 @@ export default function App() {
 
     newSocket.on('game:winner', handleWinEvent);
     newSocket.on('private_group:winner', handleWinEvent);
+    newSocket.on('private_group:waiting_host', (data: { groupId: string; group?: any; winners?: any[] }) => {
+      if (data && data.groupId) {
+        setActiveRoom((prev) => {
+          if (prev && prev.id === data.groupId) {
+            return {
+              ...prev,
+              status: 'WAITING_HOST_DECISION',
+              lastWinners: data.winners && data.winners.length > 0 ? data.winners : prev.lastWinners,
+            };
+          }
+          return prev;
+        });
+      }
+    });
+    newSocket.on('private_group:ended', (data: { groupId: string; group?: any }) => {
+      if (data && data.groupId) {
+        setActiveRoom((prev) => {
+          if (prev && prev.id === data.groupId) {
+            return {
+              ...prev,
+              status: 'FINISHED',
+            };
+          }
+          return prev;
+        });
+      }
+    });
 
     newSocket.on('private_group:play_again', (data: { groupId: string; group: any }) => {
       setUserTickets((prev) => prev.filter((t) => t.roomId !== data.groupId));
@@ -1154,6 +1197,7 @@ export default function App() {
             // Convert group into room format for active game view
             const roomFormat: BingoRoom = {
               id: group.id,
+              gameReferenceId: group.gameReferenceId,
               name: group.name,
               icon: '🎟️',
               description: `Private Group Game (Code: ${group.code})`,
@@ -1163,12 +1207,14 @@ export default function App() {
               maxPlayers: group.maxPlayers,
               activePlayersCount: group.playerCount || group.activePlayersCount || 0,
               countdownSeconds: group.countdownSeconds,
-              status: group.status === 'PLAYING' ? 'PLAYING' : 'WAITING',
-              drawnBalls: group.drawnBalls,
-              currentBall: group.currentBall,
-              winningPatterns: [group.winningPattern],
+              status: group.status === 'PLAYING' ? 'PLAYING' : group.status === 'WAITING_HOST_DECISION' ? 'WAITING_HOST_DECISION' : group.status === 'FINISHED' ? 'FINISHED' : 'WAITING',
+              drawnBalls: group.drawnBalls || [],
+              currentBall: group.currentBall || null,
+              winningPatterns: group.winningPattern ? [group.winningPattern] : ['FULL_HOUSE'],
+              lastWinners: (group as any).lastWinners || [],
               createdAt: group.createdAt,
             };
+            (roomFormat as any).hostId = group.hostId;
 
             setActiveRoom(roomFormat);
             setUserTickets(tickets);

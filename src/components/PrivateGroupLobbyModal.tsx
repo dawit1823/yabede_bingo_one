@@ -165,7 +165,16 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           if (msg && msg.groupId === groupId) {
             setMessages((prev) => {
               if (prev.some((m) => m.id === msg.id)) return prev;
-              return [...prev, msg];
+              const msgTime = new Date(msg.timestamp).getTime();
+              // Remove optimistic temp message with same text and sender within 6 seconds
+              const filtered = prev.filter((m) => {
+                if (m.id.startsWith('gmsg_temp_') && m.userId === msg.userId && m.text === msg.text) {
+                  const tDiff = Math.abs(new Date(m.timestamp).getTime() - msgTime);
+                  if (tDiff < 6000) return false;
+                }
+                return true;
+              });
+              return [...filtered, msg];
             });
           }
         };
@@ -372,7 +381,12 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
       }
 
       triggerHaptic('heavy');
-      fetchGroupDetails();
+      if (data.group) {
+        setGroup(data.group);
+        onPlayActiveGame(data.group, userTicketsRef.current);
+      } else {
+        fetchGroupDetails();
+      }
     } catch (err: any) {
       setActionError(err.message || 'Error starting game');
     }
@@ -464,7 +478,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
     setSendingChat(true);
     setChatText('');
 
-    const tempId = `gmsg_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const tempId = `gmsg_temp_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const newMsg: GroupMessage = {
       id: tempId,
       groupId: group.id,
@@ -479,14 +493,6 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
       return [...prev, newMsg];
     });
     triggerHaptic('light');
-
-    if (socket) {
-      socket.emit('private_group:chat', {
-        groupId: group.id,
-        userId: user.id,
-        text: textToSend,
-      });
-    }
 
     try {
       const res = await fetch(apiUrl('/api/private-groups/message'), {
