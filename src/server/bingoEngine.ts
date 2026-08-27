@@ -530,7 +530,28 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
   // Recalculate stats & prize pool to ensure 100% accuracy (Sales - 1%)
   db.recalculatePrivateGroupStats(group.id);
   const totalPrizePool = group.prizePool;
-  const basePrizeShare = Math.max(1, Math.floor(totalPrizePool / winningTickets.length));
+  const isHostBonusRule = group.prizeDistribution === 'HOST_10_WINNER_90';
+  const totalHostBonus = isHostBonusRule ? Math.max(1, Math.floor(totalPrizePool * 0.1)) : 0;
+  const totalWinnerPool = isHostBonusRule ? totalPrizePool - totalHostBonus : totalPrizePool;
+  const winnerShare = Math.max(1, Math.floor(totalWinnerPool / winningTickets.length));
+
+  const hostUser = db.getUserById(group.hostId);
+  const hostUsername = hostUser?.username || 'Host';
+
+  // Credit Host Bonus if rule configured
+  if (totalHostBonus > 0 && !group.hostBonusPaid) {
+    db.updateWalletBalance(
+      group.hostId,
+      totalHostBonus,
+      'HOST_BONUS',
+      `Host 10% Organizer Bonus for Private Group "${group.name}"`,
+      `GRP-HOST-${group.id}-${group.gameReferenceId || Date.now()}`,
+      group.gameReferenceId
+    );
+    group.hostBonus = totalHostBonus;
+    group.hostName = hostUsername;
+    group.hostBonusPaid = true;
+  }
 
   const foundWinners: GameWinner[] = [];
 
@@ -543,14 +564,6 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
     const photoUrl = user?.photoUrl || undefined;
     const ticketPrice = ticket.purchasePrice || group.ticketPrice;
 
-    let winnerShare = basePrizeShare;
-    let hostBonus = 0;
-
-    if (group.prizeDistribution === 'HOST_10_WINNER_90') {
-      winnerShare = Math.round(basePrizeShare * 0.9);
-      hostBonus = basePrizeShare - winnerShare;
-    }
-
     (ticket as any).prizeWon = winnerShare;
 
     // Credit Winner
@@ -562,18 +575,6 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
       `GRP-WIN-${group.id}-${ticket.id}`,
       group.gameReferenceId || ticket.gameReferenceId
     );
-
-    // Credit Host Bonus if rule configured
-    if (hostBonus > 0 && group.hostId !== ticket.userId) {
-      db.updateWalletBalance(
-        group.hostId,
-        hostBonus,
-        'HOST_BONUS',
-        `Host 10% Share Bonus for Private Group "${group.name}"`,
-        `GRP-HOST-${group.id}-${ticket.id}`,
-        group.gameReferenceId || ticket.gameReferenceId
-      );
-    }
 
     const winner: GameWinner = {
       id: `win_grp_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
@@ -590,6 +591,9 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
       totalPrizePool,
       wonAt: new Date().toISOString(),
     };
+    (winner as any).hostBonus = totalHostBonus;
+    (winner as any).hostName = hostUsername;
+    (winner as any).prizeDistribution = group.prizeDistribution;
 
     db.winners.unshift(winner);
     foundWinners.push(winner);

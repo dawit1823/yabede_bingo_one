@@ -34,7 +34,7 @@ import { RegistrationGateModal } from './components/RegistrationGateModal';
 import { TelegramPhoneVerificationModal } from './components/TelegramPhoneVerificationModal';
 import { ConfettiOverlay } from './components/ConfettiOverlay';
 import { Wrench } from 'lucide-react';
-import { getRemainingSeconds } from './lib/bingoUtils';
+import { getRemainingSeconds, formatPrivateGroupToRoom } from './lib/bingoUtils';
 import { apiUrl, getSocketUrl } from './lib/apiConfig';
 
 // Demo Users for Simulator
@@ -411,17 +411,24 @@ export default function App() {
       }
     });
 
-    newSocket.on('private_group:updated', (data: { group: BingoRoom }) => {
+    newSocket.on('private_group:updated', (data: { group: any }) => {
       if (data && data.group) {
-        const updated = data.group;
         setRooms((prev) => {
+          const existing = prev.find((r) => r.id === data.group.id);
+          const updated = formatPrivateGroupToRoom(data.group, existing);
+          if (!updated) return prev;
           const exists = prev.some((r) => r.id === updated.id);
           if (exists) {
             return prev.map((r) => (r.id === updated.id ? updated : r));
           }
           return [...prev, updated];
         });
-        setActiveRoom((prev) => (prev && prev.id === updated.id ? updated : prev));
+        setActiveRoom((prev) => {
+          if (prev && prev.id === data.group.id) {
+            return formatPrivateGroupToRoom(data.group, prev);
+          }
+          return prev;
+        });
       }
     });
 
@@ -1195,32 +1202,20 @@ export default function App() {
           onClose={() => setActivePrivateGroupId(null)}
           socket={socket}
           onPlayActiveGame={(group, tickets) => {
-            // Convert group into room format for active game view
-            const roomFormat: BingoRoom = {
-              id: group.id,
-              gameReferenceId: group.gameReferenceId,
-              name: group.name,
-              icon: '🎟️',
-              description: `Private Group Game (Code: ${group.code})`,
-              ticketPrice: group.ticketPrice,
-              prizePool: group.prizePool,
-              minPlayers: 2,
-              maxPlayers: group.maxPlayers,
-              activePlayersCount: group.playerCount || group.activePlayersCount || 0,
-              countdownSeconds: group.countdownSeconds,
-              status: group.status === 'PLAYING' ? 'PLAYING' : group.status === 'WAITING_HOST_DECISION' ? 'WAITING_HOST_DECISION' : group.status === 'FINISHED' ? 'FINISHED' : 'WAITING',
-              drawnBalls: group.drawnBalls || [],
-              currentBall: group.currentBall || null,
-              winningPatterns: group.winningPattern ? [group.winningPattern] : ['FULL_HOUSE'],
-              lastWinners: (group as any).lastWinners || [],
-              createdAt: group.createdAt,
-            };
-            (roomFormat as any).hostId = group.hostId;
-
-            setActiveRoom(roomFormat);
-            setUserTickets(tickets);
-            setActivePrivateGroupId(null);
-            setActiveTab('active_game');
+            const formatted = formatPrivateGroupToRoom(group);
+            if (formatted) {
+              formatted.status = 'PLAYING';
+              setActiveRoom(formatted);
+              if (Array.isArray(tickets) && tickets.length > 0) {
+                setUserTickets((prev) => {
+                  const existingIds = new Set(tickets.map((t) => t.id));
+                  const remaining = prev.filter((t) => !existingIds.has(t.id));
+                  return [...remaining, ...tickets];
+                });
+              }
+              setActivePrivateGroupId(null);
+              setActiveTab('active_game');
+            }
           }}
           language={language}
         />

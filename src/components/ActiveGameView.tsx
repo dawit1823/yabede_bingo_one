@@ -175,12 +175,12 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
     }
   }, [room?.id, room?.gameReferenceId, user?.id]);
 
-  // Auto-return to card selection when room resets to WAITING or COUNTDOWN for the next round
+  // Auto-return to card selection when room resets to WAITING or COUNTDOWN for the next round (public rooms only)
   React.useEffect(() => {
-    if ((room.status === 'WAITING' || room.status === 'COUNTDOWN') && onReturnToCardSelection) {
+    if (!room.id.startsWith('grp_') && (room.status === 'WAITING' || room.status === 'COUNTDOWN') && onReturnToCardSelection) {
       onReturnToCardSelection();
     }
-  }, [room.status, room.gameReferenceId, onReturnToCardSelection]);
+  }, [room.status, room.gameReferenceId, onReturnToCardSelection, room.id]);
 
   // Sync prop changes without wiping out accumulated tickets
   React.useEffect(() => {
@@ -415,7 +415,11 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
 
   // Helper to check if a ticket has met pattern requirements
   const checkReadyForBingo = (ticket: BingoTicket): boolean => {
-    const daubedMatrix: boolean[][] = ticket.matrix.map((row, rIdx) =>
+    const rawMatrix = (Array.isArray(ticket.matrix) && ticket.matrix.length === 5)
+      ? ticket.matrix
+      : generateCardMatrixByNumber(ticket.cardNumber || 1);
+
+    const daubedMatrix: boolean[][] = rawMatrix.map((row, rIdx) =>
       row.map((cell, cIdx) => isCellMarked(ticket.id, rIdx, cIdx, cell))
     );
 
@@ -732,6 +736,40 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
                     </div>
                   );
                 })}
+
+                {/* Host Organizer Bonus Display below Winners */}
+                {Boolean(
+                  (room as any).hostBonus > 0 ||
+                  (room as any).prizeDistribution === 'HOST_10_WINNER_90' ||
+                  (room.lastWinners && (room.lastWinners[0] as any)?.hostBonus > 0)
+                ) && (
+                  <div className="bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-amber-500/15 border border-amber-500/40 rounded-2xl p-3.5 flex items-center justify-between gap-2 shadow-lg text-left">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-300 text-slate-950 font-black flex items-center justify-center text-base shadow-sm shrink-0">
+                        👑
+                      </div>
+                      <div className="text-left min-w-0">
+                        <div className="text-xs font-black text-amber-400 flex items-center gap-1.5">
+                          <span>{language === 'am' ? 'የአዘጋጅ ጉርሻ (10% Organizer Bonus)' : 'Host Organizer Bonus (10%)'}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-300 truncate">
+                          {language === 'am' ? 'ለአዘጋጅ: ' : 'Credited to Host: '}
+                          <strong className="text-white font-bold">@{(room as any).hostName || (room.lastWinners && (room.lastWinners[0] as any)?.hostName) || 'Host'}</strong>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] text-slate-400 font-semibold">Bonus Amount</div>
+                      <div className="text-sm font-black text-emerald-400">
+                        +{(
+                          (room as any).hostBonus ||
+                          (room.lastWinners && (room.lastWinners[0] as any)?.hostBonus) ||
+                          Math.floor((room.prizePool || 0) * 0.1)
+                        ).toLocaleString()} Birr
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="bg-slate-950/80 rounded-2xl p-4 border border-slate-800 text-xs text-slate-400">
@@ -970,7 +1008,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
                         )}
                       </div>
                       <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
-                        {room.winningPatterns.join(', ')}
+                        {(room.winningPatterns || [(room as any).winningPattern || 'FULL_HOUSE']).join(', ')}
                       </span>
                     </div>
 
@@ -985,7 +1023,10 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
                         </div>
                       ))}
 
-                      {currentTicket.matrix.map((row, rIdx) =>
+                      {((Array.isArray(currentTicket.matrix) && currentTicket.matrix.length === 5)
+                        ? currentTicket.matrix
+                        : generateCardMatrixByNumber(currentTicket.cardNumber || 1)
+                      ).map((row, rIdx) =>
                         row.map((cell, cIdx) => {
                           const marked = isCellMarked(currentTicket.id, rIdx, cIdx, cell);
 
@@ -1173,6 +1214,40 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
                     </div>
                   </div>
                 ))}
+
+                {/* Host Organizer Bonus Display below Winners in Modal */}
+                {Boolean(
+                  (room as any).hostBonus > 0 ||
+                  (room as any).prizeDistribution === 'HOST_10_WINNER_90' ||
+                  (room.lastWinners && (room.lastWinners[0] as any)?.hostBonus > 0)
+                ) && (
+                  <div className="bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-amber-500/15 border border-amber-500/40 rounded-2xl p-3.5 flex items-center justify-between gap-2 shadow-lg text-left">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-300 text-slate-950 font-black flex items-center justify-center text-base shadow-sm shrink-0">
+                        👑
+                      </div>
+                      <div className="text-left min-w-0">
+                        <div className="text-xs font-black text-amber-400 flex items-center gap-1.5">
+                          <span>{language === 'am' ? 'የአዘጋጅ ጉርሻ (10% Organizer Bonus)' : 'Host Organizer Bonus (10%)'}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-300 truncate">
+                          {language === 'am' ? 'ለአዘጋጅ: ' : 'Credited to Host: '}
+                          <strong className="text-white font-bold">@{(room as any).hostName || (room.lastWinners && (room.lastWinners[0] as any)?.hostName) || 'Host'}</strong>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] text-slate-400 font-semibold">Bonus Amount</div>
+                      <div className="text-sm font-black text-emerald-400">
+                        +{(
+                          (room as any).hostBonus ||
+                          (room.lastWinners && (room.lastWinners[0] as any)?.hostBonus) ||
+                          Math.floor((room.prizePool || 0) * 0.1)
+                        ).toLocaleString()} Birr
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 text-center text-slate-400 text-xs font-semibold">

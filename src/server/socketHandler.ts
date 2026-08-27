@@ -432,6 +432,17 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
                   });
                 }
 
+                // If host bonus was awarded, also notify host's client wallet balance
+                if (updatedGrp.hostBonus && updatedGrp.hostBonus > 0) {
+                  const hostUser = db.getUserById(updatedGrp.hostId);
+                  if (hostUser) {
+                    io.emit('wallet:updated', {
+                      userId: updatedGrp.hostId,
+                      newBalance: hostUser.walletBalance,
+                    });
+                  }
+                }
+
                 io.to(group.id).to(`private_grp_${group.id}`).emit('private_group:waiting_host', {
                   groupId: group.id,
                   group: updatedGrp,

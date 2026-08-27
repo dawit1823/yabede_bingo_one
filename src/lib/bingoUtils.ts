@@ -53,6 +53,58 @@ export function formatCardNumber(num: number): string {
 }
 
 /**
+ * Transforms a PrivateGroup object into a full BingoRoom object.
+ * Prevents missing property crashes in React components.
+ */
+export function formatPrivateGroupToRoom(group: any, existingRoom?: any): any {
+  if (!group) return null;
+
+  const winningPatterns = Array.isArray(group.winningPatterns) && group.winningPatterns.length > 0
+    ? group.winningPatterns
+    : group.winningPattern
+    ? [group.winningPattern]
+    : existingRoom?.winningPatterns || ['FULL_HOUSE'];
+
+  const roomFormat = {
+    id: group.id,
+    gameReferenceId: group.gameReferenceId || existingRoom?.gameReferenceId,
+    name: group.name || existingRoom?.name || 'Private Group Game',
+    icon: group.icon || existingRoom?.icon || '🎟️',
+    description: group.description || existingRoom?.description || `Private Group Game (Code: ${group.code || ''})`,
+    ticketPrice: typeof group.ticketPrice === 'number' ? group.ticketPrice : existingRoom?.ticketPrice || 10,
+    prizePool: typeof group.prizePool === 'number' ? group.prizePool : existingRoom?.prizePool || 0,
+    platformFee: typeof group.platformFee === 'number' ? group.platformFee : existingRoom?.platformFee || 0,
+    minPlayers: group.minPlayers || 2,
+    maxPlayers: group.maxPlayers || existingRoom?.maxPlayers || 100,
+    activePlayersCount: typeof group.activePlayersCount === 'number' ? group.activePlayersCount : group.playerCount || existingRoom?.activePlayersCount || 0,
+    ticketsSold: typeof group.ticketsSold === 'number' ? group.ticketsSold : existingRoom?.ticketsSold || 0,
+    countdownSeconds: typeof group.countdownSeconds === 'number' ? group.countdownSeconds : existingRoom?.countdownSeconds || 0,
+    status: group.status === 'PLAYING'
+      ? 'PLAYING'
+      : group.status === 'WAITING_HOST_DECISION'
+      ? 'WAITING_HOST_DECISION'
+      : group.status === 'FINISHED'
+      ? 'FINISHED'
+      : group.status === 'COUNTDOWN'
+      ? 'COUNTDOWN'
+      : 'WAITING',
+    drawnBalls: Array.isArray(group.drawnBalls) ? group.drawnBalls : existingRoom?.drawnBalls || [],
+    currentBall: group.currentBall !== undefined ? group.currentBall : existingRoom?.currentBall ?? null,
+    winningPatterns,
+    lastWinners: Array.isArray(group.lastWinners) ? group.lastWinners : existingRoom?.lastWinners || [],
+    createdAt: group.createdAt || existingRoom?.createdAt || new Date().toISOString(),
+    hostId: group.hostId || existingRoom?.hostId,
+    hostName: group.hostName || existingRoom?.hostName,
+    hostBonus: typeof group.hostBonus === 'number' ? group.hostBonus : existingRoom?.hostBonus,
+    hostBonusPaid: group.hostBonusPaid ?? existingRoom?.hostBonusPaid,
+    prizeDistribution: group.prizeDistribution || existingRoom?.prizeDistribution || 'WINNER_100',
+    code: group.code || existingRoom?.code,
+  };
+
+  return roomFormat;
+}
+
+/**
  * Calculates accurate remaining time in seconds based on backend endsAt timestamp.
  * Prevents client-side clock drift and guarantees sync across all devices.
  */

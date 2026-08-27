@@ -1869,6 +1869,8 @@ class FirestoreDatabaseStore {
     group.endsAt = undefined;
     group.hostDecisionTimeout = undefined;
     group.lastWinners = [];
+    group.hostBonus = 0;
+    group.hostBonusPaid = false;
 
     // 5. Reset group member ticketCounts
     const members = this.groupMembers.get(groupId) || [];
@@ -1919,6 +1921,8 @@ class FirestoreDatabaseStore {
     group.status = 'PLAYING';
     group.drawnBalls = [];
     group.currentBall = null;
+    group.hostBonus = 0;
+    group.hostBonusPaid = false;
     group.startedAt = new Date().toISOString();
 
     adminDb.collection('groupGames').doc(group.id).update({
