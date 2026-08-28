@@ -1093,6 +1093,35 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
                         </div>
                       </div>
                     ))}
+
+                    {/* Host Organizer Bonus Display below Winners */}
+                    {Boolean(
+                      group.hostBonus && group.hostBonus > 0 ||
+                      group.prizeDistribution === 'HOST_10_WINNER_90' ||
+                      (group.lastWinners && (group.lastWinners[0] as any)?.hostBonus > 0)
+                    ) && (
+                      <div className="bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-amber-500/15 border border-amber-500/40 rounded-xl p-2.5 flex items-center justify-between gap-2 text-left">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-300 text-slate-950 font-black flex items-center justify-center text-xs shadow-sm shrink-0">
+                            👑
+                          </div>
+                          <div className="text-left min-w-0">
+                            <div className="text-xs font-black text-amber-400 flex items-center gap-1">
+                              <span>{language === 'am' ? 'የአዘጋጅ ጉርሻ (10%)' : 'Host Organizer Bonus (10%)'}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-300 truncate">
+                              {language === 'am' ? 'ለአዘጋጅ: ' : 'Credited to: '}
+                              <strong className="text-white font-bold">@{group.hostName || (group.lastWinners && (group.lastWinners[0] as any)?.hostName) || 'Host'}</strong>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-xs font-black text-emerald-400 block">
+                            +{((group.hostBonus) || (group.lastWinners && (group.lastWinners[0] as any)?.hostBonus) || Math.floor((group.prizePool || 0) * 0.1)).toLocaleString()} Birr
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-xs text-slate-400 py-1">

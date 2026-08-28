@@ -212,6 +212,8 @@ export interface PrivateGroup {
   platformFee?: number;
   activePlayersCount?: number;
   hostDecisionTimeout?: number;
+  hostBonus?: number;
+  hostBonusPaid?: boolean;
   lastWinners?: GameWinner[];
   cancelReason?: string;
   createdAt: string;
