@@ -921,31 +921,39 @@ apiRouter.post('/wallet/withdraw', (req: Request, res: Response) => {
 });
 
 // --- ADMIN DEPOSIT & WITHDRAWAL MANAGEMENT ---
-apiRouter.get('/admin/deposits', (req: Request, res: Response) => {
+apiRouter.get('/admin/deposits', async (req: Request, res: Response) => {
   const status = req.query.status as string; // PENDING, APPROVED, REJECTED, INFO_REQUESTED
   const methodId = req.query.methodId as string;
   const search = ((req.query.search as string) || '').toLowerCase();
 
-  let list = db.deposits;
+  try {
+    if (db.deposits.length === 0) {
+      await db.syncAllDataFromFirestore();
+    }
 
-  if (status && status !== 'ALL') {
-    list = list.filter((d) => d.status === status);
+    let list = db.deposits;
+
+    if (status && status !== 'ALL') {
+      list = list.filter((d) => d.status === status);
+    }
+
+    if (methodId && methodId !== 'ALL') {
+      list = list.filter((d) => d.paymentMethodId === methodId);
+    }
+
+    if (search) {
+      list = list.filter(
+        (d) =>
+          (d.userName || '').toLowerCase().includes(search) ||
+          (d.referenceCode || '').toLowerCase().includes(search) ||
+          String(d.userTelegramId || '').includes(search)
+      );
+    }
+
+    res.json({ deposits: list });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, deposits: db.deposits });
   }
-
-  if (methodId && methodId !== 'ALL') {
-    list = list.filter((d) => d.paymentMethodId === methodId);
-  }
-
-  if (search) {
-    list = list.filter(
-      (d) =>
-        (d.userName || '').toLowerCase().includes(search) ||
-        (d.referenceCode || '').toLowerCase().includes(search) ||
-        String(d.userTelegramId || '').includes(search)
-    );
-  }
-
-  res.json({ deposits: list });
 });
 
 apiRouter.post('/admin/deposits/verify', (req: Request, res: Response) => {
@@ -992,26 +1000,34 @@ apiRouter.get('/admin/withdrawals/pending', (req: Request, res: Response) => {
   res.json({ requests: pending });
 });
 
-apiRouter.get('/admin/withdrawals', (req: Request, res: Response) => {
+apiRouter.get('/admin/withdrawals', async (req: Request, res: Response) => {
   const status = req.query.status as string;
   const search = ((req.query.search as string) || '').toLowerCase();
 
-  let list = db.withdrawals;
+  try {
+    if (db.withdrawals.length === 0) {
+      await db.syncAllDataFromFirestore();
+    }
 
-  if (status && status !== 'ALL') {
-    list = list.filter((w) => w.status === status);
+    let list = db.withdrawals;
+
+    if (status && status !== 'ALL') {
+      list = list.filter((w) => w.status === status);
+    }
+
+    if (search) {
+      list = list.filter(
+        (w) =>
+          (w.userName || '').toLowerCase().includes(search) ||
+          (w.accountNumber || '').toLowerCase().includes(search) ||
+          String(w.userTelegramId || '').includes(search)
+      );
+    }
+
+    res.json({ withdrawals: list });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, withdrawals: db.withdrawals });
   }
-
-  if (search) {
-    list = list.filter(
-      (w) =>
-        (w.userName || '').toLowerCase().includes(search) ||
-        (w.accountNumber || '').toLowerCase().includes(search) ||
-        String(w.userTelegramId || '').includes(search)
-    );
-  }
-
-  res.json({ withdrawals: list });
 });
 
 apiRouter.post('/admin/withdrawals/process', (req: Request, res: Response) => {
@@ -1099,21 +1115,68 @@ apiRouter.post('/admin/announcements', async (req: Request, res: Response) => {
       return;
     }
 
-    // Broadcast notification to all registered users
+    const announcementId = `ann_${Date.now()}`;
+    const createdAt = new Date().toISOString();
+    const announcement = {
+      id: announcementId,
+      title: title.trim(),
+      message: message.trim(),
+      createdAt,
+      type: 'BROADCAST',
+    };
+
+    // 1. Persist to Firestore announcements collection
+    await firestoreGuard.safeWrite('announcements', 'createAnnouncement', async () => {
+      await adminDb.collection('announcements').doc(announcementId).set(announcement);
+    });
+
+    // 2. Broadcast notification to all registered users in memory and Firestore
     const allUsers = db.getAllUsers();
     allUsers.forEach((u) => {
       db.addNotification({
         userId: u.id,
-        title,
-        message,
+        title: title.trim(),
+        message: message.trim(),
         type: 'SYSTEM',
       });
     });
 
+    // 3. Emit real-time broadcast to all connected WebSocket clients (Mini App & Admin)
+    const io = getIO();
+    if (io) {
+      io.emit('broadcast:announcement', announcement);
+      io.emit('notification:new', {
+        id: announcementId,
+        title: title.trim(),
+        message: message.trim(),
+        type: 'SYSTEM',
+        createdAt,
+      });
+    }
+
     await adminService.logAction('ANNOUNCEMENT_SENT', 'SUCCESS', `Sent platform announcement to ${allUsers.length} users: "${title}"`, clientIp);
-    res.json({ success: true, recipientCount: allUsers.length });
+    res.json({ success: true, announcement, recipientCount: allUsers.length });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Public / Mini-App endpoint to fetch active announcements
+apiRouter.get('/announcements', async (req: Request, res: Response) => {
+  try {
+    let announcements: any[] = [];
+    await firestoreGuard.safeRead('announcements', 'getAnnouncements', async () => {
+      const snap = await adminDb.collection('announcements').orderBy('createdAt', 'desc').limit(20).get().catch(async () => {
+        return adminDb.collection('announcements').limit(20).get();
+      });
+      if (snap && !snap.empty) {
+        announcements = snap.docs.map((doc) => doc.data());
+      }
+    }, null);
+
+    res.json({ announcements });
+  } catch (err: any) {
+    res.json({ announcements: [] });
   }
 });
 
@@ -1489,6 +1552,109 @@ apiRouter.post('/admin/rooms/update', (req: Request, res: Response) => {
   res.json({ success: true, room });
 });
 
+apiRouter.post('/admin/rooms/delete', async (req: Request, res: Response) => {
+  const { roomId, adminId = 'usr_admin' } = req.body;
+  const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+  if (!roomId) {
+    res.status(400).json({ error: 'Room ID is required for deletion' });
+    return;
+  }
+
+  const room = db.rooms.get(roomId);
+  if (!room) {
+    // Check if it's already removed or in Firestore
+    await firestoreGuard.safeDelete('rooms', 'deleteRoomDoc', async () => {
+      await adminDb.collection('rooms').doc(roomId).delete();
+    });
+    res.json({ success: true, roomId, message: 'Room document cleaned from database' });
+    return;
+  }
+
+  // 1. Safety Check: Disallow deleting if game is actively PLAYING
+  if (room.status === 'PLAYING') {
+    res.status(400).json({
+      error: `Cannot delete arena "${room.name}" while a game round is actively in progress. Wait for the round to finish or reset the game first.`,
+    });
+    return;
+  }
+
+  // 2. Safety Check: Disallow deleting if there are active unsold/sold tickets in this round
+  const activeTickets = Array.from(db.tickets.values()).filter(
+    (t) => t.roomId === roomId && t.status === 'ACTIVE'
+  );
+  if (activeTickets.length > 0) {
+    res.status(400).json({
+      error: `Cannot delete arena "${room.name}" because there are ${activeTickets.length} active tickets purchased in the current countdown round. Please cancel/refund them before deleting.`,
+    });
+    return;
+  }
+
+  // 3. Remove room from memory and Firestore (financial history & game records are safely preserved!)
+  db.rooms.delete(roomId);
+
+  await firestoreGuard.safeDelete('rooms', 'deleteRoom', async () => {
+    await adminDb.collection('rooms').doc(roomId).delete();
+  });
+
+  const io = getIO();
+  if (io) {
+    io.emit('room:deleted', { roomId });
+    io.emit('rooms:updated', { rooms: Array.from(db.rooms.values()) });
+  }
+
+  db.logAudit(adminId, 'DELETE_ROOM', roomId, `Deleted Bingo room "${room.name}" (${roomId})`, 'Room Management', clientIp);
+  await adminService.logAction('ROOM_DELETED', 'SUCCESS', `Deleted Bingo room "${room.name}" (${roomId})`, clientIp);
+
+  res.json({ success: true, roomId, message: `Bingo Arena "${room.name}" successfully deleted.` });
+});
+
+apiRouter.delete('/admin/rooms/:roomId', async (req: Request, res: Response) => {
+  const { roomId } = req.params;
+  const adminId = (req.headers['x-admin-id'] as string) || 'usr_admin';
+  const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+
+  const room = db.rooms.get(roomId);
+  if (!room) {
+    await firestoreGuard.safeDelete('rooms', 'deleteRoomDoc', async () => {
+      await adminDb.collection('rooms').doc(roomId).delete();
+    });
+    res.json({ success: true, roomId, message: 'Room removed' });
+    return;
+  }
+
+  if (room.status === 'PLAYING') {
+    res.status(400).json({
+      error: `Cannot delete arena "${room.name}" while actively PLAYING.`,
+    });
+    return;
+  }
+
+  const activeTickets = Array.from(db.tickets.values()).filter(
+    (t) => t.roomId === roomId && t.status === 'ACTIVE'
+  );
+  if (activeTickets.length > 0) {
+    res.status(400).json({
+      error: `Cannot delete arena "${room.name}" with ${activeTickets.length} active tickets.`,
+    });
+    return;
+  }
+
+  db.rooms.delete(roomId);
+  await firestoreGuard.safeDelete('rooms', 'deleteRoom', async () => {
+    await adminDb.collection('rooms').doc(roomId).delete();
+  });
+
+  const io = getIO();
+  if (io) {
+    io.emit('room:deleted', { roomId });
+    io.emit('rooms:updated', { rooms: Array.from(db.rooms.values()) });
+  }
+
+  db.logAudit(adminId, 'DELETE_ROOM', roomId, `Deleted room ${room.name}`, 'Room Deleted', clientIp);
+  res.json({ success: true, roomId, message: `Room "${room.name}" deleted.` });
+});
+
 apiRouter.post('/admin/games/action', async (req: Request, res: Response) => {
   const { gameId, isPrivateGroup, action, adminId = 'usr_admin', reason } = req.body;
   const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
@@ -1689,6 +1855,183 @@ apiRouter.get('/admin/tickets', async (req: Request, res: Response) => {
       completedTicketsCount: allTickets.filter((t) => t.status !== 'ACTIVE').length,
       wonTicketsCount: allTickets.filter((t) => (t as any).winningStatus === 'WON').length,
       totalRevenue: allTickets.reduce((sum, t) => sum + (t.purchasePrice || 0), 0),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/admin/tickets/:id/inspect', async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    let ticket = db.tickets.get(id);
+
+    if (!ticket) {
+      // Query Firestore collection
+      await firestoreGuard.safeRead('tickets', 'inspectTicket', async () => {
+        const docSnap = await adminDb.collection('tickets').doc(id).get();
+        if (docSnap.exists) {
+          ticket = docSnap.data() as BingoTicket;
+          if (ticket) db.tickets.set(ticket.id, ticket);
+        }
+      }, null);
+    }
+
+    if (!ticket) {
+      res.status(404).json({ error: `Ticket #${id} not found in records.` });
+      return;
+    }
+
+    // 1. Generate or retrieve 5x5 matrix
+    const matrix = ticket.matrix && Array.isArray(ticket.matrix) && ticket.matrix.length === 5
+      ? ticket.matrix
+      : generateCardMatrixByNumber(ticket.cardNumber || 1);
+
+    // 2. Retrieve Drawn Balls from matching Game History, Room, or Winner records
+    let drawnBalls: number[] = [];
+    let winningPattern = 'ONE_LINE';
+    let winnerRecord: any = null;
+    let gameHistoryRecord: any = null;
+    let roomInfo: any = null;
+
+    // Check game history records in memory or firestore
+    if (ticket.gameReferenceId) {
+      gameHistoryRecord = db.gameHistoryRecords.find(
+        (gh) => gh.gameReferenceId === ticket!.gameReferenceId
+      );
+
+      if (!gameHistoryRecord) {
+        // Query Firestore gameHistory
+        await firestoreGuard.safeRead('gameHistory', 'inspectGameHistory', async () => {
+          const ghSnap = await adminDb
+            .collection('gameHistory')
+            .where('gameReferenceId', '==', ticket!.gameReferenceId)
+            .limit(1)
+            .get();
+          if (!ghSnap.empty) {
+            gameHistoryRecord = ghSnap.docs[0].data();
+          }
+        }, null);
+      }
+
+      if (gameHistoryRecord && Array.isArray(gameHistoryRecord.drawnBalls)) {
+        drawnBalls = gameHistoryRecord.drawnBalls;
+        if (gameHistoryRecord.winningPattern) {
+          winningPattern = gameHistoryRecord.winningPattern;
+        }
+      }
+    }
+
+    // If drawn balls not found in history, check active / recent room
+    if (drawnBalls.length === 0 && ticket.roomId) {
+      const room = db.rooms.get(ticket.roomId);
+      if (room) {
+        roomInfo = { id: room.id, name: room.name, icon: room.icon, status: room.status, ticketPrice: room.ticketPrice, prizePool: room.prizePool };
+        if (Array.isArray(room.drawnBalls) && room.drawnBalls.length > 0) {
+          drawnBalls = room.drawnBalls;
+        }
+        if (room.winningPatterns && room.winningPatterns[0]) {
+          winningPattern = room.winningPatterns[0];
+        }
+      }
+    }
+
+    // Check winner record
+    winnerRecord = db.winners.find((w) => w.ticketId === ticket!.id || (w.gameReferenceId === ticket!.gameReferenceId && w.userId === ticket!.userId));
+    if (!winnerRecord && ticket.gameReferenceId) {
+      await firestoreGuard.safeRead('winners', 'inspectWinner', async () => {
+        const winSnap = await adminDb.collection('winners').where('ticketId', '==', ticket!.id).limit(1).get().catch(() => null);
+        if (winSnap && !winSnap.empty) {
+          winnerRecord = winSnap.docs[0].data();
+        }
+      }, null);
+    }
+
+    if (winnerRecord) {
+      if (winnerRecord.pattern) winningPattern = winnerRecord.pattern;
+    }
+
+    // 3. Compute Daubed & Winning Cells Map
+    const daubedMatrix: boolean[][] = matrix.map((row) =>
+      row.map((cell) => cell === 'FREE' || drawnBalls.includes(cell as number))
+    );
+
+    // Identify completed lines, diagonals, corners, full house
+    const winningCells: { r: number; c: number }[] = [];
+    const drawnCells: { r: number; c: number }[] = [];
+
+    // All drawn cells
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 5; c++) {
+        if (daubedMatrix[r][c]) {
+          drawnCells.push({ r, c });
+        }
+      }
+    }
+
+    // Check rows
+    for (let r = 0; r < 5; r++) {
+      if (daubedMatrix[r].every(Boolean)) {
+        for (let c = 0; c < 5; c++) {
+          winningCells.push({ r, c });
+        }
+      }
+    }
+
+    // Check columns
+    for (let c = 0; c < 5; c++) {
+      if (daubedMatrix.every((row) => row[c])) {
+        for (let r = 0; r < 5; r++) {
+          winningCells.push({ r, c });
+        }
+      }
+    }
+
+    // Check diagonals
+    if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][i])) {
+      for (let i = 0; i < 5; i++) winningCells.push({ r: i, c: i });
+    }
+    if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][4 - i])) {
+      for (let i = 0; i < 5; i++) winningCells.push({ r: i, c: 4 - i });
+    }
+
+    // Check corners
+    const hasCorners = daubedMatrix[0][0] && daubedMatrix[0][4] && daubedMatrix[4][0] && daubedMatrix[4][4];
+    if (hasCorners && (winningPattern === 'FOUR_CORNERS' || winningPattern === 'CORNERS' || winningPattern.includes('CORNERS'))) {
+      winningCells.push({ r: 0, c: 0 }, { r: 0, c: 4 }, { r: 4, c: 0 }, { r: 4, c: 4 });
+    }
+
+    // Deduplicate winning cells
+    const uniqueWinningCells = Array.from(
+      new Set(winningCells.map((cell) => `${cell.r}_${cell.c}`))
+    ).map((key) => {
+      const [r, c] = key.split('_').map(Number);
+      return { r, c };
+    });
+
+    const isWinner = uniqueWinningCells.length > 0 || (ticket as any).winningStatus === 'WON' || Boolean(winnerRecord);
+
+    const user = db.getUserById(ticket.userId);
+
+    res.json({
+      success: true,
+      ticket: {
+        ...ticket,
+        username: user?.username || ticket.username || ticket.userId,
+        fullName: user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : undefined,
+        winningStatus: isWinner ? 'WON' : ticket.status === 'ACTIVE' ? 'PENDING' : 'LOST',
+      },
+      matrix,
+      drawnBalls,
+      totalDrawn: drawnBalls.length,
+      winningCells: uniqueWinningCells,
+      drawnCells,
+      winningPattern,
+      isWinner,
+      winnerRecord,
+      gameHistoryRecord,
+      roomInfo,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

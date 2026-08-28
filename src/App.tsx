@@ -135,6 +135,14 @@ export default function App() {
     roomName: string;
   } | null>(null);
 
+  // Broadcaster / Platform Announcement State
+  const [activeAnnouncement, setActiveAnnouncement] = useState<{
+    id: string;
+    title: string;
+    message: string;
+    createdAt: string;
+  } | null>(null);
+
   // Private Group States
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isJoinGroupCodeOpen, setIsJoinGroupCodeOpen] = useState(false);
@@ -699,6 +707,21 @@ export default function App() {
       if (data && data.room) {
         setRooms((prev) => prev.map((r) => (r.id === data.room.id ? data.room : r)));
         setActiveRoom((prev) => (prev && prev.id === data.room.id ? data.room : prev));
+      }
+    });
+
+    newSocket.on('room:deleted', (data: { roomId: string }) => {
+      if (data?.roomId) {
+        setRooms((prev) => prev.filter((r) => r.id !== data.roomId));
+        setActiveRoom((prev) => (prev && prev.id === data.roomId ? null : prev));
+        setSelectedCardRoom((prev) => (prev && prev.id === data.roomId ? null : prev));
+      }
+    });
+
+    newSocket.on('broadcast:announcement', (ann: { id: string; title: string; message: string; createdAt: string }) => {
+      if (ann && (ann.title || ann.message)) {
+        setActiveAnnouncement(ann);
+        triggerHaptic('medium');
       }
     });
 
@@ -1310,6 +1333,40 @@ export default function App() {
                 className="flex-1 py-3 px-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 text-xs font-black shadow-lg shadow-emerald-500/20 transition"
               >
                 {language === 'am' ? 'እሺ (ቀጥል)' : 'Great, Got it!'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PLATFORM BROADCAST ANNOUNCEMENT POPUP MODAL */}
+      {activeAnnouncement && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in">
+          <div className="bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 border-2 border-amber-500/60 rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl space-y-4 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
+            
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/20 border border-amber-400/50 flex items-center justify-center text-2xl shadow-lg shadow-amber-500/20">
+              📢
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold uppercase tracking-wider border border-amber-500/30">
+                {language === 'am' ? 'ይፋዊ ማስታወቂያ' : 'Official Announcement'}
+              </span>
+              <h3 className="text-lg font-black text-white tracking-wide pt-1">
+                {activeAnnouncement.title}
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap p-3 rounded-2xl bg-slate-950/70 border border-slate-800 text-left">
+                {activeAnnouncement.message}
+              </p>
+            </div>
+
+            <div className="pt-2">
+              <button
+                onClick={() => setActiveAnnouncement(null)}
+                className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black shadow-lg shadow-amber-500/25 transition"
+              >
+                {language === 'am' ? 'ገባኝ (አረጋግጥ)' : 'Understood'}
               </button>
             </div>
           </div>

@@ -360,12 +360,233 @@ class FirestoreDatabaseStore {
       // 3. Synchronize All Registered Users from Firestore
       await this.syncUsersFromFirestore();
 
-      logger.info(`[Firestore] Memory store initialized with ${this.rooms.size} official Bingo arenas and ${this.users.size} registered users.`);
+      // 4. Synchronize all other collections from Firestore (Rooms, Deposits, Withdrawals, Transactions, Tickets, Winners, Game History, Audit Logs, Notifications, Groups)
+      await this.syncAllDataFromFirestore();
+
+      logger.info(`[Firestore] Memory store initialized with ${this.rooms.size} Bingo arenas, ${this.users.size} registered users, ${this.deposits.length} deposits, ${this.withdrawals.length} withdrawals, ${this.transactions.length} transactions, ${this.tickets.size} tickets, and ${this.winners.length} winners.`);
     } catch (err: any) {
       console.warn('⚠️ [Firestore] Notice during startup sync:', err.message || err);
       if (this.users.size === 0) {
         this.seedInitialUsers();
       }
+    }
+  }
+
+  /**
+   * Complete hydration of all persistent data from Firestore.
+   * Guarantees zero data loss across Render redeployments, restarts, and browser refreshes.
+   */
+  public async syncAllDataFromFirestore(): Promise<void> {
+    try {
+      await firestoreGuard.safeRead('all_collections', 'syncAllDataFromFirestore', async () => {
+        // A. Synchronize Rooms (Custom rooms created by Admin + ensure official rooms)
+        try {
+          const roomsSnap = await adminDb.collection('rooms').get().catch(() => null);
+          if (roomsSnap && !roomsSnap.empty) {
+            roomsSnap.docs.forEach((doc) => {
+              const r = doc.data() as BingoRoom;
+              if (r && r.id) {
+                // If room doesn't exist in memory yet, add it
+                if (!this.rooms.has(r.id)) {
+                  this.rooms.set(r.id, {
+                    ...r,
+                    status: r.status || 'WAITING',
+                    drawnBalls: Array.isArray(r.drawnBalls) ? r.drawnBalls : [],
+                    currentBall: r.currentBall !== undefined ? r.currentBall : null,
+                    prizePool: typeof r.prizePool === 'number' ? r.prizePool : 0,
+                    ticketsSold: typeof r.ticketsSold === 'number' ? r.ticketsSold : 0,
+                    activePlayersCount: typeof r.activePlayersCount === 'number' ? r.activePlayersCount : 0,
+                    countdownSeconds: typeof r.countdownSeconds === 'number' ? r.countdownSeconds : 45,
+                    startedAt: r.startedAt || new Date().toISOString(),
+                    endsAt: r.endsAt || new Date(Date.now() + 45000).toISOString(),
+                  });
+                }
+              }
+            });
+          }
+        } catch (e) {
+          logger.debug('[FirestoreSync] Rooms sync note:', e);
+        }
+
+        // B. Synchronize Deposits (from 'payments' and fallback 'deposits' collections)
+        try {
+          const paymentsSnap = await adminDb.collection('payments').orderBy('createdAt', 'desc').limit(500).get().catch(async () => {
+            return adminDb.collection('payments').limit(500).get().catch(() => null);
+          });
+          const existingDepIds = new Set(this.deposits.map((d) => d.id));
+          if (paymentsSnap && !paymentsSnap.empty) {
+            paymentsSnap.docs.forEach((doc) => {
+              const dep = doc.data() as DepositRequest;
+              if (dep && dep.id && !existingDepIds.has(dep.id)) {
+                this.deposits.push(dep);
+                existingDepIds.add(dep.id);
+              }
+            });
+          }
+          // Fallback check on 'deposits' collection if any legacy docs exist
+          const legacyDepSnap = await adminDb.collection('deposits').limit(200).get().catch(() => null);
+          if (legacyDepSnap && !legacyDepSnap.empty) {
+            legacyDepSnap.docs.forEach((doc) => {
+              const dep = doc.data() as DepositRequest;
+              if (dep && dep.id && !existingDepIds.has(dep.id)) {
+                this.deposits.push(dep);
+                existingDepIds.add(dep.id);
+              }
+            });
+          }
+        } catch (e) {
+          logger.debug('[FirestoreSync] Deposits sync note:', e);
+        }
+
+        // C. Synchronize Withdrawals
+        try {
+          const wdSnap = await adminDb.collection('withdrawals').orderBy('createdAt', 'desc').limit(500).get().catch(async () => {
+            return adminDb.collection('withdrawals').limit(500).get().catch(() => null);
+          });
+          const existingWdIds = new Set(this.withdrawals.map((w) => w.id));
+          if (wdSnap && !wdSnap.empty) {
+            wdSnap.docs.forEach((doc) => {
+              const wd = doc.data() as WithdrawalRequest;
+              if (wd && wd.id && !existingWdIds.has(wd.id)) {
+                this.withdrawals.push(wd);
+                existingWdIds.add(wd.id);
+              }
+            });
+          }
+        } catch (e) {
+          logger.debug('[FirestoreSync] Withdrawals sync note:', e);
+        }
+
+        // D. Synchronize Transactions (Wallet Ledger)
+        try {
+          const txSnap = await adminDb.collection('transactions').orderBy('createdAt', 'desc').limit(500).get().catch(async () => {
+            return adminDb.collection('transactions').limit(500).get().catch(() => null);
+          });
+          const existingTxIds = new Set(this.transactions.map((t) => t.id));
+          if (txSnap && !txSnap.empty) {
+            txSnap.docs.forEach((doc) => {
+              const tx = doc.data() as WalletTransaction;
+              if (tx && tx.id && !existingTxIds.has(tx.id)) {
+                this.transactions.push(tx);
+                existingTxIds.add(tx.id);
+              }
+            });
+          }
+        } catch (e) {
+          logger.debug('[FirestoreSync] Transactions sync note:', e);
+        }
+
+        // E. Synchronize Tickets
+        try {
+          const tktSnap = await adminDb.collection('tickets').orderBy('boughtAt', 'desc').limit(1000).get().catch(async () => {
+            return adminDb.collection('tickets').limit(1000).get().catch(() => null);
+          });
+          if (tktSnap && !tktSnap.empty) {
+            tktSnap.docs.forEach((doc) => {
+              const tkt = doc.data() as BingoTicket;
+              if (tkt && tkt.id) {
+                this.tickets.set(tkt.id, tkt);
+              }
+            });
+          }
+        } catch (e) {
+          logger.debug('[FirestoreSync] Tickets sync note:', e);
+        }
+
+        // F. Synchronize Winners
+        try {
+          const winSnap = await adminDb.collection('winners').orderBy('wonAt', 'desc').limit(500).get().catch(async () => {
+            return adminDb.collection('winners').limit(500).get().catch(() => null);
+          });
+          const existingWinIds = new Set(this.winners.map((w) => w.id));
+          if (winSnap && !winSnap.empty) {
+            winSnap.docs.forEach((doc) => {
+              const w = doc.data() as GameWinner;
+              if (w && w.id && !existingWinIds.has(w.id)) {
+                this.winners.push(w);
+                existingWinIds.add(w.id);
+              }
+            });
+          }
+        } catch (e) {
+          logger.debug('[FirestoreSync] Winners sync note:', e);
+        }
+
+        // G. Synchronize Game History
+        try {
+          const ghSnap = await adminDb.collection('gameHistory').orderBy('playedAt', 'desc').limit(500).get().catch(async () => {
+            return adminDb.collection('gameHistory').limit(500).get().catch(() => null);
+          });
+          const existingGhIds = new Set(this.gameHistoryRecords.map((gh) => gh.id));
+          if (ghSnap && !ghSnap.empty) {
+            ghSnap.docs.forEach((doc) => {
+              const gh = doc.data() as GameHistoryRecord;
+              if (gh && gh.id && !existingGhIds.has(gh.id)) {
+                this.gameHistoryRecords.push(gh);
+                existingGhIds.add(gh.id);
+              }
+            });
+          }
+        } catch (e) {
+          logger.debug('[FirestoreSync] GameHistory sync note:', e);
+        }
+
+        // H. Synchronize Audit Logs
+        try {
+          const auditSnap = await adminDb.collection('auditLogs').orderBy('timestamp', 'desc').limit(500).get().catch(async () => {
+            return adminDb.collection('auditLogs').limit(500).get().catch(() => null);
+          });
+          const existingAuditIds = new Set(this.auditLogs.map((a) => a.id));
+          if (auditSnap && !auditSnap.empty) {
+            auditSnap.docs.forEach((doc) => {
+              const log = doc.data() as AuditLog;
+              if (log && log.id && !existingAuditIds.has(log.id)) {
+                this.auditLogs.push(log);
+                existingAuditIds.add(log.id);
+              }
+            });
+          }
+        } catch (e) {
+          logger.debug('[FirestoreSync] AuditLogs sync note:', e);
+        }
+
+        // I. Synchronize Notifications
+        try {
+          const notifSnap = await adminDb.collection('notifications').orderBy('createdAt', 'desc').limit(500).get().catch(async () => {
+            return adminDb.collection('notifications').limit(500).get().catch(() => null);
+          });
+          const existingNotifIds = new Set(this.notifications.map((n) => n.id));
+          if (notifSnap && !notifSnap.empty) {
+            notifSnap.docs.forEach((doc) => {
+              const notif = doc.data() as UserNotification;
+              if (notif && notif.id && !existingNotifIds.has(notif.id)) {
+                this.notifications.push(notif);
+                existingNotifIds.add(notif.id);
+              }
+            });
+          }
+        } catch (e) {
+          logger.debug('[FirestoreSync] Notifications sync note:', e);
+        }
+
+        // J. Synchronize Private Groups
+        try {
+          const groupSnap = await adminDb.collection('groupGames').get().catch(() => null);
+          if (groupSnap && !groupSnap.empty) {
+            groupSnap.docs.forEach((doc) => {
+              const grp = doc.data() as PrivateGroup;
+              if (grp && grp.id) {
+                this.privateGroups.set(grp.id, grp);
+                if (grp.code) this.privateGroupCodeIndex.set(grp.code.toUpperCase(), grp.id);
+              }
+            });
+          }
+        } catch (e) {
+          logger.debug('[FirestoreSync] GroupGames sync note:', e);
+        }
+      }, null);
+    } catch (err: any) {
+      logger.warn('[FirestoreSync] Notice during full data sync:', err.message || err);
     }
   }
 

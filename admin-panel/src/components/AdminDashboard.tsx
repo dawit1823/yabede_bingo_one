@@ -362,6 +362,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [resetUserPasswordInput, setResetUserPasswordInput] = useState<string>('');
 
   const [selectedTicketForView, setSelectedTicketForView] = useState<BingoTicket | null>(null);
+  const [inspectTicketData, setInspectTicketData] = useState<any | null>(null);
+  const [loadingInspection, setLoadingInspection] = useState<boolean>(false);
   const [selectedDepositForReceipt, setSelectedDepositForReceipt] = useState<DepositRequest | null>(null);
 
   const [approvingWithdrawal, setApprovingWithdrawal] = useState<WithdrawalRequest | null>(null);
@@ -783,6 +785,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     socket.on('private_group:winner', onPrivateGroupUpdated);
     socket.on('private_group:closed', onPrivateGroupUpdated);
     socket.on('private_group:cancelled', onPrivateGroupUpdated);
+    const onRoomDeleted = (data: { roomId: string }) => {
+      if (data?.roomId) {
+        setStandardRooms((prev) => prev.filter((r) => r.id !== data.roomId));
+      }
+    };
+
+    socket.on('room:deleted', onRoomDeleted);
     socket.on('audit:log', onAuditLog);
     socket.on('audit:new', onAuditLog);
 
@@ -791,6 +800,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       socket.off('metrics:updated', onMetricsUpdated);
       socket.off('room:updated', onRoomUpdated);
       socket.off('rooms:updated', onRoomsUpdated);
+      socket.off('room:deleted', onRoomDeleted);
       socket.off('room:countdown', onRoomCountdown);
       socket.off('game:countdown', onRoomCountdown);
       socket.off('ball:drawn', onBallDrawn);
@@ -874,6 +884,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   // Actions
+  const handleInspectTicket = async (tkt: BingoTicket) => {
+    setSelectedTicketForView(tkt);
+    setLoadingInspection(true);
+    setInspectTicketData(null);
+    try {
+      const res = await adminFetch(apiUrl(`/api/admin/tickets/${tkt.id}/inspect`));
+      if (res.ok) {
+        const data = await res.json();
+        setInspectTicketData(data);
+      }
+    } catch (err) {
+      console.error('Failed to load inspection data:', err);
+    } finally {
+      setLoadingInspection(false);
+    }
+  };
+
+  const handleDeleteRoom = async (roomId: string, roomName: string) => {
+    if (!confirm(`🚨 Are you sure you want to delete Bingo Arena "${roomName}" (${roomId})?\n\nThis will safely remove the room from the active arenas catalog. Historical tickets, reports, and financial logs will remain intact.`)) {
+      return;
+    }
+    try {
+      setLoading(true);
+      const res = await adminFetch(apiUrl('/api/admin/rooms/delete'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId, adminId: 'usr_admin' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to delete arena');
+      }
+      triggerNotificationHaptic('success');
+      alert(`✅ ${data.message || `Arena "${roomName}" deleted successfully.`}`);
+      setStandardRooms((prev) => prev.filter((r) => r.id !== roomId));
+      fetchAdminData();
+    } catch (err: any) {
+      triggerNotificationHaptic('error');
+      alert(err.message || 'Failed to delete arena');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleResetAllBingoGames = async () => {
     if (!confirm('🚨 CRITICAL ACTION: Are you sure you want to remove and reset ALL existing bingo games, tickets, and card reservations?')) return;
     try {
@@ -2204,6 +2258,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span>Prize Pool: <strong className="text-amber-400">{rm.prizePool} Birr</strong></span>
                     <span>Tickets Sold: <strong>{rm.ticketsSold || 0}</strong></span>
                   </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
+                    <span className="text-[10px] text-slate-500 font-mono">ID: {rm.id}</span>
+                    <button
+                      onClick={() => handleDeleteRoom(rm.id, rm.name)}
+                      className="px-2.5 py-1 rounded-xl bg-red-500/15 hover:bg-red-500/30 text-red-300 border border-red-500/30 text-[10px] font-bold flex items-center gap-1 transition"
+                      title="Delete arena"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Delete Arena</span>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -2535,8 +2600,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <td className="p-3">
                             <div className="flex items-center gap-1.5">
                               <button
-                                onClick={() => setSelectedTicketForView(tkt)}
-                                className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-[10px] flex items-center gap-1"
+                                onClick={() => handleInspectTicket(tkt)}
+                                className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-[10px] flex items-center gap-1 transition shadow-sm"
                               >
                                 <Eye className="w-3 h-3" />
                                 <span>Inspect</span>
@@ -4704,52 +4769,230 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* INSPECT TICKET CARD MATRIX MODAL */}
+      {/* INSPECT TICKET CARD MATRIX & COMPLETED ROUND MODAL */}
       {selectedTicketForView && (
-        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-amber-500/50 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-amber-500/50 rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative my-auto">
             <button
-              onClick={() => setSelectedTicketForView(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full bg-slate-800"
+              onClick={() => {
+                setSelectedTicketForView(null);
+                setInspectTicketData(null);
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1.5 rounded-full bg-slate-800 transition"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="text-center space-y-1">
-              <h3 className="text-base font-black text-amber-300">
-                Card #{selectedTicketForView.cardNumber} Matrix
+            {/* Header */}
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold border border-amber-500/30">
+                  Card #{selectedTicketForView.cardNumber}
+                </span>
+                {selectedTicketForView.gameReferenceId && (
+                  <span className="px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 text-[10px] font-mono font-bold border border-slate-700">
+                    Ref: {selectedTicketForView.gameReferenceId}
+                  </span>
+                )}
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase ${
+                    (inspectTicketData?.isWinner || (selectedTicketForView as any).winningStatus === 'WON')
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : selectedTicketForView.status === 'ACTIVE'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}
+                >
+                  {inspectTicketData?.isWinner || (selectedTicketForView as any).winningStatus === 'WON'
+                    ? '🎉 WON'
+                    : selectedTicketForView.status === 'ACTIVE'
+                    ? '⏳ ACTIVE'
+                    : '❌ LOST'}
+                </span>
+              </div>
+              <h3 className="text-lg font-black text-white">
+                Ticket Inspection & Round Analysis
               </h3>
               <p className="text-xs text-slate-400">
-                Purchased by @{selectedTicketForView.username} • {selectedTicketForView.purchasePrice} Birr
+                Purchased by <strong className="text-amber-300">@{selectedTicketForView.username}</strong>
+                {inspectTicketData?.ticket?.fullName && ` (${inspectTicketData.ticket.fullName})`} • {selectedTicketForView.purchasePrice} Birr
               </p>
-              {selectedTicketForView.gameReferenceId && (
-                <p className="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10 py-1 px-2 rounded-lg border border-amber-500/20 inline-block">
-                  Ref: {selectedTicketForView.gameReferenceId}
-                </p>
-              )}
             </div>
 
-            {/* 5x5 Grid Representation */}
-            <div className="grid grid-cols-5 gap-1.5 p-2 bg-slate-950 rounded-2xl border border-slate-800">
-              {['B', 'I', 'N', 'G', 'O'].map((letter) => (
-                <div key={letter} className="text-center font-black text-amber-400 text-sm py-1 border-b border-slate-800">
-                  {letter}
-                </div>
-              ))}
-              {generateCardMatrixByNumber(selectedTicketForView.cardNumber || 1).map((row, rIdx) =>
-                row.map((cell, cIdx) => (
-                  <div
-                    key={`${rIdx}-${cIdx}`}
-                    className={`h-10 rounded-xl flex items-center justify-center text-xs font-mono font-bold ${
-                      cell === 'FREE'
-                        ? 'bg-amber-500 text-slate-950 font-black'
-                        : 'bg-slate-900 text-slate-100 border border-slate-800'
-                    }`}
-                  >
-                    {cell}
+            {/* Winner / Status Outcome Banner */}
+            {(inspectTicketData?.isWinner || (selectedTicketForView as any).winningStatus === 'WON') ? (
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-950/80 to-slate-900 border border-emerald-500/50 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300 font-bold text-sm">
+                    👑
                   </div>
-                ))
-              )}
+                  <div>
+                    <div className="text-xs font-black text-emerald-300">
+                      Verified Winning Bingo Card
+                    </div>
+                    <div className="text-[11px] text-slate-300">
+                      Pattern: <strong className="text-amber-300">{inspectTicketData?.winningPattern || 'ONE_LINE'}</strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-emerald-400 uppercase font-bold">Prize Won</span>
+                  <div className="text-sm font-black text-emerald-300">
+                    +{inspectTicketData?.winnerRecord?.prizeAmount || (selectedTicketForView as any).prizeWon || 0} Birr
+                  </div>
+                </div>
+              </div>
+            ) : selectedTicketForView.status === 'ACTIVE' ? (
+              <div className="p-3 rounded-2xl bg-amber-950/40 border border-amber-500/30 flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-400 text-sm font-bold">
+                  ⏳
+                </div>
+                <div>
+                  <div className="text-xs font-black text-amber-300">Active Game Round in Progress</div>
+                  <div className="text-[11px] text-slate-400">
+                    Drawn balls so far: <strong className="text-white">{inspectTicketData?.drawnBalls?.length || 0}</strong>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center text-slate-400 text-xs font-bold">
+                  ℹ️
+                </div>
+                <div>
+                  <div className="text-xs font-black text-slate-300">Completed Round — Non-Winning Card</div>
+                  <div className="text-[11px] text-slate-500">
+                    Round completed with <strong className="text-slate-300">{inspectTicketData?.drawnBalls?.length || 0}</strong> balls drawn.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 5x5 Grid Matrix with Distinctive Winning & Drawn Cells */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold px-1">
+                <span>5x5 Card Number Grid</span>
+                {loadingInspection && (
+                  <span className="text-amber-400 animate-pulse text-[10px]">Verifying balls...</span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-5 gap-1.5 p-2.5 bg-slate-950 rounded-2xl border border-slate-800 shadow-inner">
+                {['B', 'I', 'N', 'G', 'O'].map((letter) => (
+                  <div
+                    key={letter}
+                    className="text-center font-black text-amber-400 text-sm py-1 border-b border-slate-800 bg-slate-900/60 rounded-t-lg"
+                  >
+                    {letter}
+                  </div>
+                ))}
+
+                {(
+                  inspectTicketData?.matrix ||
+                  generateCardMatrixByNumber(selectedTicketForView.cardNumber || 1)
+                ).map((row: any[], rIdx: number) =>
+                  row.map((cell: any, cIdx: number) => {
+                    const isFree = cell === 'FREE';
+                    const isWinning =
+                      inspectTicketData?.winningCells?.some(
+                        (wc: any) => wc.r === rIdx && wc.c === cIdx
+                      ) || false;
+                    const isDrawn =
+                      inspectTicketData?.drawnCells?.some(
+                        (dc: any) => dc.r === rIdx && dc.c === cIdx
+                      ) ||
+                      (inspectTicketData?.drawnBalls &&
+                        inspectTicketData.drawnBalls.includes(cell)) ||
+                      false;
+
+                    return (
+                      <div
+                        key={`${rIdx}-${cIdx}`}
+                        className={`h-11 rounded-xl flex flex-col items-center justify-center text-xs font-mono font-black transition relative ${
+                          isFree
+                            ? 'bg-gradient-to-b from-amber-400 to-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                            : isWinning
+                            ? 'bg-gradient-to-b from-emerald-500 to-emerald-600 text-white ring-2 ring-amber-400 shadow-lg shadow-emerald-500/30'
+                            : isDrawn
+                            ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/50 shadow-sm'
+                            : 'bg-slate-900/90 text-slate-300 border border-slate-800'
+                        }`}
+                      >
+                        {isWinning && (
+                          <span className="text-[8px] absolute top-0.5 right-1">★</span>
+                        )}
+                        <span>{cell}</span>
+                        {isWinning ? (
+                          <span className="text-[7px] font-sans font-bold uppercase text-amber-200 leading-none">
+                            WIN
+                          </span>
+                        ) : isDrawn && !isFree ? (
+                          <span className="text-[7px] font-sans font-bold uppercase text-emerald-400 leading-none">
+                            DRAWN
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Visual Legend */}
+            <div className="grid grid-cols-4 gap-2 text-[10px] text-slate-400 pt-1">
+              <div className="flex items-center gap-1.5 bg-slate-950/60 p-1.5 rounded-lg border border-slate-800">
+                <span className="w-3 h-3 rounded bg-emerald-500 border border-amber-400 flex-shrink-0" />
+                <span className="truncate">Winning Cell</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-slate-950/60 p-1.5 rounded-lg border border-slate-800">
+                <span className="w-3 h-3 rounded bg-emerald-950 border border-emerald-500/50 flex-shrink-0" />
+                <span className="truncate">Drawn Number</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-slate-950/60 p-1.5 rounded-lg border border-slate-800">
+                <span className="w-3 h-3 rounded bg-slate-900 border border-slate-800 flex-shrink-0" />
+                <span className="truncate">Undrawn</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-slate-950/60 p-1.5 rounded-lg border border-slate-800">
+                <span className="w-3 h-3 rounded bg-amber-400 flex-shrink-0" />
+                <span className="truncate">FREE Star</span>
+              </div>
+            </div>
+
+            {/* Drawn Numbers Sequence Bar */}
+            {inspectTicketData?.drawnBalls && inspectTicketData.drawnBalls.length > 0 && (
+              <div className="space-y-1.5 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                  <span>Drawn Numbers in Round ({inspectTicketData.drawnBalls.length})</span>
+                  <span className="text-[10px] text-slate-500 font-mono">In chronological order</span>
+                </div>
+                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-2 bg-slate-950 rounded-xl border border-slate-800">
+                  {inspectTicketData.drawnBalls.map((ball: number, idx: number) => {
+                    const col = ball <= 15 ? 'B' : ball <= 30 ? 'I' : ball <= 45 ? 'N' : ball <= 60 ? 'G' : 'O';
+                    return (
+                      <span
+                        key={idx}
+                        className="px-1.5 py-0.5 rounded-md bg-slate-900 border border-slate-700 text-amber-300 font-mono text-[10px] font-bold"
+                        title={`Ball #${idx + 1}: ${col}-${ball}`}
+                      >
+                        {col}-{ball}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Footer Close */}
+            <div className="pt-2">
+              <button
+                onClick={() => {
+                  setSelectedTicketForView(null);
+                  setInspectTicketData(null);
+                }}
+                className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition"
+              >
+                Close Inspector
+              </button>
             </div>
           </div>
         </div>
