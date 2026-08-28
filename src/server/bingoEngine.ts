@@ -232,15 +232,17 @@ export function processBingoClaim(
       t.purchasePrice > 0
   );
 
-  const totalTicketSales = confirmedTickets.length * room.ticketPrice;
+  const effectiveTicketsCount = Math.max(confirmedTickets.length, room.ticketsSold || 0);
+  const totalTicketSales = effectiveTicketsCount * room.ticketPrice;
   if (totalTicketSales <= 0) {
     return { success: false, message: 'Zero confirmed tickets in game round' };
   }
 
   const sysSettings = adminService.getSystemSettings();
-  const platformFeePct = sysSettings.platformFeePercent ?? 20;
-  const prizePct = sysSettings.prizePercentage ?? (100 - platformFeePct);
-  const totalPrizePool = Math.round(totalTicketSales * (prizePct / 100));
+  const platformFeePct = typeof sysSettings.platformFeePercent === 'number' ? sysSettings.platformFeePercent : 20;
+  const finalPlatformFee = Math.round(totalTicketSales * (platformFeePct / 100));
+  const calculatedPrizePool = Math.max(0, totalTicketSales - finalPlatformFee);
+  const totalPrizePool = room.prizePool > 0 ? room.prizePool : calculatedPrizePool;
 
   const prizeShare = Math.max(1, totalPrizePool);
 
@@ -319,13 +321,14 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
     return { winners: [], room };
   }
 
-  // Formula: Prize Pool = (Total Value of All Confirmed Tickets Sold) × (Winner Prize Share %)
-  const ticketsSold = roomTickets.length;
-  const totalTicketSales = ticketsSold * room.ticketPrice;
+  // Formula: Prize Pool = Total Sales - Platform Rake Fee (or Total Sales * Prize %)
+  const effectiveTicketsCount = Math.max(roomTickets.length, room.ticketsSold || 0);
+  const totalTicketSales = effectiveTicketsCount * room.ticketPrice;
   const sysSettings = adminService.getSystemSettings();
-  const platformFeePct = sysSettings.platformFeePercent ?? 20;
-  const prizePct = sysSettings.prizePercentage ?? (100 - platformFeePct);
-  const totalPrizePool = Math.round(totalTicketSales * (prizePct / 100));
+  const platformFeePct = typeof sysSettings.platformFeePercent === 'number' ? sysSettings.platformFeePercent : 20;
+  const finalPlatformFee = Math.round(totalTicketSales * (platformFeePct / 100));
+  const calculatedPrizePool = Math.max(0, totalTicketSales - finalPlatformFee);
+  const totalPrizePool = room.prizePool > 0 ? room.prizePool : calculatedPrizePool;
 
   if (totalPrizePool <= 0) {
     return { winners: [], room };

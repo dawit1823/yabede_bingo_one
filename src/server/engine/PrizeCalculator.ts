@@ -141,13 +141,22 @@ export class PrizeCalculator {
 
     // 3. Authoritative financial calculation (Winner Prize Pool = Total Sales - Platform Rake Fee)
     const sysSettings = adminService.getSystemSettings();
-    const platformFeePct = sysSettings.platformFeePercent ?? 20;
-    const prizePct = sysSettings.prizePercentage ?? (100 - platformFeePct);
+    const platformFeePct = typeof sysSettings.platformFeePercent === 'number' ? sysSettings.platformFeePercent : 20;
+    const prizePct = typeof sysSettings.prizePercentage === 'number' ? sysSettings.prizePercentage : (100 - platformFeePct);
 
-    const totalTicketSales = ticketsSold * room.ticketPrice;
+    // Use verified tickets or room ticket counter to calculate exact ticket sales
+    const effectiveTicketsSold = Math.max(ticketsSold, room.ticketsSold || 0);
+    const totalTicketSales = effectiveTicketsSold * room.ticketPrice;
     const finalPlatformFee = Math.round(totalTicketSales * (platformFeePct / 100));
-    const finalPrizePool = Math.max(0, totalTicketSales - finalPlatformFee);
-    const prizePerWinner = Math.max(0, Math.floor(finalPrizePool / validWinners.length));
+    const calculatedPrizePool = Math.max(0, totalTicketSales - finalPlatformFee);
+    
+    // Ensure the awarded prize pool matches the active room prize pool exactly
+    const finalPrizePool = room.prizePool > 0 && Math.abs(room.prizePool - calculatedPrizePool) <= 1
+      ? room.prizePool
+      : calculatedPrizePool;
+    const prizePerWinner = validWinners.length > 0
+      ? Math.max(0, Math.floor(finalPrizePool / validWinners.length))
+      : 0;
 
     // If prize per winner is 0 (e.g. 0 Birr pool)
     if (prizePerWinner <= 0) {
@@ -181,12 +190,8 @@ export class PrizeCalculator {
         (tkt as any).prizeWon = prizePerWinner;
       }
 
-      // Debit platform / credit winner wallet in memory
-      const user = db.getUserById(winner.userId);
-      const currentBalance = user ? (user.walletBalance || 0) : 0;
-      const newBalance = currentBalance + prizePerWinner;
-
-      db.updateWalletBalance(
+      // Debit platform / credit winner wallet in memory and record transaction
+      const { user: updatedUser, transaction: tx } = db.updateWalletBalance(
         winner.userId,
         prizePerWinner,
         'GAME_WIN',
@@ -194,31 +199,17 @@ export class PrizeCalculator {
         `WIN-${room.id}-${winner.cardNumber}-${winner.ticketId}`,
         gameRef
       );
-
-      // Create wallet transaction object
-      const tx: WalletTransaction = {
-        id: `tx_win_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
-        userId: winner.userId,
-        amount: prizePerWinner,
-        balanceAfter: newBalance,
-        type: 'GAME_WIN',
-        status: 'COMPLETED',
-        reference: `WIN-${room.id}-${winner.cardNumber}-${winner.ticketId}`,
-        description: `Won Bingo Prize (${winner.pattern}) in ${room.name}`,
-        gameReferenceId: gameRef,
-        createdAt: nowIso,
-      };
       transactions.push(tx);
 
       // Batch update user wallet, wallet doc, transaction, and winner record in Firestore
       batch.set(
         adminDb.collection('users').doc(winner.userId),
-        { walletBalance: newBalance, totalWins: (user?.totalWins || 0) + 1, updatedAt: nowIso },
+        { walletBalance: updatedUser.walletBalance, totalWins: updatedUser.totalWins, updatedAt: nowIso },
         { merge: true }
       );
       batch.set(
         adminDb.collection('wallets').doc(winner.userId),
-        { userId: winner.userId, balance: newBalance, updatedAt: nowIso },
+        { userId: winner.userId, balance: updatedUser.walletBalance, updatedAt: nowIso },
         { merge: true }
       );
       batch.set(adminDb.collection('transactions').doc(tx.id), tx);
