@@ -539,6 +539,12 @@ export default function App() {
           return [...otherRoomTickets, ...data.tickets];
         });
       }
+      if (data && data.messages && Array.isArray(data.messages)) {
+        setChatMessages((prev) => {
+          const otherRoomMsgs = prev.filter((m) => m.roomId && m.roomId !== data.room.id);
+          return [...otherRoomMsgs, ...data.messages];
+        });
+      }
     });
 
     newSocket.on('ticket:bought', (data: { tickets: BingoTicket[]; userBalance: number }) => {
@@ -555,7 +561,10 @@ export default function App() {
     });
 
     newSocket.on('chat:message', (msg: ChatMessage) => {
-      setChatMessages((prev) => [...prev, msg]);
+      setChatMessages((prev) => {
+        if (prev.some((m) => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
     });
 
     const handleWinEvent = (data: { winner: any; winners?: any[]; room?: any; group?: any; message?: string }) => {
@@ -867,9 +876,10 @@ export default function App() {
   };
 
   const handleSendMessage = (text: string) => {
-    if (socket && activeRoom) {
+    const currentRoomId = activeRoom?.id || selectedCardRoom?.id;
+    if (socket && currentRoomId) {
       socket.emit('chat:send', {
-        roomId: activeRoom.id,
+        roomId: currentRoomId,
         userId: currentUser.id,
         text,
       });
@@ -990,6 +1000,8 @@ export default function App() {
           <CardSelectionView
             room={selectedCardRoom}
             user={currentUser}
+            messages={chatMessages}
+            onSendMessage={handleSendMessage}
             onBack={() => setSelectedCardRoom(null)}
             onCardPurchased={(ticket) => {
               setUserTickets((prev) => {
@@ -1023,7 +1035,12 @@ export default function App() {
                 rooms={rooms}
                 user={currentUser}
                 onJoinRoom={handleJoinRoom}
-                onSelectRoom={(room) => setSelectedCardRoom(room)}
+                onSelectRoom={(room) => {
+                  setSelectedCardRoom(room);
+                  if (socket) {
+                    socket.emit('room:join', { roomId: room.id, userId: currentUser.id });
+                  }
+                }}
                 onNavigateTab={(tab) => setActiveTab(tab as any)}
                 onCreatePrivateGroup={() => setIsCreateGroupOpen(true)}
                 onJoinPrivateGroupCode={() => setIsJoinGroupCodeOpen(true)}

@@ -542,6 +542,52 @@ apiRouter.get('/rooms/:roomId/my-tickets', (req: Request, res: Response) => {
   res.json({ success: true, roomId, tickets: userTickets });
 });
 
+// Room Chat History Endpoint
+apiRouter.get('/rooms/:roomId/messages', (req: Request, res: Response) => {
+  const { roomId } = req.params;
+  const messages = db.chatMessages.get(roomId) || [];
+  res.json({ success: true, roomId, messages });
+});
+
+// Room Chat Send HTTP Fallback Endpoint
+apiRouter.post('/rooms/:roomId/messages', (req: Request, res: Response) => {
+  const { roomId } = req.params;
+  const { userId, text } = req.body;
+
+  if (!userId || !text || !text.trim()) {
+    res.status(400).json({ error: 'userId and text are required' });
+    return;
+  }
+
+  const user = db.getUserById(userId);
+  if (!user) {
+    res.status(404).json({ error: 'User not found' });
+    return;
+  }
+
+  const msg = {
+    id: `msg_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+    roomId,
+    userId,
+    username: user.username || user.firstName || 'Player',
+    text: text.trim(),
+    timestamp: new Date().toISOString(),
+  };
+
+  const roomMsgs = db.chatMessages.get(roomId) || [];
+  roomMsgs.push(msg);
+  if (roomMsgs.length > 100) roomMsgs.shift();
+  db.chatMessages.set(roomId, roomMsgs);
+
+  const io = getIO();
+  if (io) {
+    io.to(roomId).emit('chat:message', msg);
+  }
+
+  res.json({ success: true, message: msg });
+});
+
+
 // --- TELEGRAM BOT WEBHOOK & SIMULATOR ENDPOINTS ---
 apiRouter.post('/telegram/webhook', async (req: Request, res: Response) => {
   try {

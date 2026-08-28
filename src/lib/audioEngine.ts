@@ -34,13 +34,14 @@ class SoundEngine {
   private soundEnabled: boolean = true;
   private cachedVoices: SpeechSynthesisVoice[] = [];
   private isUnlocked: boolean = false;
+  private activeUtterances: Set<SpeechSynthesisUtterance> = new Set();
+  private voiceLoaderTimer: any = null;
 
   // Web Audio API buffer cache for zero-latency, Android-compliant playback
   private audioBufferCache: Map<number, AudioBuffer> = new Map();
   private amharicAudioCache: Map<number, HTMLAudioElement> = new Map();
   private currentSourceNode: AudioBufferSourceNode | null = null;
   private currentCallerAudio: HTMLAudioElement | null = null;
-  private currentUtterance: SpeechSynthesisUtterance | null = null;
   private isPreloaded: boolean = false;
   private isPreloading: boolean = false;
   private masterGain: GainNode | null = null;
@@ -52,9 +53,20 @@ class SoundEngine {
         window.speechSynthesis.onvoiceschanged = () => {
           this.loadVoices();
         };
+        this.scheduleVoiceLoader();
       }
       this.attachGestureListeners();
     }
+  }
+
+  private scheduleVoiceLoader() {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const delays = [100, 300, 700, 1500, 3000];
+    delays.forEach((delay) => {
+      setTimeout(() => {
+        this.loadVoices();
+      }, delay);
+    });
   }
 
   private attachGestureListeners() {
@@ -71,7 +83,12 @@ class SoundEngine {
 
   private loadVoices() {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      this.cachedVoices = window.speechSynthesis.getVoices();
+      try {
+        const voices = window.speechSynthesis.getVoices();
+        if (voices && voices.length > 0) {
+          this.cachedVoices = voices;
+        }
+      } catch {}
     }
   }
 
@@ -177,9 +194,9 @@ class SoundEngine {
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
+        this.activeUtterances.clear();
         window.speechSynthesis.cancel();
       } catch {}
-      this.currentUtterance = null;
     }
   }
 
@@ -215,6 +232,13 @@ class SoundEngine {
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
         }
+        // Prime Android TTS with a silent utterance to unlock speech synthesis on mobile WebViews
+        if (!this.isUnlocked) {
+          const silentUtterance = new SpeechSynthesisUtterance('');
+          silentUtterance.volume = 0;
+          silentUtterance.rate = 10;
+          window.speechSynthesis.speak(silentUtterance);
+        }
       } catch {}
     }
   }
@@ -222,6 +246,7 @@ class SoundEngine {
   public isEnabled(): boolean {
     return this.soundEnabled;
   }
+
 
   public playPop() {
     if (!this.soundEnabled) return;
@@ -400,11 +425,14 @@ class SoundEngine {
       return;
     }
 
-    // 3. English: Keep existing SpeechSynthesis voice caller behavior unchanged
+    // 3. English: Robust Android/WebView-compatible SpeechSynthesis voice caller
     if (!('speechSynthesis' in window)) return;
 
     try {
-      const voices = this.cachedVoices.length > 0 ? this.cachedVoices : window.speechSynthesis.getVoices();
+      // Unstick any stuck speech engine from previous calls
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
 
       let letter = 'B';
       if (ball >= 16 && ball <= 30) {
@@ -423,38 +451,56 @@ class SoundEngine {
       utterance.pitch = 1.0;
       utterance.lang = 'en-US';
 
-      const enVoice = voices.find((v) => v.lang && v.lang.startsWith('en'));
-      if (enVoice) {
-        utterance.voice = enVoice;
+      // Load cached or fresh voices
+      const voices = this.cachedVoices.length > 0 ? this.cachedVoices : window.speechSynthesis.getVoices();
+      if (voices && voices.length > 0) {
+        this.cachedVoices = voices;
+        // Priority 1: US/GB English voice
+        let enVoice = voices.find(
+          (v) => v.lang === 'en-US' || v.lang === 'en_US' || v.lang === 'en-GB' || v.lang === 'en_GB'
+        );
+        // Priority 2: Any English locale voice
+        if (!enVoice) {
+          enVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith('en'));
+        }
+        // Priority 3: Any voice containing English in its name
+        if (!enVoice) {
+          enVoice = voices.find((v) => v.name && v.name.toLowerCase().includes('english'));
+        }
+        if (enVoice) {
+          utterance.voice = enVoice;
+        }
       }
 
-      this.currentUtterance = utterance;
+      // Strong reference retention prevents Chromium/Android GC from garbage collecting active utterance
+      this.activeUtterances.add(utterance);
 
-      utterance.onend = () => {
-        if (this.currentUtterance === utterance) {
-          this.currentUtterance = null;
-        }
+      const cleanupUtterance = () => {
+        this.activeUtterances.delete(utterance);
       };
 
-      utterance.onerror = () => {
-        if (this.currentUtterance === utterance) {
-          this.currentUtterance = null;
-        }
-      };
+      utterance.onend = cleanupUtterance;
+      utterance.onerror = cleanupUtterance;
 
-      // 20ms timeout prevents Chrome speech cancellation bug
+      // Watchdog timeout to prevent frozen speech synthesis state on older Android WebViews
+      setTimeout(() => {
+        cleanupUtterance();
+      }, 3500);
+
+      // Asynchronous speak execution with pause recovery
       setTimeout(() => {
         try {
           if (window.speechSynthesis.paused) {
             window.speechSynthesis.resume();
           }
           window.speechSynthesis.speak(utterance);
-        } catch {
-          // Fallback
+        } catch (speakErr) {
+          console.warn('[SoundEngine] SpeechSynthesis speak warning:', speakErr);
+          cleanupUtterance();
         }
-      }, 20);
-    } catch {
-      // Speech synthesis fallback
+      }, 30);
+    } catch (err) {
+      console.warn('[SoundEngine] Speech synthesis execution error:', err);
     }
   }
 }

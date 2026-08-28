@@ -120,3 +120,26 @@ export function getRemainingSeconds(room?: { endsAt?: string | number | null; co
   }
   return Math.max(0, room.countdownSeconds || 0);
 }
+
+/**
+ * Masks a user's display name for Public Arena group chats to protect privacy.
+ * Displays only first letter, last letter, and replaces every character in between with '*'.
+ *
+ * Examples:
+ * - "Dawit Solomon" -> "D***********n"
+ * - "Abebe Kebede" -> "A**********e"
+ * - "John" -> "J**n"
+ * - "Dawit" -> "D***t"
+ */
+export function maskChatUsername(name?: string): string {
+  if (!name || typeof name !== 'string') return 'P****r';
+  const clean = name.trim();
+  if (clean.length === 0) return 'P****r';
+  if (clean.length === 1) return `${clean}*`;
+  if (clean.length === 2) return `${clean[0]}*${clean[1]}`;
+  if (clean.length === 3) return `${clean[0]}*${clean[2]}`;
+
+  const stars = '*'.repeat(clean.length - 2);
+  return `${clean[0]}${stars}${clean[clean.length - 1]}`;
+}
+

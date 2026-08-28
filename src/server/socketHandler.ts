@@ -286,21 +286,23 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
     // Chat Message
     socket.on('chat:send', (data: { roomId: string; userId: string; text: string }) => {
       const { roomId, userId, text } = data;
+      if (!roomId || !userId || !text || !text.trim()) return;
+
       const user = db.getUserById(userId);
-      if (!user || !text.trim()) return;
+      if (!user) return;
 
       const msg: ChatMessage = {
-        id: `msg_${Date.now()}`,
+        id: `msg_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
         roomId,
         userId,
-        username: user.username,
+        username: user.username || user.firstName || 'Player',
         text: text.trim(),
         timestamp: new Date().toISOString(),
       };
 
       const roomMsgs = db.chatMessages.get(roomId) || [];
       roomMsgs.push(msg);
-      if (roomMsgs.length > 50) roomMsgs.shift();
+      if (roomMsgs.length > 100) roomMsgs.shift();
       db.chatMessages.set(roomId, roomMsgs);
 
       io.to(roomId).emit('chat:message', msg);

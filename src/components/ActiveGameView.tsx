@@ -3,7 +3,7 @@ import { Socket } from 'socket.io-client';
 import { BingoRoom, BingoTicket, ChatMessage, UserProfile, WinningPattern, RoomStats } from '../types';
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
 import { audioEngine, getAmharicNumberText } from '../lib/audioEngine';
-import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds } from '../lib/bingoUtils';
+import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds, maskChatUsername } from '../lib/bingoUtils';
 import { apiUrl } from '../lib/apiConfig';
 import { logger } from '../lib/logger';
 import confetti from 'canvas-confetti';
@@ -128,6 +128,19 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
   const [selectedCardIndex, setSelectedCardIndex] = React.useState<number>(0);
   const [showMasterBoard, setShowMasterBoard] = React.useState<boolean>(false);
   const isRefreshingRef = React.useRef<boolean>(false);
+  const messagesEndRef = React.useRef<HTMLDivElement>(null);
+
+  // Filter messages strictly for current room to guarantee complete isolation
+  const roomMessages = React.useMemo(() => {
+    return (messages || []).filter((m) => !m.roomId || m.roomId === room.id);
+  }, [messages, room.id]);
+
+  // Auto-scroll chat to bottom when new messages arrive
+  React.useEffect(() => {
+    if (chatOpen && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [roomMessages.length, chatOpen]);
 
   // Preload all 75 Amharic MP3 caller files when entering the Bingo room
   React.useEffect(() => {
@@ -1092,21 +1105,79 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
 
       {/* Room Chat Drawer */}
       {chatOpen && (
-        <div className="fixed inset-x-0 bottom-16 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 p-4 rounded-t-3xl shadow-2xl max-h-80 flex flex-col justify-between space-y-3">
+        <div className="fixed inset-x-0 bottom-16 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 p-4 rounded-t-3xl shadow-2xl max-h-96 flex flex-col justify-between space-y-3 animate-slideUp">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <h4 className="text-xs font-black text-slate-200">Room Live Chat</h4>
-            <button onClick={() => setChatOpen(false)} className="text-slate-400 text-xs font-bold">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <h4 className="text-xs font-black text-slate-100 flex items-center gap-1.5">
+                <span>{room.name || 'Room'}</span>
+                <span className="text-slate-400 font-normal">• Live Group Chat</span>
+              </h4>
+            </div>
+            <button
+              onClick={() => setChatOpen(false)}
+              className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white text-xs font-bold transition"
+            >
               ✕
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-48">
-            {messages.map((m) => (
-              <div key={m.id} className="text-xs bg-slate-950/80 rounded-xl p-2 border border-slate-800">
-                <span className="font-bold text-amber-400">@{m.username}: </span>
-                <span className="text-slate-200">{m.text}</span>
-              </div>
+          {/* Quick Chat Phrases */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+            {[
+              language === 'am' ? '👋 ሰላም ለሁላችሁ!' : '👋 Hello everyone!',
+              language === 'am' ? '🍀 መልካም ዕድል!' : '🍀 Good luck!',
+              language === 'am' ? '🔥 ቢንጎ ልበል ነው!' : '🔥 Waiting for Bingo!',
+              language === 'am' ? '🎉 እንኳን ደስ አለህ!' : '🎉 Congratulations!',
+            ].map((phrase, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  onSendMessage(phrase);
+                  triggerHaptic('light');
+                }}
+                className="shrink-0 px-2.5 py-1 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-[10px] font-medium text-slate-300 border border-slate-700/60 transition active:scale-95 cursor-pointer"
+              >
+                {phrase}
+              </button>
             ))}
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-44 min-h-[120px]">
+            {roomMessages.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-center p-4 text-slate-500 text-xs">
+                <MessageSquare className="w-6 h-6 mb-1 text-slate-600" />
+                <span>{language === 'am' ? 'እስካሁን ምንም መልእክት የለም። ሰላምታ ይላኩ!' : 'No messages yet in this room. Say hello!'}</span>
+              </div>
+            ) : (
+              roomMessages.map((m) => {
+                const isMe = m.userId === user.id;
+                const displayName = maskChatUsername(m.username);
+                return (
+                  <div
+                    key={m.id}
+                    className={`text-xs rounded-xl p-2.5 border transition ${
+                      isMe
+                        ? 'bg-amber-500/10 border-amber-500/30 ml-4'
+                        : 'bg-slate-950/80 border-slate-800/80 mr-4'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-0.5">
+                      <span className={`font-bold ${isMe ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        @{displayName} {isMe && <span className="text-[10px] font-normal text-amber-400/70">(You)</span>}
+                      </span>
+                      {m.timestamp && (
+                        <span className="text-[9px] text-slate-500">
+                          {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-slate-200 break-words leading-relaxed">{m.text}</p>
+                  </div>
+                );
+              })
+            )}
+            <div ref={messagesEndRef} />
           </div>
 
           <div className="flex items-center gap-2">
@@ -1114,11 +1185,12 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
               type="text"
               value={messageInput}
               onChange={(e) => setMessageInput(e.target.value)}
-              placeholder="Send a chat message..."
+              placeholder={language === 'am' ? 'መልእክት ይጻፉ...' : 'Send a chat message...'}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && messageInput.trim()) {
                   onSendMessage(messageInput);
                   setMessageInput('');
+                  triggerHaptic('light');
                 }
               }}
               className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -1128,9 +1200,10 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
                 if (messageInput.trim()) {
                   onSendMessage(messageInput);
                   setMessageInput('');
+                  triggerHaptic('light');
                 }
               }}
-              className="p-2 rounded-xl bg-amber-500 text-slate-950 font-bold"
+              className="p-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition active:scale-95 cursor-pointer"
             >
               <Send className="w-4 h-4" />
             </button>
