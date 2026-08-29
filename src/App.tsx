@@ -25,6 +25,7 @@ import { WalletView } from './components/WalletView';
 import { BonusesView } from './components/BonusesView';
 import { LeaderboardView } from './components/LeaderboardView';
 import { GameHistoryView } from './components/GameHistoryView';
+import { HelpView } from './components/HelpView';
 import { AuthModal } from './components/AuthModal';
 import { CreatePrivateGroupModal } from './components/CreatePrivateGroupModal';
 import { JoinPrivateGroupModal } from './components/JoinPrivateGroupModal';
@@ -1165,6 +1166,25 @@ export default function App() {
 
             {activeTab === 'leaderboard' && (
               <LeaderboardView entries={leaderboard} language={language} />
+            )}
+
+            {activeTab === 'help' && (
+              <HelpView
+                user={currentUser}
+                isLoggedIn={isLoggedIn}
+                language={language}
+                onNavigateTab={(tab) => {
+                  setActiveTab(tab);
+                  if (tab === 'home') {
+                    setSelectedCardRoom(null);
+                    setActiveRoom(null);
+                  }
+                }}
+                onOpenPhoneVerification={() => setIsPhoneVerificationOpen(true)}
+                onOpenAuth={() => setIsAuthOpen(true)}
+                onCreatePrivateGroup={() => setIsCreateGroupOpen(true)}
+                onJoinPrivateGroupCode={() => setIsJoinGroupCodeOpen(true)}
+              />
             )}
           </>
         )}

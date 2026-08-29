@@ -8,13 +8,14 @@ import {
   Gift,
   Trophy,
   FileText,
+  BookOpen,
   Menu,
   X,
   ChevronRight,
   Sparkles,
 } from 'lucide-react';
 
-export type TabType = 'home' | 'active_game' | 'history' | 'wallet' | 'bonuses' | 'leaderboard';
+export type TabType = 'home' | 'active_game' | 'history' | 'wallet' | 'bonuses' | 'leaderboard' | 'help';
 
 interface NavigationProps {
   activeTab: TabType;
@@ -71,6 +72,14 @@ export const Navigation: React.FC<NavigationProps> = ({
       label: language === 'am' ? 'የጨዋታ ታሪክ' : 'Game History',
       description: language === 'am' ? 'ያለፉ ጨዋታዎች እና ትኬቶች' : 'Past Rounds & Result Verification',
       icon: History,
+    },
+    {
+      id: 'help' as TabType,
+      label: language === 'am' ? 'መመሪያ & እርዳታ' : 'Help & Manual',
+      description: language === 'am' ? 'የጨዋታ ህጎች፣ አጠቃቀም እና FAQ' : 'Official Guide, Rules & FAQ',
+      icon: BookOpen,
+      badge: 'GUIDE',
+      badgeColor: 'bg-indigo-500',
     },
   ];
 

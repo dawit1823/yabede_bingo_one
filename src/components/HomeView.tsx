@@ -21,6 +21,7 @@ import {
   ArrowRight,
   RefreshCw,
   Smartphone,
+  BookOpen,
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -28,7 +29,7 @@ interface HomeViewProps {
   user: UserProfile;
   onJoinRoom?: (room: BingoRoom, ticketCount: number) => void;
   onSelectRoom?: (room: BingoRoom) => void;
-  onNavigateTab: (tab: 'bonuses' | 'wallet') => void;
+  onNavigateTab: (tab: 'bonuses' | 'wallet' | 'help') => void;
   onCreatePrivateGroup: () => void;
   onJoinPrivateGroupCode: () => void;
   onOpenPrivateGroupLobby: (groupId: string) => void;
@@ -461,6 +462,40 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Help & User Manual Quick Access Banner */}
+      <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center shrink-0">
+            <BookOpen className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="text-xs sm:text-sm font-black text-white flex items-center gap-2">
+              <span>{language === 'am' ? 'የተጠቃሚ መመሪያ & እርዳታ' : 'Help & User Manual'}</span>
+              <span className="text-[9px] bg-indigo-500/20 text-indigo-300 font-bold px-1.5 py-0.5 rounded border border-indigo-500/30">
+                GUIDE
+              </span>
+            </h4>
+            <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
+              {language === 'am'
+                ? 'የ75-ኳስ ቢንጎ አጨዋወት፣ የቴሌብር/ባንክ አጠቃቀም፣ እና የተደጋጋሚ ጥያቄዎች መልስ'
+                : '75-Ball bingo rules, Telebirr/CBE deposits & withdrawals, and FAQs'}
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            onNavigateTab('help');
+            triggerHaptic('light');
+          }}
+          className="w-full sm:w-auto px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 font-black text-xs flex items-center justify-center gap-2 transition active:scale-95 min-h-[40px] shrink-0 cursor-pointer"
+        >
+          <BookOpen className="w-4 h-4" />
+          <span>{language === 'am' ? 'መመሪያውን አንብብ' : 'View Manual'}</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
   );
 };
