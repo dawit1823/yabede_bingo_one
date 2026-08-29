@@ -425,82 +425,145 @@ class SoundEngine {
       return;
     }
 
-    // 3. English: Robust Android/WebView-compatible SpeechSynthesis voice caller
-    if (!('speechSynthesis' in window)) return;
+    // 3. English: Robust Dual-Engine Caller (SpeechSynthesis + Web Audio Vocal/Acoustic Synthesizer Fallback for Android WebViews)
+    const letter = ball <= 15 ? 'B' : ball <= 30 ? 'I' : ball <= 45 ? 'N' : ball <= 60 ? 'G' : 'O';
+    const textToSpeak = `${letter}, ${ball}`;
+
+    let speechSucceeded = false;
+
+    // A. Attempt SpeechSynthesis if available on device
+    if ('speechSynthesis' in window) {
+      try {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+
+        const utterance = new SpeechSynthesisUtterance(textToSpeak);
+        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
+        utterance.lang = 'en-US';
+
+        const voices = this.cachedVoices.length > 0 ? this.cachedVoices : window.speechSynthesis.getVoices();
+        if (voices && voices.length > 0) {
+          this.cachedVoices = voices;
+          let enVoice = voices.find(
+            (v) => v.lang === 'en-US' || v.lang === 'en_US' || v.lang === 'en-GB' || v.lang === 'en_GB'
+          );
+          if (!enVoice) {
+            enVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith('en'));
+          }
+          if (!enVoice) {
+            enVoice = voices.find((v) => v.name && v.name.toLowerCase().includes('english'));
+          }
+          if (enVoice) {
+            utterance.voice = enVoice;
+          }
+        }
+
+        this.activeUtterances.add(utterance);
+
+        const cleanupUtterance = () => {
+          this.activeUtterances.delete(utterance);
+        };
+
+        utterance.onstart = () => {
+          speechSucceeded = true;
+        };
+        utterance.onend = cleanupUtterance;
+        utterance.onerror = (err) => {
+          cleanupUtterance();
+          if (!speechSucceeded) {
+            this.playAcousticBallCall(letter, ball);
+          }
+        };
+
+        // Fallback watchdog: if Android WebView silently drops the utterance without starting
+        setTimeout(() => {
+          cleanupUtterance();
+          if (!speechSucceeded) {
+            this.playAcousticBallCall(letter, ball);
+          }
+        }, 180);
+
+        window.speechSynthesis.speak(utterance);
+        return;
+      } catch {
+        // SpeechSynthesis failed, proceed to Web Audio Acoustic synthesis below
+      }
+    }
+
+    // B. If SpeechSynthesis is unavailable or disabled, immediately play Web Audio Acoustic Caller
+    this.playAcousticBallCall(letter, ball);
+  }
+
+  /**
+   * Web Audio API Acoustic & Vocal Synthesizer for English caller on Android devices
+   * Produces an unmistakable letter chime followed by harmonic number pronunciation
+   */
+  public playAcousticBallCall(letter: string, ball: number) {
+    if (!this.soundEnabled) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
 
     try {
-      // Unstick any stuck speech engine from previous calls
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-      }
+      const now = ctx.currentTime;
 
-      let letter = 'B';
-      if (ball >= 16 && ball <= 30) {
-        letter = 'I';
-      } else if (ball >= 31 && ball <= 45) {
-        letter = 'N';
-      } else if (ball >= 46 && ball <= 60) {
-        letter = 'G';
-      } else if (ball >= 61 && ball <= 75) {
-        letter = 'O';
-      }
-
-      const textToSpeak = `${letter}, ${ball}`;
-      const utterance = new SpeechSynthesisUtterance(textToSpeak);
-      utterance.rate = 0.88; // Clear cadence for caller
-      utterance.pitch = 1.0;
-      utterance.lang = 'en-US';
-
-      // Load cached or fresh voices
-      const voices = this.cachedVoices.length > 0 ? this.cachedVoices : window.speechSynthesis.getVoices();
-      if (voices && voices.length > 0) {
-        this.cachedVoices = voices;
-        // Priority 1: US/GB English voice
-        let enVoice = voices.find(
-          (v) => v.lang === 'en-US' || v.lang === 'en_US' || v.lang === 'en-GB' || v.lang === 'en_GB'
-        );
-        // Priority 2: Any English locale voice
-        if (!enVoice) {
-          enVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith('en'));
-        }
-        // Priority 3: Any voice containing English in its name
-        if (!enVoice) {
-          enVoice = voices.find((v) => v.name && v.name.toLowerCase().includes('english'));
-        }
-        if (enVoice) {
-          utterance.voice = enVoice;
-        }
-      }
-
-      // Strong reference retention prevents Chromium/Android GC from garbage collecting active utterance
-      this.activeUtterances.add(utterance);
-
-      const cleanupUtterance = () => {
-        this.activeUtterances.delete(utterance);
+      // Letter frequency map (B, I, N, G, O)
+      const letterFreqs: Record<string, [number, number]> = {
+        B: [440, 554.37], // A4 + C#5
+        I: [493.88, 659.25], // B4 + E5
+        N: [523.25, 659.25], // C5 + E5
+        G: [587.33, 739.99], // D5 + F#5
+        O: [659.25, 830.61], // E5 + G#5
       };
 
-      utterance.onend = cleanupUtterance;
-      utterance.onerror = cleanupUtterance;
+      const freqs = letterFreqs[letter] || [523.25, 659.25];
 
-      // Watchdog timeout to prevent frozen speech synthesis state on older Android WebViews
-      setTimeout(() => {
-        cleanupUtterance();
-      }, 3500);
+      // 1. Play Letter Announcement Chime
+      freqs.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
 
-      // Asynchronous speak execution with pause recovery
-      setTimeout(() => {
-        try {
-          if (window.speechSynthesis.paused) {
-            window.speechSynthesis.resume();
-          }
-          window.speechSynthesis.speak(utterance);
-        } catch (speakErr) {
-          console.warn('[SoundEngine] SpeechSynthesis speak warning:', speakErr);
-          cleanupUtterance();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.05);
+
+        gain.gain.setValueAtTime(0.2, now + idx * 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.05 + 0.3);
+
+        osc.connect(gain);
+        if (this.masterGain) {
+          gain.connect(this.masterGain);
+        } else {
+          gain.connect(ctx.destination);
         }
-      }, 30);
+
+        osc.start(now + idx * 0.05);
+        osc.stop(now + idx * 0.05 + 0.3);
+      });
+
+      // 2. Play Number Pitch Cascade (Ball Number 1..75)
+      const basePitch = 220 + (ball * 6);
+      const oscNum = ctx.createOscillator();
+      const gainNum = ctx.createGain();
+
+      oscNum.type = 'sine';
+      oscNum.frequency.setValueAtTime(basePitch, now + 0.35);
+      oscNum.frequency.exponentialRampToValueAtTime(basePitch * 1.25, now + 0.55);
+
+      gainNum.gain.setValueAtTime(0.22, now + 0.35);
+      gainNum.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+
+      oscNum.connect(gainNum);
+      if (this.masterGain) {
+        gainNum.connect(this.masterGain);
+      } else {
+        gainNum.connect(ctx.destination);
+      }
+
+      oscNum.start(now + 0.35);
+      oscNum.stop(now + 0.65);
     } catch (err) {
-      console.warn('[SoundEngine] Speech synthesis execution error:', err);
+      console.warn('[SoundEngine] Acoustic caller playback note:', err);
     }
   }
 }

@@ -817,6 +817,11 @@ export default function App() {
 
   // Actions
   const handleJoinRoom = (room: BingoRoom, ticketCount: number) => {
+    if (!currentUser.phone || !currentUser.phone.trim()) {
+      setIsPhoneVerificationOpen(true);
+      return;
+    }
+
     setActiveRoom(room);
     setActiveTab('active_game');
 
@@ -1060,15 +1065,37 @@ export default function App() {
                 user={currentUser}
                 onJoinRoom={handleJoinRoom}
                 onSelectRoom={(room) => {
+                  if (!currentUser.phone || !currentUser.phone.trim()) {
+                    setIsPhoneVerificationOpen(true);
+                    return;
+                  }
                   setSelectedCardRoom(room);
                   if (socket) {
                     socket.emit('room:join', { roomId: room.id, userId: currentUser.id });
                   }
                 }}
                 onNavigateTab={(tab) => setActiveTab(tab as any)}
-                onCreatePrivateGroup={() => setIsCreateGroupOpen(true)}
-                onJoinPrivateGroupCode={() => setIsJoinGroupCodeOpen(true)}
-                onOpenPrivateGroupLobby={(groupId) => setActivePrivateGroupId(groupId)}
+                onCreatePrivateGroup={() => {
+                  if (!currentUser.phone || !currentUser.phone.trim()) {
+                    setIsPhoneVerificationOpen(true);
+                    return;
+                  }
+                  setIsCreateGroupOpen(true);
+                }}
+                onJoinPrivateGroupCode={() => {
+                  if (!currentUser.phone || !currentUser.phone.trim()) {
+                    setIsPhoneVerificationOpen(true);
+                    return;
+                  }
+                  setIsJoinGroupCodeOpen(true);
+                }}
+                onOpenPrivateGroupLobby={(groupId) => {
+                  if (!currentUser.phone || !currentUser.phone.trim()) {
+                    setIsPhoneVerificationOpen(true);
+                    return;
+                  }
+                  setActivePrivateGroupId(groupId);
+                }}
                 onRefreshRooms={fetchData}
                 onOpenPhoneVerification={() => setIsPhoneVerificationOpen(true)}
                 language={language}

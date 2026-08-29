@@ -238,6 +238,9 @@ export class TicketManager {
 
     const user = db.getUserById(userId);
     if (!user) throw new Error('User not found');
+    if (!user.phone || !user.phone.trim()) {
+      throw new Error('Phone verification required. Please verify your phone number before selecting cards or playing.');
+    }
 
     const sysSettings = adminService.getSystemSettings();
     const platformFeePct = sysSettings.platformFeePercent ?? 20;

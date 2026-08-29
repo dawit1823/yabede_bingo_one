@@ -389,74 +389,146 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </button>
           </div>
 
-          {/* My Private Groups List */}
-          <div className="space-y-3">
-            <h3 className="text-sm sm:text-base font-black text-white flex items-center justify-between">
-              <span>{language === 'am' ? 'የእኔ የግል ግሩፖች' : 'My Private Group Games'}</span>
-              <span className="text-xs text-slate-400 font-medium">
-                {myPrivateGroups.length} Active
-              </span>
-            </h3>
+          {/* My Private Groups List & History */}
+          <div className="space-y-4">
+            {/* Active Lobbies & Ongoing Games */}
+            <div className="space-y-3">
+              <h3 className="text-sm sm:text-base font-black text-white flex items-center justify-between">
+                <span>{language === 'am' ? 'ንቁ የግል ጨዋታዎች' : 'Active Private Lobbies'}</span>
+                <span className="text-xs text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                  {myPrivateGroups.filter((g) => g.status === 'LOBBY' || g.status === 'PLAYING' || g.status === 'COUNTDOWN').length} Active
+                </span>
+              </h3>
 
-            {myPrivateGroups.length === 0 ? (
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 text-center space-y-3">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto text-xl font-black">
-                  🎟️
-                </div>
-                <h4 className="text-xs sm:text-sm font-black text-white">No active private groups</h4>
-                <p className="text-[11px] sm:text-xs text-slate-400 max-w-xs mx-auto">
-                  Create a private group or join using a 6-character code from a friend!
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {myPrivateGroups.map((grp, idx) => (
-                  <div
-                    key={grp.id || `group-${idx}`}
-                    className="bg-slate-900 border border-slate-800 hover:border-amber-500/40 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-lg space-y-3"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <h4 className="text-xs sm:text-sm font-black text-white truncate">{grp.name}</h4>
-                        <p className="text-[10px] text-slate-400 truncate">
-                          Host: @{grp.hostName} • Code: <span className="text-amber-400 font-extrabold">{grp.code}</span>
-                        </p>
-                      </div>
-
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[9px] font-black border shrink-0 ${
-                          grp.status === 'PLAYING'
-                            ? 'bg-red-500/10 text-red-400 border-red-500/30 animate-pulse'
-                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                        }`}
-                      >
-                        {grp.status}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 bg-slate-950 p-2.5 rounded-xl sm:rounded-2xl text-center border border-slate-800/80">
-                      <div>
-                        <span className="text-[9px] text-slate-400 block">{language === 'am' ? 'የትኬት ዋጋ' : 'Ticket Price'}</span>
-                        <span className="text-xs font-black text-emerald-400">{grp.ticketPrice} Birr</span>
-                      </div>
-                      <div>
-                        <span className="text-[9px] text-slate-400 block">{language === 'am' ? 'የሽልማት ፈንድ' : 'Prize Pool'}</span>
-                        <span className="text-xs font-black text-amber-400">{grp.prizePool} Birr</span>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        onOpenPrivateGroupLobby(grp.id);
-                        triggerHaptic('medium');
-                      }}
-                      className="w-full min-h-[44px] py-2.5 rounded-xl sm:rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-black text-xs flex items-center justify-center gap-1.5 active:scale-95 transition"
-                    >
-                      <span>{language === 'am' ? 'ወደ ግሩፕ ሎቢ ግባ' : 'Open Group Lobby'}</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
+              {myPrivateGroups.filter((g) => g.status === 'LOBBY' || g.status === 'PLAYING' || g.status === 'COUNTDOWN').length === 0 ? (
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 text-center space-y-3">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto text-xl font-black">
+                    🎟️
                   </div>
-                ))}
+                  <h4 className="text-xs sm:text-sm font-black text-white">No active private lobbies</h4>
+                  <p className="text-[11px] sm:text-xs text-slate-400 max-w-xs mx-auto">
+                    Create a private group or join using a 6-character code from a friend!
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {myPrivateGroups
+                    .filter((g) => g.status === 'LOBBY' || g.status === 'PLAYING' || g.status === 'COUNTDOWN')
+                    .map((grp, idx) => (
+                      <div
+                        key={grp.id || `group-${idx}`}
+                        className="bg-slate-900 border border-slate-800 hover:border-amber-500/40 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-lg space-y-3"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-xs sm:text-sm font-black text-white truncate">{grp.name}</h4>
+                              {grp.hostId === user.id && (
+                                <span className="bg-amber-500/20 text-amber-300 text-[9px] font-black px-1.5 py-0.2 rounded border border-amber-500/30">
+                                  HOST
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                              Host: @{grp.hostName} • Code: <span className="text-amber-400 font-extrabold">{grp.code}</span>
+                            </p>
+                          </div>
+
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[9px] font-black border shrink-0 ${
+                              grp.status === 'PLAYING'
+                                ? 'bg-red-500/10 text-red-400 border-red-500/30 animate-pulse'
+                                : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                            }`}
+                          >
+                            {grp.status}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 bg-slate-950 p-2.5 rounded-xl sm:rounded-2xl text-center border border-slate-800/80">
+                          <div>
+                            <span className="text-[9px] text-slate-400 block">{language === 'am' ? 'የትኬት ዋጋ' : 'Ticket Price'}</span>
+                            <span className="text-xs font-black text-emerald-400">{grp.ticketPrice} Birr</span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] text-slate-400 block">{language === 'am' ? 'የሽልማት ፈንድ' : 'Prize Pool'}</span>
+                            <span className="text-xs font-black text-amber-400">{grp.prizePool} Birr</span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            onOpenPrivateGroupLobby(grp.id);
+                            triggerHaptic('medium');
+                          }}
+                          className="w-full min-h-[44px] py-2.5 rounded-xl sm:rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-black text-xs flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                        >
+                          <span>{language === 'am' ? 'ወደ ግሩፕ ሎቢ ግባ' : 'Open Group Lobby'}</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            {/* Host Game History & Replayable Past Games */}
+            {myPrivateGroups.some((g) => g.status === 'FINISHED' || g.status === 'CLOSED' || g.status === 'WAITING_HOST_DECISION' || g.status === 'CANCELLED') && (
+              <div className="space-y-3 pt-2">
+                <h3 className="text-sm sm:text-base font-black text-white flex items-center justify-between">
+                  <span>{language === 'am' ? 'ያለፉ የግል ጨዋታዎች ታሪክ (እንደገና ይጫወቱ)' : 'Past Private Games History (Replayable)'}</span>
+                  <span className="text-xs text-slate-400 font-medium">
+                    {myPrivateGroups.filter((g) => g.status === 'FINISHED' || g.status === 'CLOSED' || g.status === 'WAITING_HOST_DECISION' || g.status === 'CANCELLED').length} Saved
+                  </span>
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {myPrivateGroups
+                    .filter((g) => g.status === 'FINISHED' || g.status === 'CLOSED' || g.status === 'WAITING_HOST_DECISION' || g.status === 'CANCELLED')
+                    .map((grp, idx) => (
+                      <div
+                        key={grp.id || `past-group-${idx}`}
+                        className="bg-slate-900/80 border border-slate-800/90 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow space-y-3"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-xs sm:text-sm font-black text-slate-200 truncate">{grp.name}</h4>
+                              {grp.hostId === user.id && (
+                                <span className="bg-blue-500/20 text-blue-300 text-[9px] font-black px-1.5 py-0.2 rounded border border-blue-500/30">
+                                  HOST
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                              Code: <span className="text-amber-400 font-mono font-bold">{grp.code}</span> • {grp.ticketPrice} Birr
+                            </p>
+                          </div>
+
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black border bg-slate-800 text-slate-400 border-slate-700 shrink-0">
+                            {grp.status}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs text-slate-400 bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60">
+                          <span>{language === 'am' ? 'የተጋበዙ ተጫዋቾች' : 'Players'}: {grp.activePlayersCount || 1}</span>
+                          <span className="text-emerald-400 font-bold">{grp.prizePool || 0} Birr Prize</span>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              onOpenPrivateGroupLobby(grp.id);
+                              triggerHaptic('medium');
+                            }}
+                            className="flex-1 min-h-[40px] py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:brightness-110 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer shadow-md"
+                          >
+                            <span>{grp.hostId === user.id ? (language === 'am' ? '🔁 እንደገና አጫውት' : '🔁 Replay Game') : (language === 'am' ? 'ሎቢ ክፈት' : 'Open Lobby')}</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
               </div>
             )}
           </div>

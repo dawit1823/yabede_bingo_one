@@ -1690,6 +1690,9 @@ class FirestoreDatabaseStore {
   }): PrivateGroup {
     const host = this.getUserById(params.hostId);
     if (!host) throw new Error('Host user not found');
+    if (!host.phone || !host.phone.trim()) {
+      throw new Error('Phone verification required. Please verify your phone number before creating private groups.');
+    }
 
     let code = '';
     do {
@@ -1772,6 +1775,9 @@ class FirestoreDatabaseStore {
     if (!existing) {
       const user = this.getUserById(userId);
       if (!user) throw new Error('User not found');
+      if (!user.phone || !user.phone.trim()) {
+        throw new Error('Phone verification required. Please verify your phone number before joining private groups.');
+      }
 
       const newMember: GroupMember = {
         groupId,
@@ -1805,11 +1811,20 @@ class FirestoreDatabaseStore {
   }
 
   public getUserPrivateGroups(userId: string): { groups: PrivateGroup[]; invitations: GroupInvitation[] } {
-    const userGroups: PrivateGroup[] = [];
+    const userGroupsMap = new Map<string, PrivateGroup>();
+
+    // 1. All groups where user is host (never removed, preserved permanently as history)
+    for (const group of this.privateGroups.values()) {
+      if (group.hostId === userId) {
+        userGroupsMap.set(group.id, group);
+      }
+    }
+
+    // 2. All groups where user participated as a member
     for (const [groupId, members] of this.groupMembers.entries()) {
       if (members.some((m) => m.userId === userId && m.status !== 'DECLINED')) {
         const group = this.privateGroups.get(groupId);
-        if (group) userGroups.push(group);
+        if (group) userGroupsMap.set(group.id, group);
       }
     }
 
@@ -1822,7 +1837,7 @@ class FirestoreDatabaseStore {
       }
     }
 
-    return { groups: userGroups, invitations: userInvs };
+    return { groups: Array.from(userGroupsMap.values()), invitations: userInvs };
   }
 
   public getAllPrivateGroups(): PrivateGroup[] {
@@ -1967,6 +1982,11 @@ class FirestoreDatabaseStore {
 
     const group = this.privateGroups.get(groupId);
     if (!group) throw new Error('Group not found');
+
+    const buyingUser = this.getUserById(uid);
+    if (buyingUser && (!buyingUser.phone || !buyingUser.phone.trim())) {
+      throw new Error('Phone verification required. Please verify your phone number before purchasing tickets.');
+    }
 
     if (group.status !== 'LOBBY') {
       throw new Error('Ticket sales are closed for this private group.');
