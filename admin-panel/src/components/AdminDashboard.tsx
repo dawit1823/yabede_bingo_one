@@ -91,6 +91,19 @@ interface AdminDashboardProps {
   socket?: Socket | null;
 }
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+  return debouncedValue;
+}
+
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   metrics,
   pendingWithdrawals: initialPendingWithdrawals,
@@ -233,6 +246,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [winnersStats, setWinnersStats] = useState<any>(null);
 
   const [auditSearchQuery, setAuditSearchQuery] = useState<string>('');
+
+  // Debounced Search and Filter Inputs (~450ms) to prevent excessive backend queries
+  const debouncedDepositSearch = useDebounce(depositSearchQuery, 450);
+  const debouncedWithdrawalSearch = useDebounce(withdrawalSearchQuery, 450);
+  const debouncedUserSearch = useDebounce(userSearchQuery, 450);
+  const debouncedTicketSearch = useDebounce(ticketSearchQuery, 450);
+  const debouncedTicketGameRef = useDebounce(ticketGameRefFilter, 450);
+  const debouncedTicketUsername = useDebounce(ticketUsernameFilter, 450);
+  const debouncedTicketCardNum = useDebounce(ticketCardNumFilter, 450);
+  const debouncedTransactionSearch = useDebounce(transactionSearchQuery, 450);
+  const debouncedWinnerSearch = useDebounce(winnerSearchQuery, 450);
+  const debouncedReportGameRefId = useDebounce(reportGameRefId, 450);
+  const debouncedReportUsername = useDebounce(reportUsername, 450);
 
   // CSV Export Helper
   const exportToCSV = (filename: string, rows: object[]) => {
@@ -409,11 +435,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     icon: '🟣',
   });
 
-  // Fetch all Admin Data
-  const fetchAdminData = async () => {
-    setLoading(true);
+  // --- MODULAR PER-SECTION DATA FETCHERS ---
+
+  // 1. Metrics & Core Settings
+  const fetchMetrics = useCallback(async () => {
     try {
-      // 1. Metrics & Core Settings
       const res = await adminFetch(apiUrl('/api/admin/metrics'));
       if (res.ok) {
         const data = await res.json();
@@ -423,55 +449,86 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         if (data.settings && !isSettingsDirtyRef.current) setPlatformSettings(data.settings);
         if (data.adminProfile) setAdminProfileData(data.adminProfile);
       }
+    } catch {}
+  }, []);
 
-      // 2. Deposits
+  // 2. Deposits
+  const fetchDeposits = useCallback(async () => {
+    try {
       const depRes = await adminFetch(
-        apiUrl(`/api/admin/deposits?status=${depositStatusFilter}&methodId=${depositMethodFilter}&search=${encodeURIComponent(depositSearchQuery)}`)
+        apiUrl(`/api/admin/deposits?status=${depositStatusFilter}&methodId=${depositMethodFilter}&search=${encodeURIComponent(debouncedDepositSearch)}`)
       );
       if (depRes.ok) {
         const depData = await depRes.json();
         setDeposits(depData.deposits || []);
       }
+    } catch {}
+  }, [depositStatusFilter, depositMethodFilter, debouncedDepositSearch]);
 
-      // 3. Withdrawals
-      const wdRes = await adminFetch(apiUrl(`/api/admin/withdrawals?status=${withdrawalStatusFilter}&search=${encodeURIComponent(withdrawalSearchQuery)}`));
+  // 3. Withdrawals
+  const fetchWithdrawals = useCallback(async () => {
+    try {
+      const wdRes = await adminFetch(apiUrl(`/api/admin/withdrawals?status=${withdrawalStatusFilter}&search=${encodeURIComponent(debouncedWithdrawalSearch)}`));
       if (wdRes.ok) {
         const wdData = await wdRes.json();
         setWithdrawals(wdData.withdrawals || []);
       }
+    } catch {}
+  }, [withdrawalStatusFilter, debouncedWithdrawalSearch]);
 
-      // 4. Users
-      const uRes = await adminFetch(apiUrl(`/api/admin/users?q=${encodeURIComponent(userSearchQuery)}`));
+  // 4. Users
+  const fetchUsers = useCallback(async () => {
+    try {
+      const uRes = await adminFetch(apiUrl(`/api/admin/users?q=${encodeURIComponent(debouncedUserSearch)}&status=${userStatusFilter}`));
       if (uRes.ok) {
         const uData = await uRes.json();
         setAllUsersList(uData.users || []);
       }
+    } catch {}
+  }, [debouncedUserSearch, userStatusFilter]);
 
-      // 5. Bingo Games & Private Groups
-      const gamesRes = await adminFetch(apiUrl('/api/admin/games'));
+  // 5. Bingo Games & Private Groups
+  const fetchGames = useCallback(async () => {
+    try {
+      const [gamesRes, pgRes] = await Promise.all([
+        adminFetch(apiUrl('/api/admin/games')),
+        adminFetch(apiUrl('/api/admin/private-groups')),
+      ]);
       if (gamesRes.ok) {
         const gData = await gamesRes.json();
         setStandardRooms(gData.standardRooms || []);
-        setAdminPrivateGroups(gData.privateGroups || []);
+        if (gData.privateGroups) setAdminPrivateGroups(gData.privateGroups);
       }
+      if (pgRes.ok) {
+        const pgData = await pgRes.json();
+        if (pgData.groups) setAdminPrivateGroups(pgData.groups);
+      }
+    } catch {}
+  }, []);
 
-      // 6. Tickets
+  // 6. Tickets
+  const fetchTickets = useCallback(async () => {
+    try {
       const tktRes = await adminFetch(
         apiUrl(`/api/admin/tickets?roomId=${ticketRoomFilter}&status=${ticketStatusFilter}&gameReferenceId=${encodeURIComponent(
-          ticketGameRefFilter
-        )}&username=${encodeURIComponent(ticketUsernameFilter)}&cardNumber=${encodeURIComponent(
-          ticketCardNumFilter
-        )}&startDate=${ticketStartDate}&endDate=${ticketEndDate}&search=${encodeURIComponent(ticketSearchQuery)}`)
+          debouncedTicketGameRef
+        )}&username=${encodeURIComponent(debouncedTicketUsername)}&cardNumber=${encodeURIComponent(
+          debouncedTicketCardNum
+        )}&startDate=${ticketStartDate}&endDate=${ticketEndDate}&search=${encodeURIComponent(debouncedTicketSearch)}`)
       );
       if (tktRes.ok) {
         const tData = await tktRes.json();
         setAllTicketsList(tData.tickets || []);
       }
+    } catch {}
+  }, [ticketRoomFilter, ticketStatusFilter, debouncedTicketGameRef, debouncedTicketUsername, debouncedTicketCardNum, ticketStartDate, ticketEndDate, debouncedTicketSearch]);
 
-      // 7. Winners
+  // 7. Winners
+  const fetchWinners = useCallback(async () => {
+    try {
       const winRes = await adminFetch(
         apiUrl(`/api/admin/winners?roomId=${winnerRoomFilter}&search=${encodeURIComponent(
-          winnerSearchQuery
+          debouncedWinnerSearch
         )}&startDate=${winnerStartDate}&endDate=${winnerEndDate}`)
       );
       if (winRes.ok) {
@@ -479,11 +536,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setAllWinnersList(winData.winners || []);
         setWinnersStats(winData);
       }
+    } catch {}
+  }, [winnerRoomFilter, debouncedWinnerSearch, winnerStartDate, winnerEndDate]);
 
-      // 8. Transactions
+  // 8. Transactions
+  const fetchTransactions = useCallback(async () => {
+    try {
       const txRes = await adminFetch(
         apiUrl(`/api/admin/transactions?type=${transactionTypeFilter}&search=${encodeURIComponent(
-          transactionSearchQuery
+          debouncedTransactionSearch
         )}&startDate=${transactionStartDate}&endDate=${transactionEndDate}`)
       );
       if (txRes.ok) {
@@ -491,50 +552,144 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setAllTransactions(txData.transactions || []);
         if (txData.stats) setWalletStats(txData.stats);
       }
+    } catch {}
+  }, [transactionTypeFilter, debouncedTransactionSearch, transactionStartDate, transactionEndDate]);
 
-      // 9. Bonuses
+  // 9. Bonuses
+  const fetchBonuses = useCallback(async () => {
+    try {
       const bonusRes = await adminFetch(apiUrl('/api/admin/bonuses'));
       if (bonusRes.ok) {
         const bData = await bonusRes.json();
         setBonusPrograms(bData.bonusPrograms || []);
       }
+    } catch {}
+  }, []);
 
-      // 10. Referrals
+  // 10. Referrals
+  const fetchReferrals = useCallback(async () => {
+    try {
       const refRes = await adminFetch(apiUrl('/api/admin/referrals'));
       if (refRes.ok) {
         const rData = await refRes.json();
         setReferralStats(rData.referralStats || []);
       }
+    } catch {}
+  }, []);
 
-      // 10b. Private Groups
-      const pgRes = await adminFetch(apiUrl('/api/admin/private-groups'));
-      if (pgRes.ok) {
-        const pgData = await pgRes.json();
-        setAdminPrivateGroups(pgData.groups || []);
-      }
-
-      // 11. Reports
+  // 11. Reports
+  const fetchReports = useCallback(async () => {
+    try {
       const repRes = await adminFetch(
         apiUrl(`/api/admin/reports?startDate=${reportStartDate}&endDate=${reportEndDate}&roomId=${reportRoomId}&gameReferenceId=${encodeURIComponent(
-          reportGameRefId
-        )}&username=${encodeURIComponent(reportUsername)}`)
+          debouncedReportGameRefId
+        )}&username=${encodeURIComponent(debouncedReportUsername)}`)
       );
       if (repRes.ok) {
         const rData = await repRes.json();
         setReportsData(rData);
       }
+    } catch {}
+  }, [reportStartDate, reportEndDate, reportRoomId, debouncedReportGameRefId, debouncedReportUsername]);
 
-      // 12. Settings & History
+  // 12. Settings & History
+  const fetchSettings = useCallback(async () => {
+    try {
       const setRes = await adminFetch(apiUrl('/api/admin/settings'));
       if (setRes.ok) {
         const setData = await setRes.json();
         if (setData.settings && !isSettingsDirtyRef.current) setPlatformSettings(setData.settings);
         if (setData.history) setSettingsHistoryList(setData.history || []);
       }
-    } catch {
-      // Fallback
+    } catch {}
+  }, []);
+
+  // Dispatcher for tab-specific data fetching
+  const fetchTabData = useCallback(async (tab: string) => {
+    switch (tab) {
+      case 'overview':
+        await fetchMetrics();
+        break;
+      case 'users':
+        await fetchUsers();
+        break;
+      case 'games':
+        await fetchGames();
+        break;
+      case 'tickets':
+        await fetchTickets();
+        break;
+      case 'wallet':
+        await fetchTransactions();
+        break;
+      case 'deposits':
+        await fetchDeposits();
+        break;
+      case 'withdrawals':
+        await fetchWithdrawals();
+        break;
+      case 'winners':
+        await fetchWinners();
+        break;
+      case 'bonuses':
+        await fetchBonuses();
+        break;
+      case 'referrals':
+        await fetchReferrals();
+        break;
+      case 'reports':
+        await fetchReports();
+        break;
+      case 'settings':
+        await fetchSettings();
+        break;
+      case 'audit':
+        await fetchMetrics();
+        break;
+      case 'profile':
+        await Promise.all([fetchMetrics(), fetchSettings()]);
+        break;
+      default:
+        await fetchMetrics();
+    }
+  }, [fetchMetrics, fetchUsers, fetchGames, fetchTickets, fetchTransactions, fetchDeposits, fetchWithdrawals, fetchWinners, fetchBonuses, fetchReferrals, fetchReports, fetchSettings]);
+
+  // Targeted coordinator: refreshes only the active section & metrics on manual triggers
+  const fetchAdminData = useCallback(async () => {
+    setLoading(true);
+    try {
+      await Promise.all([
+        fetchTabData(activeTab),
+        activeTab !== 'overview' ? fetchMetrics() : Promise.resolve(),
+      ]);
     } finally {
       setLoading(false);
+    }
+  }, [activeTab, fetchTabData, fetchMetrics]);
+
+  const [resyncingFirestore, setResyncingFirestore] = useState<boolean>(false);
+  const handleResyncFirestore = async () => {
+    if (!window.confirm('Trigger a full manual on-demand resync from Firestore? This will reload all collections from cloud storage.')) return;
+    setResyncingFirestore(true);
+    try {
+      const res = await adminFetch(apiUrl('/api/admin/system/resync'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminId: 'usr_admin' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        triggerNotificationHaptic('success');
+        alert(`✅ Firestore Data Resynced!\n\nUsers: ${data.counts?.users || 0}\nDeposits: ${data.counts?.deposits || 0}\nWithdrawals: ${data.counts?.withdrawals || 0}\nTransactions: ${data.counts?.transactions || 0}\nTickets: ${data.counts?.tickets || 0}`);
+        fetchTabData(activeTab);
+      } else {
+        throw new Error(data.error || 'Failed to resync');
+      }
+    } catch (err: any) {
+      triggerNotificationHaptic('error');
+      alert(`⚠️ Sync notice: ${err.message}`);
+    } finally {
+      setResyncingFirestore(false);
     }
   };
 
@@ -836,38 +991,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, [propSocket]);
 
+  // 1. Periodic background polling: only polls the active tab every 45s without resetting on filter keystrokes
   useEffect(() => {
-    fetchAdminData();
+    fetchTabData(activeTab);
     const interval = setInterval(() => {
-      fetchAdminData();
+      fetchTabData(activeTab);
     }, 45000);
     return () => clearInterval(interval);
-  }, [
-    activeTab,
-    depositStatusFilter,
-    depositMethodFilter,
-    withdrawalStatusFilter,
-    ticketRoomFilter,
-    ticketStatusFilter,
-    ticketGameRefFilter,
-    ticketUsernameFilter,
-    ticketCardNumFilter,
-    ticketStartDate,
-    ticketEndDate,
-    transactionTypeFilter,
-    transactionSearchQuery,
-    transactionStartDate,
-    transactionEndDate,
-    winnerSearchQuery,
-    winnerRoomFilter,
-    winnerStartDate,
-    winnerEndDate,
-    reportStartDate,
-    reportEndDate,
-    reportRoomId,
-    reportGameRefId,
-    reportUsername,
-  ]);
+  }, [activeTab, fetchTabData]);
+
+  // 2. Targeted per-tab filter watchers (trigger only when active tab matches)
+  useEffect(() => {
+    if (activeTab === 'deposits') fetchDeposits();
+  }, [activeTab, fetchDeposits]);
+
+  useEffect(() => {
+    if (activeTab === 'withdrawals') fetchWithdrawals();
+  }, [activeTab, fetchWithdrawals]);
+
+  useEffect(() => {
+    if (activeTab === 'users') fetchUsers();
+  }, [activeTab, fetchUsers]);
+
+  useEffect(() => {
+    if (activeTab === 'tickets') fetchTickets();
+  }, [activeTab, fetchTickets]);
+
+  useEffect(() => {
+    if (activeTab === 'wallet') fetchTransactions();
+  }, [activeTab, fetchTransactions]);
+
+  useEffect(() => {
+    if (activeTab === 'winners') fetchWinners();
+  }, [activeTab, fetchWinners]);
+
+  useEffect(() => {
+    if (activeTab === 'reports') fetchReports();
+  }, [activeTab, fetchReports]);
 
   // View User Full Details Modal
   const handleOpenUserDetailModal = async (userId: string) => {
@@ -4276,6 +4436,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <span className="text-[10px] text-slate-400 font-bold uppercase block">Active Game Rooms</span>
                       <span className="text-lg font-black text-emerald-400">{standardRooms.length} Official Arenas</span>
                       <span className="text-[10px] text-slate-400">Ready in Memory</span>
+                    </div>
+                  </div>
+
+                  {/* Manual Data Re-synchronization */}
+                  <div className="rounded-3xl border border-indigo-500/30 bg-slate-950 p-6 space-y-4 shadow-xl">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                      <div className="flex items-start gap-4">
+                        <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 flex-shrink-0">
+                          <RefreshCw className={`w-5 h-5 ${resyncingFirestore ? 'animate-spin' : ''}`} />
+                        </div>
+                        <div className="space-y-1">
+                          <h4 className="text-sm font-black text-white flex items-center gap-2">
+                            <span>Manual Firestore Synchronization</span>
+                            <span className="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 text-[10px] font-mono font-bold uppercase border border-indigo-500/30">
+                              Low Firestore Reads
+                            </span>
+                          </h4>
+                          <p className="text-xs text-slate-400 leading-relaxed max-w-xl">
+                            The server uses high-speed in-memory state caching to prevent Firestore quota exhaustion. If you ever need to forcefully pull all raw records from Firestore into server memory, trigger it here.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleResyncFirestore}
+                        disabled={resyncingFirestore}
+                        className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black text-xs transition-all flex items-center gap-2 flex-shrink-0 shadow-lg shadow-indigo-600/20"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${resyncingFirestore ? 'animate-spin' : ''}`} />
+                        <span>{resyncingFirestore ? 'Syncing...' : 'Force Resync Data'}</span>
+                      </button>
                     </div>
                   </div>
 

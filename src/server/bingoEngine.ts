@@ -379,6 +379,18 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
     foundWinners.push(winner);
   }
 
+  // Mark all remaining active tickets in this room as COMPLETED/LOST
+  const roundRefId = room.gameReferenceId;
+  const justLostTicketIds = new Set<string>();
+  Array.from(db.tickets.values()).forEach((tkt) => {
+    if (tkt.roomId === room.id && (tkt.gameReferenceId === roundRefId || !roundRefId) && tkt.status === 'ACTIVE') {
+      tkt.status = 'COMPLETED';
+      (tkt as any).winningStatus = 'LOST';
+      (tkt as any).prizeWon = 0;
+      justLostTicketIds.add(tkt.id);
+    }
+  });
+
   // Single atomic batch: persist winners, winning tickets, transactions, and room status
   if (foundWinners.length > 0) {
     firestoreGuard.safeWrite('winners', 'checkBingoWinForRoom', async () => {
@@ -392,10 +404,10 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
         }
       }
 
-      // Mark other tickets COMPLETED
-      const roundRefId = room.gameReferenceId;
-      Array.from(db.tickets.values()).forEach((tkt) => {
-        if (tkt.roomId === room.id && tkt.gameReferenceId === roundRefId && tkt.status === 'COMPLETED' && (tkt as any).winningStatus === 'LOST') {
+      // Only write tickets that were JUST transitioned to COMPLETED/LOST in this round
+      justLostTicketIds.forEach((tktId) => {
+        const tkt = db.tickets.get(tktId);
+        if (tkt) {
           batch.set(adminDb.collection('tickets').doc(tkt.id), tkt, { merge: true });
         }
       });
@@ -602,7 +614,23 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
     foundWinners.push(winner);
   }
 
-  // Single atomic batch: persist winners, winning tickets, and group status
+  // Mark all other active tickets for this round as COMPLETED/LOST and track their IDs
+  const justLostTicketIds = new Set<string>();
+  Array.from(db.tickets.values()).forEach((tkt) => {
+    if (tkt.roomId === group.id && tkt.status === 'ACTIVE') {
+      tkt.status = 'COMPLETED';
+      (tkt as any).winningStatus = 'LOST';
+      (tkt as any).prizeWon = 0;
+      justLostTicketIds.add(tkt.id);
+    }
+  });
+
+  // Set group status to WAITING_HOST_DECISION and set host decision timeout (60s)
+  group.status = 'WAITING_HOST_DECISION';
+  group.lastWinners = foundWinners;
+  group.hostDecisionTimeout = Date.now() + 60000; // 60 seconds host timeout
+
+  // Single atomic batch: persist winners, winning tickets, newly lost tickets, and group status
   if (foundWinners.length > 0) {
     firestoreGuard.safeWrite('groupWinners', 'checkBingoWinForGroupGame', async () => {
       const batch = adminDb.batch();
@@ -615,8 +643,10 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
         }
       }
 
-      Array.from(db.tickets.values()).forEach((tkt) => {
-        if (tkt.roomId === group.id && tkt.status === 'COMPLETED' && (tkt as any).winningStatus === 'LOST') {
+      // Only write tickets that were JUST transitioned to COMPLETED/LOST in this round
+      justLostTicketIds.forEach((tktId) => {
+        const tkt = db.tickets.get(tktId);
+        if (tkt) {
           batch.set(adminDb.collection('tickets').doc(tkt.id), tkt, { merge: true });
         }
       });
@@ -632,20 +662,6 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
       await batch.commit();
     }, true);
   }
-
-  // Mark all other tickets for this round as COMPLETED
-  Array.from(db.tickets.values()).forEach((tkt) => {
-    if (tkt.roomId === group.id && tkt.status === 'ACTIVE') {
-      tkt.status = 'COMPLETED';
-      (tkt as any).winningStatus = 'LOST';
-      (tkt as any).prizeWon = 0;
-    }
-  });
-
-  // Set group status to WAITING_HOST_DECISION and set host decision timeout (60s)
-  group.status = 'WAITING_HOST_DECISION';
-  group.lastWinners = foundWinners;
-  group.hostDecisionTimeout = Date.now() + 60000; // 60 seconds host timeout
 
   // Record game history
   const roomFormatForHistory: BingoRoom = {

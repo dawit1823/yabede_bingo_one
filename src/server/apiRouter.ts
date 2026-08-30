@@ -927,10 +927,6 @@ apiRouter.get('/admin/deposits', async (req: Request, res: Response) => {
   const search = ((req.query.search as string) || '').toLowerCase();
 
   try {
-    if (db.deposits.length === 0) {
-      await db.syncAllDataFromFirestore();
-    }
-
     let list = db.deposits;
 
     if (status && status !== 'ALL') {
@@ -1005,10 +1001,6 @@ apiRouter.get('/admin/withdrawals', async (req: Request, res: Response) => {
   const search = ((req.query.search as string) || '').toLowerCase();
 
   try {
-    if (db.withdrawals.length === 0) {
-      await db.syncAllDataFromFirestore();
-    }
-
     let list = db.withdrawals;
 
     if (status && status !== 'ALL') {
@@ -1182,9 +1174,6 @@ apiRouter.get('/announcements', async (req: Request, res: Response) => {
 
 apiRouter.get('/admin/users', async (req: Request, res: Response) => {
   try {
-    // Ensure all users from Firestore and memory are synchronized
-    await db.syncUsersFromFirestore();
-
     const query = ((req.query.q as string) || '').toLowerCase().trim();
     const statusFilter = (req.query.status as string) || 'ALL';
 
@@ -2246,6 +2235,34 @@ apiRouter.post('/admin/settings', async (req: Request, res: Response) => {
 });
 
 // --- ADMIN SYSTEM MAINTENANCE & FULL DATA RESET ---
+apiRouter.post('/admin/system/resync', async (req: Request, res: Response) => {
+  try {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+    await db.syncAllDataFromFirestore();
+    await adminService.logAction(
+      'SYSTEM_UPDATE',
+      'SUCCESS',
+      'Admin manually triggered full Firestore data re-synchronization into memory',
+      clientIp
+    );
+    res.json({
+      success: true,
+      message: 'Firestore data resynchronized into memory successfully',
+      stats: {
+        usersCount: db.users.size,
+        depositsCount: db.deposits.length,
+        withdrawalsCount: db.withdrawals.length,
+        transactionsCount: db.transactions.length,
+        ticketsCount: db.tickets.size,
+        winnersCount: db.winners.length,
+        roomsCount: db.rooms.size,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to resynchronize data from Firestore' });
+  }
+});
+
 apiRouter.post('/admin/maintenance/reset-all-data', async (req: any, res: Response) => {
   try {
     const adminEmail = req.admin?.email || AdminService.FIXED_ADMIN_EMAIL;
@@ -2917,7 +2934,7 @@ apiRouter.get('/admin/reports', async (req: Request, res: Response) => {
 
   const metrics = await adminService.getDashboardMetrics();
 
-  // Primary data containers
+  // Primary data containers directly from in-memory store
   let allUsers = db.getAllUsers();
   let allDeposits = db.deposits;
   let allWithdrawals = db.withdrawals;
@@ -2925,60 +2942,6 @@ apiRouter.get('/admin/reports', async (req: Request, res: Response) => {
   let allTickets = Array.from(db.tickets.values());
   let allWinners = db.winners || [];
   let gameHistory = db.gameHistoryRecords || [];
-
-  // Load from Firestore only if in-memory datasets are empty
-  try {
-    if (allUsers.length === 0 || allTransactions.length === 0) {
-      await firestoreGuard.safeRead('reports', 'getReportDataSync', async () => {
-        const [uSnap, txSnap, tktSnap, wSnap, ghSnap, depSnap, wdSnap] = await Promise.all([
-          allUsers.length === 0 ? adminDb.collection('users').limit(100).get().catch(() => null) : null,
-          allTransactions.length === 0 ? adminDb.collection('transactions').limit(200).get().catch(() => null) : null,
-          allTickets.length === 0 ? adminDb.collection('tickets').limit(200).get().catch(() => null) : null,
-          allWinners.length === 0 ? adminDb.collection('winners').limit(100).get().catch(() => null) : null,
-          gameHistory.length === 0 ? adminDb.collection('gameHistory').limit(100).get().catch(() => null) : null,
-          allDeposits.length === 0 ? adminDb.collection('deposits').limit(100).get().catch(() => null) : null,
-          allWithdrawals.length === 0 ? adminDb.collection('withdrawals').limit(100).get().catch(() => null) : null,
-        ]);
-
-        if (uSnap && !uSnap.empty) {
-          uSnap.docs.forEach((d) => {
-            const u = d.data() as UserProfile;
-            if (u && u.id) db.users.set(u.id, u);
-          });
-          allUsers = db.getAllUsers();
-        }
-        if (txSnap && !txSnap.empty) {
-          db.transactions = txSnap.docs.map((d) => d.data() as WalletTransaction);
-          allTransactions = db.transactions;
-        }
-        if (tktSnap && !tktSnap.empty) {
-          tktSnap.docs.forEach((d) => {
-            const t = d.data() as BingoTicket;
-            if (t && t.id) db.tickets.set(t.id, t);
-          });
-          allTickets = Array.from(db.tickets.values());
-        }
-        if (wSnap && !wSnap.empty) {
-          db.winners = wSnap.docs.map((d) => d.data() as GameWinner);
-          allWinners = db.winners;
-        }
-        if (ghSnap && !ghSnap.empty) {
-          db.gameHistoryRecords = ghSnap.docs.map((d) => d.data() as GameHistoryRecord);
-          gameHistory = db.gameHistoryRecords;
-        }
-        if (depSnap && !depSnap.empty) {
-          db.deposits = depSnap.docs.map((d) => d.data() as DepositRequest);
-          allDeposits = db.deposits;
-        }
-        if (wdSnap && !wdSnap.empty) {
-          db.withdrawals = wdSnap.docs.map((d) => d.data() as WithdrawalRequest);
-          allWithdrawals = db.withdrawals;
-        }
-      }, null);
-    }
-  } catch (err) {
-    console.warn('Reports Firestore sync error (using in-memory cache):', err);
-  }
 
   // Safe timestamp parser helper
   const parseTs = (val: any): number => {
@@ -3897,6 +3860,33 @@ apiRouter.post('/bingo/reset-all', async (req: Request, res: Response) => {
     res.json({ success: true, message: 'All bingo games reset successfully', rooms });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to reset bingo games' });
+  }
+});
+
+// Admin-only on-demand Firestore resynchronization endpoint
+apiRouter.post('/admin/system/resync', async (req: Request, res: Response) => {
+  const adminId = (req.body?.adminId as string) || (req.query?.adminId as string) || 'usr_admin';
+  const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+  try {
+    await db.syncAllDataFromFirestore();
+    await db.syncUsersFromFirestore();
+    await adminService.logAction('SYSTEM_RESYNC', 'SUCCESS', 'Administrator triggered on-demand Firestore data resynchronization', clientIp, undefined, undefined, adminId);
+    res.json({
+      success: true,
+      message: 'Full Firestore data synchronization completed successfully.',
+      timestamp: new Date().toISOString(),
+      counts: {
+        users: db.users.size,
+        deposits: db.deposits.length,
+        withdrawals: db.withdrawals.length,
+        transactions: db.transactions.length,
+        tickets: db.tickets.size,
+        winners: db.winners.length,
+        rooms: db.rooms.size,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to resynchronize data from Firestore' });
   }
 });
 

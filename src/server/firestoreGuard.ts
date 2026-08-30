@@ -20,6 +20,7 @@ export interface FirestoreMetrics {
   activeListeners: number;
   errors: number;
   quotaExceededCount: number;
+  consecutiveQuotaErrors: number;
   isThrottled: boolean;
   throttleUntilMs: number;
 }
@@ -40,18 +41,30 @@ class FirestoreGuard {
     activeListeners: 0,
     errors: 0,
     quotaExceededCount: 0,
+    consecutiveQuotaErrors: 0,
     isThrottled: false,
     throttleUntilMs: 0,
   };
 
-  // 60-second cooldown window when quota is exhausted before re-enabling non-critical ops
-  private readonly THROTTLE_DURATION_MS = 60000;
+  // Consecutive quota errors tracker for exponential backoff window
+  private consecutiveQuotaErrors = 0;
 
   // Periodic diagnostic logging timer
   private diagnosticInterval: NodeJS.Timeout | null = null;
 
   constructor() {
     this.startPeriodicDiagnostics();
+  }
+
+  /**
+   * Calculates exponential backoff throttle window based on consecutive RESOURCE_EXHAUSTED errors.
+   * Step ladder: 60s (1m) -> 300s (5m) -> 900s (15m) -> 1800s (30m max).
+   */
+  private getThrottleDurationMs(consecutiveErrors: number): number {
+    if (consecutiveErrors <= 1) return 60 * 1000; // 60 seconds
+    if (consecutiveErrors === 2) return 5 * 60 * 1000; // 5 minutes
+    if (consecutiveErrors === 3) return 15 * 60 * 1000; // 15 minutes
+    return 30 * 60 * 1000; // 30 minutes cap
   }
 
   /**
@@ -68,6 +81,16 @@ class FirestoreGuard {
       msg.includes('Quota exceeded') ||
       msg.includes('8 RESOURCE_EXHAUSTED')
     );
+  }
+
+  /**
+   * Resets consecutive error streak when operations succeed outside the throttle window.
+   */
+  public recordSuccess(): void {
+    if (this.consecutiveQuotaErrors > 0 && !this.metrics.isThrottled) {
+      this.consecutiveQuotaErrors = 0;
+      this.metrics.consecutiveQuotaErrors = 0;
+    }
   }
 
   /**
@@ -115,7 +138,7 @@ class FirestoreGuard {
 
   /**
    * Handles errors from Firestore operations.
-   * Activates circuit-breaker throttling if RESOURCE_EXHAUSTED (code 8) is detected.
+   * Activates circuit-breaker throttling with exponential backoff if RESOURCE_EXHAUSTED (code 8) is detected.
    */
   public handleError(operation: string, collectionName: string, err: any, critical = false): void {
     this.metrics.errors += 1;
@@ -124,11 +147,14 @@ class FirestoreGuard {
 
     if (isQuota) {
       this.metrics.quotaExceededCount += 1;
+      this.consecutiveQuotaErrors += 1;
+      this.metrics.consecutiveQuotaErrors = this.consecutiveQuotaErrors;
+      const throttleDurationMs = this.getThrottleDurationMs(this.consecutiveQuotaErrors);
       this.metrics.isThrottled = true;
-      this.metrics.throttleUntilMs = Date.now() + this.THROTTLE_DURATION_MS;
+      this.metrics.throttleUntilMs = Date.now() + throttleDurationMs;
       logger.warn(
-        `🚨 [FirestoreGuard] RESOURCE_EXHAUSTED (Code 8: Quota exceeded) on ${operation} for ${collectionName}. ` +
-        `Circuit breaker active: Non-critical Firestore writes throttled for ${this.THROTTLE_DURATION_MS / 1000}s. ` +
+        `🚨 [FirestoreGuard] RESOURCE_EXHAUSTED (Code 8: Quota exceeded, strike #${this.consecutiveQuotaErrors}) on ${operation} for ${collectionName}. ` +
+        `Circuit breaker active: Non-critical Firestore operations throttled for ${throttleDurationMs / 1000}s. ` +
         `Critical operation flag: ${critical}`
       );
     } else {
@@ -165,7 +191,9 @@ class FirestoreGuard {
     }
     try {
       this.recordRead(collectionName);
-      return await fn();
+      const res = await fn();
+      this.recordSuccess();
+      return res;
     } catch (err: any) {
       this.handleError(operationName, collectionName, err, false);
       return fallbackValue;
@@ -191,6 +219,7 @@ class FirestoreGuard {
       try {
         this.recordWrite(collectionName);
         await fn();
+        this.recordSuccess();
         return true;
       } catch (err: any) {
         this.handleError(operationName, collectionName, err, false);
@@ -209,6 +238,7 @@ class FirestoreGuard {
       try {
         this.recordWrite(collectionName);
         await fn();
+        this.recordSuccess();
         return true;
       } catch (err: any) {
         attempt += 1;
@@ -256,6 +286,7 @@ class FirestoreGuard {
     try {
       this.recordDelete(collectionName);
       await fn();
+      this.recordSuccess();
       return true;
     } catch (err: any) {
       this.handleError(operationName, collectionName, err, critical);
@@ -278,7 +309,9 @@ class FirestoreGuard {
     }
     try {
       this.recordQuery(collectionName);
-      return await fn();
+      const res = await fn();
+      this.recordSuccess();
+      return res;
     } catch (err: any) {
       this.handleError(operationName, collectionName, err, false);
       return fallbackValue;
@@ -295,7 +328,8 @@ class FirestoreGuard {
       `writes=${this.metrics.writes}\n` +
       `deletes=${this.metrics.deletes}\n` +
       `queries=${this.metrics.queries}\n` +
-      `activeListeners=${this.metrics.activeListeners}`
+      `activeListeners=${this.metrics.activeListeners}\n` +
+      `consecutiveQuotaErrors=${this.consecutiveQuotaErrors}`
     );
   }
 
@@ -303,7 +337,7 @@ class FirestoreGuard {
    * Returns current in-memory usage metrics summary for monitoring or debug APIs.
    */
   public getMetrics(): FirestoreMetrics {
-    return { ...this.metrics };
+    return { ...this.metrics, consecutiveQuotaErrors: this.consecutiveQuotaErrors };
   }
 
   /**
@@ -316,6 +350,8 @@ class FirestoreGuard {
     this.metrics.queries = 0;
     this.metrics.errors = 0;
     this.metrics.quotaExceededCount = 0;
+    this.metrics.consecutiveQuotaErrors = 0;
+    this.consecutiveQuotaErrors = 0;
   }
 
   /**

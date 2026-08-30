@@ -262,6 +262,7 @@ class FirestoreDatabaseStore {
   public groupInvitations: Map<string, GroupInvitation[]> = new Map();
   public groupMessages: Map<string, GroupMessage[]> = new Map();
 
+  public hasFullyHydrated = false;
   private isInitialized = false;
 
   constructor() {
@@ -283,6 +284,51 @@ class FirestoreDatabaseStore {
     this.initFirestoreSync().catch((err) => {
       logger.debug('Firestore store sync note:', err.message || err);
     });
+
+    // Run in-memory retention pruning every 6 hours
+    const cleanupInterval = setInterval(() => {
+      this.pruneOldInMemoryRecords(30);
+    }, 6 * 60 * 60 * 1000);
+    if (typeof (cleanupInterval as any).unref === 'function') {
+      (cleanupInterval as any).unref();
+    }
+  }
+
+  /**
+   * In-memory retention policy: trims completed tickets and transactions older than retentionDays
+   * from active in-memory collections without altering or deleting records in Firestore.
+   */
+  public pruneOldInMemoryRecords(retentionDays = 30): { prunedTickets: number; prunedTransactions: number } {
+    const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    let prunedTickets = 0;
+    let prunedTransactions = 0;
+
+    // Prune in-memory tickets older than 30 days if completed/claimed
+    for (const [ticketId, ticket] of this.tickets.entries()) {
+      const ticketTime = new Date(ticket.boughtAt || (ticket as any).createdAt || 0).getTime();
+      if (ticketTime > 0 && ticketTime < cutoffMs && (ticket.status === 'COMPLETED' || ticket.status === 'BINGO_CLAIMED')) {
+        this.tickets.delete(ticketId);
+        prunedTickets += 1;
+      }
+    }
+
+    // Prune in-memory transactions older than 30 days if total exceeds 5000
+    if (this.transactions.length > 5000) {
+      const initialTxCount = this.transactions.length;
+      this.transactions = this.transactions.filter((tx) => {
+        const txTime = new Date(tx.createdAt || 0).getTime();
+        return txTime === 0 || txTime >= cutoffMs;
+      });
+      prunedTransactions = initialTxCount - this.transactions.length;
+    }
+
+    if (prunedTickets > 0 || prunedTransactions > 0) {
+      logger.info(
+        `🧹 [RetentionPolicy] In-memory retention cleanup: pruned ${prunedTickets} tickets and ${prunedTransactions} transactions older than ${retentionDays} days.`
+      );
+    }
+
+    return { prunedTickets, prunedTransactions };
   }
 
   public async initFirestoreSync() {
@@ -363,7 +409,10 @@ class FirestoreDatabaseStore {
       // 4. Synchronize all other collections from Firestore (Rooms, Deposits, Withdrawals, Transactions, Tickets, Winners, Game History, Audit Logs, Notifications, Groups)
       await this.syncAllDataFromFirestore();
 
-      logger.info(`[Firestore] Memory store initialized with ${this.rooms.size} Bingo arenas, ${this.users.size} registered users, ${this.deposits.length} deposits, ${this.withdrawals.length} withdrawals, ${this.transactions.length} transactions, ${this.tickets.size} tickets, and ${this.winners.length} winners.`);
+      this.hasFullyHydrated = true;
+      this.pruneOldInMemoryRecords(30);
+
+      logger.info(`[Firestore] Memory store initialized and fully hydrated with ${this.rooms.size} Bingo arenas, ${this.users.size} registered users, ${this.deposits.length} deposits, ${this.withdrawals.length} withdrawals, ${this.transactions.length} transactions, ${this.tickets.size} tickets, and ${this.winners.length} winners.`);
     } catch (err: any) {
       console.warn('⚠️ [Firestore] Notice during startup sync:', err.message || err);
       if (this.users.size === 0) {
