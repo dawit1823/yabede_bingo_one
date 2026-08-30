@@ -259,11 +259,12 @@ export class TicketManager {
       db.tickets.delete(existingTicket.id);
       this.inMemoryReservations.delete(resKey);
 
-      // Recalculate room financial stats (80% prize pool / 20% platform fee)
+      // Recalculate room financial stats (prize pool = total sales - platform rake fee from admin settings)
       room.ticketsSold = Math.max(0, (room.ticketsSold || 1) - 1);
       const totalSales = room.ticketsSold * room.ticketPrice;
-      room.prizePool = Math.round(totalSales * (prizePct / 100));
-      room.platformFee = Math.round(totalSales * (platformFeePct / 100));
+      const finalPlatformFee = Math.round(totalSales * (platformFeePct / 100));
+      room.platformFee = finalPlatformFee;
+      room.prizePool = Math.max(0, totalSales - finalPlatformFee);
 
       // Update private group member count if applicable
       if (roomId.startsWith('grp_') || db.privateGroups.has(roomId)) {
@@ -399,11 +400,12 @@ export class TicketManager {
     };
     this.inMemoryReservations.set(resKey, reservationData);
 
-    // Recalculate room financial stats (80% prize pool / 20% platform fee)
+    // Recalculate room financial stats (prize pool = total sales - platform rake fee from admin settings)
     room.ticketsSold = (room.ticketsSold || 0) + 1;
     const totalSales = room.ticketsSold * room.ticketPrice;
-    room.prizePool = Math.round(totalSales * (prizePct / 100));
-    room.platformFee = Math.round(totalSales * (platformFeePct / 100));
+    const finalPlatformFee = Math.round(totalSales * (platformFeePct / 100));
+    room.platformFee = finalPlatformFee;
+    room.prizePool = Math.max(0, totalSales - finalPlatformFee);
 
     // Update private group member count if applicable
     if (roomId.startsWith('grp_') || db.privateGroups.has(roomId)) {

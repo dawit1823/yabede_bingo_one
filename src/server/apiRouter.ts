@@ -3895,6 +3895,31 @@ apiRouter.post('/bingo/toggle-card', async (req: Request, res: Response) => {
   }
 });
 
+apiRouter.post(['/rooms/:roomId/claim-bingo', '/rooms/:roomId/claim', '/bingo/claim-card'], async (req: Request, res: Response) => {
+  try {
+    const { roomId } = req.params;
+    const { ticketId, userId } = req.body;
+    if (!roomId || !ticketId || !userId) {
+      res.status(400).json({ error: 'roomId, ticketId, and userId are required' });
+      return;
+    }
+
+    const result = await ballDrawer.processManualClaim(roomId, ticketId, userId);
+    if (!result.success) {
+      res.status(400).json({ success: false, error: result.message });
+      return;
+    }
+
+    res.json({
+      success: true,
+      message: result.message,
+      winner: result.winner,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Failed to claim bingo' });
+  }
+});
+
 apiRouter.post('/bingo/reset-all', async (req: Request, res: Response) => {
   try {
     const rooms = await clearAndResetAllBingoGames();

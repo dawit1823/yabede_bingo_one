@@ -142,7 +142,6 @@ export class PrizeCalculator {
     // 3. Authoritative financial calculation (Winner Prize Pool = Total Sales - Platform Rake Fee)
     const sysSettings = adminService.getSystemSettings();
     const platformFeePct = typeof sysSettings.platformFeePercent === 'number' ? sysSettings.platformFeePercent : 20;
-    const prizePct = typeof sysSettings.prizePercentage === 'number' ? sysSettings.prizePercentage : (100 - platformFeePct);
 
     // Use verified tickets or room ticket counter to calculate exact ticket sales
     const effectiveTicketsSold = Math.max(ticketsSold, room.ticketsSold || 0);
@@ -151,9 +150,7 @@ export class PrizeCalculator {
     const calculatedPrizePool = Math.max(0, totalTicketSales - finalPlatformFee);
     
     // Ensure the awarded prize pool matches the active room prize pool exactly
-    const finalPrizePool = room.prizePool > 0 && Math.abs(room.prizePool - calculatedPrizePool) <= 1
-      ? room.prizePool
-      : calculatedPrizePool;
+    const finalPrizePool = room.prizePool > 0 ? room.prizePool : calculatedPrizePool;
     const prizePerWinner = validWinners.length > 0
       ? Math.max(0, Math.floor(finalPrizePool / validWinners.length))
       : 0;

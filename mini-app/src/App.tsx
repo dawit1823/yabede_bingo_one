@@ -271,16 +271,20 @@ export default function App() {
       }
     });
 
-    newSocket.on('game:winner', (data: { roomId: string; winners: any[]; prizeAmount: number; pattern: string }) => {
+    newSocket.on('game:winner', (data: { roomId: string; winners?: any[]; winner?: any; prizeAmount?: number; pattern?: string }) => {
       audioEngine.playWin();
       triggerHaptic('heavy');
-      if (data.winners && data.winners.length > 0) {
-        const myWin = data.winners.find((w: any) => w.userId === currentUser.id);
+      const winList = data.winners || (data.winner ? [data.winner] : []);
+      if (winList && winList.length > 0) {
+        const myWin = winList.find((w: any) => w.userId === currentUser.id);
         if (myWin) {
+          const awardedPrize = typeof data.prizeAmount === 'number' && data.prizeAmount > 0
+            ? data.prizeAmount
+            : (myWin.prizeAmount || 0);
           setWinNotification({
             title: language === 'am' ? '🎉 እንኳን ደስ አለዎት! አሸንፈዋል!' : '🎉 Congratulations! You Won!',
-            message: language === 'am' ? `በቢንጎ ጨዋታ ${data.prizeAmount || myWin.prizeAmount || 0} ብር አሸንፈዋል!` : `You won ${data.prizeAmount || myWin.prizeAmount || 0} Birr in Bingo!`,
-            prizeAmount: data.prizeAmount || myWin.prizeAmount || 0,
+            message: language === 'am' ? `በቢንጎ ጨዋታ ${awardedPrize} ብር አሸንፈዋል!` : `You won ${awardedPrize} Birr in Bingo!`,
+            prizeAmount: awardedPrize,
             roomName: activeRoom?.name || 'Bingo Game',
           });
         }
@@ -410,6 +414,9 @@ export default function App() {
 
   const handleClaimBingo = (ticketId: string) => {
     if (!activeRoom) return;
+    if (socket) {
+      socket.emit('bingo:claim', { ticketId, userId: currentUser.id, roomId: activeRoom.id });
+    }
     fetch(apiUrl(`/api/rooms/${activeRoom.id}/claim-bingo`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

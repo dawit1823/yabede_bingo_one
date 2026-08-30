@@ -59,8 +59,16 @@ export class WebSocketGateway {
    */
   public broadcastWinner(roomId: string, winner: GameWinner, room: BingoRoom): void {
     if (!ioInstance) return;
-    ioInstance.emit('game:winner', { winner, room });
-    ioInstance.to(roomId).emit('game:winner', { winner, room });
+    const payload = {
+      winner,
+      winners: [winner],
+      prizeAmount: winner.prizeAmount,
+      pattern: winner.pattern,
+      room,
+      roomId,
+    };
+    ioInstance.emit('game:winner', payload);
+    ioInstance.to(roomId).emit('game:winner', payload);
   }
 
   /**

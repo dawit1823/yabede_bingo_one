@@ -101,10 +101,9 @@ export class GameRecoveryManager {
 
       // 4. Calculate authoritative financial stats
       const platformFeePct = settings.platformFeePercent ?? 20;
-      const prizePct = settings.prizePercentage ?? (100 - platformFeePct);
       const totalSales = confirmedCount * room.ticketPrice;
       const platformFee = Math.round(totalSales * (platformFeePct / 100));
-      const prizePool = Math.round(totalSales * (prizePct / 100));
+      const prizePool = Math.max(0, totalSales - platformFee);
 
       room.ticketsSold = confirmedCount;
       room.prizePool = prizePool;

@@ -8,7 +8,7 @@ import { ticketManager } from './TicketManager.js';
 import { webSocketGateway } from './WebSocketGateway.js';
 import { adminService } from '../adminService.js';
 import { logger } from '../logger.js';
-import { BingoRoom } from '../../types.js';
+import { BingoRoom, GameWinner, WinningPattern } from '../../types.js';
 
 export class BallDrawer {
   private activeIntervals: Map<string, NodeJS.Timeout> = new Map();
@@ -112,6 +112,80 @@ export class BallDrawer {
     }
 
     logger.debug(`[GAME] Stopped ball draw cycle room=${roomId}`);
+  }
+
+  /**
+   * Processes an authoritative manual Bingo claim (from player UI or API endpoint).
+   */
+  public async processManualClaim(
+    roomId: string,
+    ticketId: string,
+    userId: string
+  ): Promise<{ success: boolean; winner?: GameWinner; message: string }> {
+    const room = roomManager.getRoom(roomId);
+    if (!room) return { success: false, message: 'Room not found' };
+    if (room.status !== 'PLAYING') return { success: false, message: 'Game is not in active playing state' };
+
+    const ticket = db.tickets.get(ticketId);
+    if (!ticket) return { success: false, message: 'Ticket not found' };
+    if (ticket.userId !== userId) return { success: false, message: 'Unauthorized ticket claim' };
+    if (ticket.roomId !== roomId) return { success: false, message: 'Ticket belongs to a different room' };
+    if (ticket.gameReferenceId !== room.gameReferenceId) {
+      return { success: false, message: 'Ticket belongs to a previous or different game round' };
+    }
+    if (ticket.status !== 'ACTIVE' || typeof ticket.purchasePrice !== 'number' || ticket.purchasePrice <= 0) {
+      return { success: false, message: 'Ticket is not in active playable status' };
+    }
+
+    // Check valid pattern against current drawn balls
+    const winningPatterns: WinningPattern[] = room.winningPatterns || [
+      'ONE_LINE',
+      'TWO_LINES',
+      'FOUR_CORNERS',
+      'FULL_HOUSE',
+    ];
+    let matchedPattern: WinningPattern | null = null;
+    for (const pattern of winningPatterns) {
+      if (winnerValidator.checkWinningPattern(ticket, room.drawnBalls, pattern)) {
+        matchedPattern = pattern;
+        break;
+      }
+    }
+
+    if (!matchedPattern) {
+      return { success: false, message: 'Bingo pattern requirements not met yet with current drawn balls' };
+    }
+
+    const user = db.getUserById(userId);
+    if (!user) return { success: false, message: 'User not found' };
+
+    const rawWinner: GameWinner = {
+      id: `win_${roomId}_${ticket.id}_${matchedPattern}`,
+      roomId,
+      gameReferenceId: room.gameReferenceId,
+      ticketId: ticket.id,
+      userId,
+      username: user.username || ticket.username || 'Player',
+      cardNumber: ticket.cardNumber || 1,
+      ticketPrice: ticket.purchasePrice || room.ticketPrice,
+      pattern: matchedPattern,
+      prizeAmount: 0,
+      wonAt: new Date().toISOString(),
+    };
+
+    // Stop ball draw cycle immediately
+    this.stopBallDrawCycle(roomId);
+
+    // Complete game and distribute exact prize pool to winner wallet
+    await this.handleGameCompletion(room, [rawWinner]);
+
+    const winner = room.lastWinners?.find((w) => w.ticketId === ticketId) || rawWinner;
+
+    return {
+      success: true,
+      winner,
+      message: `🎉 BINGO! You won ${winner.prizeAmount} Birr!`,
+    };
   }
 
   /**

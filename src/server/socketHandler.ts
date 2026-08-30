@@ -18,6 +18,7 @@ import {
 } from './bingoEngine.js';
 import { roomLifecycleCronService } from './cronSchedulerService.js';
 import { ticketManager } from './engine/TicketManager.js';
+import { ballDrawer } from './engine/BallDrawer.js';
 import { ChatMessage } from '../types.js';
 
 let ioInstance: SocketIOServer | null = null;
@@ -256,33 +257,26 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
       }
     });
 
-    // Claim Bingo (Manual backup claim)
-    socket.on('bingo:claim', (data: { ticketId: string; userId: string }) => {
+    // Claim Bingo (Authoritative manual claim)
+    socket.on('bingo:claim', async (data: { ticketId: string; userId: string; roomId?: string }) => {
       const { ticketId, userId } = data;
-      const result = processBingoClaim(ticketId, userId);
+      const ticket = db.tickets.get(ticketId);
+      const roomId = data.roomId || ticket?.roomId;
 
-      if (result.success && result.winner) {
-        const ticket = db.tickets.get(ticketId);
-        const roomId = ticket?.roomId;
-        const room = roomId ? db.rooms.get(roomId) : null;
-        const user = db.getUserById(userId);
+      if (!roomId) {
+        socket.emit('bingo:claim_failed', { message: 'Room not found for this ticket' });
+        return;
+      }
 
-        if (roomId) {
-          io.to(roomId).emit('game:winner', {
-            winner: result.winner,
-            room,
-            message: result.message,
-          });
+      try {
+        const result = await ballDrawer.processManualClaim(roomId, ticketId, userId);
+        if (result.success && result.winner) {
+          socket.emit('bingo:claim_success', result);
+        } else {
+          socket.emit('bingo:claim_failed', { message: result.message });
         }
-
-        io.emit('wallet:updated', {
-          userId,
-          newBalance: user?.walletBalance,
-        });
-
-        socket.emit('bingo:claim_success', result);
-      } else {
-        socket.emit('bingo:claim_failed', { message: result.message });
+      } catch (claimErr: any) {
+        socket.emit('bingo:claim_failed', { message: claimErr.message || 'Error processing bingo claim' });
       }
     });
 

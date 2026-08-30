@@ -576,7 +576,16 @@ export default function App() {
       });
     });
 
-    const handleWinEvent = (data: { winner: any; winners?: any[]; room?: any; group?: any; message?: string }) => {
+    const handleWinEvent = (data: {
+      winner: any;
+      winners?: any[];
+      prizeAmount?: number;
+      pattern?: string;
+      roomId?: string;
+      room?: any;
+      group?: any;
+      message?: string;
+    }) => {
       const winner = data.winner;
       const winnersList = data.winners || (winner ? [winner] : []);
       const targetId = data.room?.id || data.group?.id;
@@ -594,18 +603,22 @@ export default function App() {
         });
       }
 
-      if (winner && winner.userId === currentUser.id) {
+      const myWin = winnersList.find((w: any) => w.userId === currentUser.id) || (winner?.userId === currentUser.id ? winner : null);
+      if (myWin) {
         audioEngine.playWin();
         triggerHaptic('heavy');
         fetchData();
 
         const roomName = data.room?.name || data.group?.name || 'Bingo Game';
+        const winAmount = typeof data.prizeAmount === 'number' && data.prizeAmount > 0
+          ? data.prizeAmount
+          : (myWin.prizeAmount || 0);
         setWinNotification({
           title: language === 'am' ? '🎉 ቢንጎ አሸንፈዋል!' : '🎉 BINGO WINNER!',
           message: language === 'am'
-            ? `የተወራረዱበት ቢንጎ አልቋል! በ"${roomName}" ${winner.prizeAmount} ብር አሸንፈዋል! ገንዘቡ በራስ-ሰር ወደ ቦርሳዎ ተጨምሯል።`
-            : `Your bingo game ended! You won ${winner.prizeAmount} Birr in "${roomName}"! The prize has been added to your wallet balance.`,
-          prizeAmount: winner.prizeAmount,
+            ? `የተወራረዱበት ቢንጎ አልቋል! በ"${roomName}" ${winAmount} ብር አሸንፈዋል! ገንዘቡ በራስ-ሰር ወደ ቦርሳዎ ተጨምሯል።`
+            : `Your bingo game ended! You won ${winAmount} Birr in "${roomName}"! The prize has been added to your wallet balance.`,
+          prizeAmount: winAmount,
           roomName,
         });
       }
