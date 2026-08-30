@@ -3340,11 +3340,12 @@ apiRouter.post('/private-groups/message', (req: Request, res: Response) => {
     }
 
     const user = db.getUserById(userId);
-    const username = user?.username || 'Player';
+    const username = user?.username || user?.firstName || 'Player';
 
-    const msgs = db.groupMessages.get(groupId) || [];
+    const msgs = db.chatMessages.get(groupId) || [];
     const msg = {
-      id: `gmsg_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      id: `msg_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      roomId: groupId,
       groupId,
       userId,
       username,
@@ -3352,18 +3353,14 @@ apiRouter.post('/private-groups/message', (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     };
 
-    msgs.push(msg);
+    msgs.push(msg as any);
     if (msgs.length > 100) msgs.shift();
-    db.groupMessages.set(groupId, msgs);
-
-    // Save to Firestore
-    firestoreGuard.safeWrite('groupMessages', 'sendPrivateGroupMessage', async () => {
-      await adminDb.collection('groupMessages').doc(msg.id).set(msg);
-    }, false);
+    db.chatMessages.set(groupId, msgs);
 
     // Broadcast in real-time via Socket.IO
     const io = getIO();
     if (io) {
+      io.to(groupId).to(`private_grp_${groupId}`).emit('chat:message', msg);
       io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:message', msg);
     }
 
@@ -3382,6 +3379,16 @@ apiRouter.post('/private-groups/invite', (req: Request, res: Response) => {
     }
 
     const result = db.inviteUserToGroup(groupId, invitedIdentifier, hostUserId);
+    const grp = db.getPrivateGroupByIdOrCode(groupId);
+
+    const io = getIO();
+    if (io && result.invitedUserId) {
+      io.to(`user_${result.invitedUserId}`).emit('private_group:invitation_received', {
+        invitation: result,
+        group: grp?.group || null,
+      });
+    }
+
     res.json({ success: true, invitation: result });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Invitation failed' });
@@ -3449,10 +3456,29 @@ apiRouter.post('/private-groups/play-again', (req: Request, res: Response) => {
     }
 
     const group = db.playAgainPrivateGroupGame(groupId, hostUserId);
+    const members = db.groupMembers.get(groupId) || [];
     const io = getIO();
     if (io) {
       io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:play_again', { groupId, group });
-      io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:updated', { group, members: db.groupMembers.get(groupId) || [] });
+      io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:updated', { group, members });
+      io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:stats_updated', {
+        groupId,
+        status: 'LOBBY',
+        prizePool: 0,
+        ticketsSold: 0,
+        activePlayersCount: 0,
+      });
+
+      // Notify each member directly in their personal room
+      members.forEach((m) => {
+        if (m.userId !== hostUserId) {
+          io.to(`user_${m.userId}`).emit('private_group:new_round', {
+            groupId: group.id,
+            group,
+            message: `Host @${group.hostName || 'Host'} started a new round in "${group.name}". Pick your cards!`,
+          });
+        }
+      });
     }
     res.json({ success: true, group });
   } catch (err: any) {

@@ -158,11 +158,11 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           }
         };
 
-        const handleNewChatMessage = (msg: GroupMessage) => {
-          if (msg && msg.groupId === groupId) {
+        const handleNewChatMessage = (msg: any) => {
+          if (msg && (msg.groupId === groupId || msg.roomId === groupId)) {
             setMessages((prev) => {
               if (prev.some((m) => m.id === msg.id)) return prev;
-              return [...prev, msg];
+              return [...prev, { ...msg, groupId: msg.groupId || msg.roomId, roomId: msg.roomId || msg.groupId }];
             });
           }
         };
@@ -172,6 +172,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
         socket.on('private_group:started', handleGroupStarted);
         socket.on('private_group:cancelled', handleGroupCancelled);
         socket.on('private_group:message', handleNewChatMessage);
+        socket.on('chat:message', handleNewChatMessage);
 
         return () => {
           socket.emit('room:leave', { roomId: groupId, userId: user.id });
@@ -180,6 +181,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           socket.off('private_group:started', handleGroupStarted);
           socket.off('private_group:cancelled', handleGroupCancelled);
           socket.off('private_group:message', handleNewChatMessage);
+          socket.off('chat:message', handleNewChatMessage);
         };
       }
     }
@@ -426,6 +428,31 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
     }
   };
 
+  const handlePlayAgain = async () => {
+    setActionError(null);
+    try {
+      const res = await fetch(apiUrl('/api/private-groups/play-again'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groupId: group.id,
+          hostUserId: user.id,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to restart game');
+      }
+
+      triggerHaptic('heavy');
+      setUserTickets([]);
+      fetchGroupDetails();
+    } catch (err: any) {
+      setActionError(err.message || 'Error restarting game');
+    }
+  };
+
   const handleRemoveMember = async (targetUserId: string) => {
     setMemberToRemove(null);
 
@@ -473,27 +500,35 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
     });
     triggerHaptic('light');
 
-    if (socket) {
-      socket.emit('private_group:chat', {
-        groupId: group.id,
+    if (socket && socket.connected) {
+      socket.emit('chat:send', {
+        roomId: group.id,
         userId: user.id,
         text: textToSend,
       });
+      setSendingChat(false);
+      return;
     }
 
     try {
-      const res = await fetch(apiUrl('/api/private-groups/message'), {
+      const res = await fetch(apiUrl('/api/rooms/' + encodeURIComponent(group.id) + '/messages'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          groupId: group.id,
           userId: user.id,
           text: textToSend,
         }),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        console.warn('[PrivateGroupChat] Sync error:', data.error);
+        await fetch(apiUrl('/api/private-groups/message'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            groupId: group.id,
+            userId: user.id,
+            text: textToSend,
+          }),
+        });
       }
     } catch (err: any) {
       console.error('[PrivateGroupChat] network error:', err);
@@ -940,6 +975,41 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
               <Sparkles className="w-5 h-5" />
               <span>GAME IS LIVE! Join Drawing Canvas</span>
             </button>
+          )}
+
+          {(group.status === 'CLOSED' || group.status === 'CANCELLED' || group.status === 'FINISHED' || group.status === 'WAITING_HOST_DECISION') && (
+            <div className="space-y-3">
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-center space-y-2">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto text-xl font-black border border-amber-500/20">
+                  🔁
+                </div>
+                <h4 className="text-sm font-black text-white">
+                  Game Round Ended
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  {isHost
+                    ? 'Start a new round to reset the lobby, select cards, and invite players.'
+                    : 'Waiting for host to start a new round...'}
+                </p>
+              </div>
+
+              {isHost ? (
+                <button
+                  onClick={handlePlayAgain}
+                  className="w-full min-h-[44px] py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-xs shadow-xl shadow-amber-500/25 hover:brightness-110 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Start New Round (Play Again)</span>
+                </button>
+              ) : (
+                <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 text-center">
+                  <p className="text-xs text-slate-400 flex items-center justify-center gap-1.5 font-medium">
+                    <Clock className="w-4 h-4 text-amber-400 animate-spin" />
+                    <span>Waiting for host to start a new round...</span>
+                  </p>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

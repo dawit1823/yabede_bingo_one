@@ -188,8 +188,8 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           }
         };
 
-        const handleNewChatMessage = (msg: GroupMessage) => {
-          if (msg && msg.groupId === groupId) {
+        const handleNewChatMessage = (msg: any) => {
+          if (msg && (msg.groupId === groupId || msg.roomId === groupId)) {
             setMessages((prev) => {
               if (prev.some((m) => m.id === msg.id)) return prev;
               const msgTime = new Date(msg.timestamp).getTime();
@@ -201,7 +201,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
                 }
                 return true;
               });
-              return [...filtered, msg];
+              return [...filtered, { ...msg, groupId: msg.groupId || msg.roomId, roomId: msg.roomId || msg.groupId }];
             });
           }
         };
@@ -215,6 +215,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
         socket.on('private_group:play_again', handlePlayAgainEvent);
         socket.on('private_group:closed', handleGroupClosed);
         socket.on('private_group:message', handleNewChatMessage);
+        socket.on('chat:message', handleNewChatMessage);
 
         return () => {
           socket.emit('room:leave', { roomId: groupId, userId: user.id });
@@ -227,6 +228,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           socket.off('private_group:play_again', handlePlayAgainEvent);
           socket.off('private_group:closed', handleGroupClosed);
           socket.off('private_group:message', handleNewChatMessage);
+          socket.off('chat:message', handleNewChatMessage);
         };
       }
     }
@@ -564,7 +566,7 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
       id: tempId,
       groupId: group.id,
       userId: user.id,
-      username: user.username || 'Player',
+      username: user.username || user.firstName || 'Player',
       text: textToSend,
       timestamp: new Date().toISOString(),
     };
@@ -575,19 +577,36 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
     });
     triggerHaptic('light');
 
+    if (socket && socket.connected) {
+      socket.emit('chat:send', {
+        roomId: group.id,
+        userId: user.id,
+        text: textToSend,
+      });
+      setSendingChat(false);
+      return;
+    }
+
     try {
-      const res = await fetch(apiUrl('/api/private-groups/message'), {
+      const res = await fetch(apiUrl('/api/rooms/' + encodeURIComponent(group.id) + '/messages'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          groupId: group.id,
           userId: user.id,
           text: textToSend,
         }),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        console.warn('[PrivateGroupChat] Sync error:', data.error);
+        // Fallback to /api/private-groups/message
+        await fetch(apiUrl('/api/private-groups/message'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            groupId: group.id,
+            userId: user.id,
+            text: textToSend,
+          }),
+        });
       }
     } catch (err: any) {
       console.error('[PrivateGroupChat] network error:', err);
@@ -1151,6 +1170,49 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
                       {language === 'am'
                         ? 'አስተናጋጁ (Host) ቀጣዩን ውሳኔ እስኪያደርግ በመጠበቅ ላይ...'
                         : 'Waiting for host decision (Play Again or Close)...'}
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {(group.status === 'CLOSED' || group.status === 'CANCELLED') && (
+            <div className="space-y-3">
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-center space-y-2">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto text-xl font-black border border-amber-500/20">
+                  🔁
+                </div>
+                <h4 className="text-sm font-black text-white">
+                  {language === 'am' ? 'ጨዋታው ተዘግቷል / ተሰርዟል' : 'Game Round Ended'}
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  {language === 'am'
+                    ? isHost
+                      ? 'አዲስ ዙር ለመጀመር እና ተጫዋቾችን ለመጋበዝ "አዲስ ዙር ጀምር" የሚለውን ይጫኑ።'
+                      : 'አስተናጋጁ አዲስ ዙር እስኪጀምር በመጠበቅ ላይ...'
+                    : isHost
+                    ? 'Start a new round to reset the lobby, select cards, and invite players.'
+                    : 'Waiting for host to start a new round...'}
+                </p>
+              </div>
+
+              {isHost ? (
+                <button
+                  onClick={handlePlayAgain}
+                  className="w-full min-h-[44px] py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black text-xs shadow-xl shadow-amber-500/25 hover:brightness-110 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>{language === 'am' ? 'አዲስ ዙር ጀምር (Play Again)' : 'Start New Round (Play Again)'}</span>
+                </button>
+              ) : (
+                <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 text-center">
+                  <p className="text-xs text-slate-400 flex items-center justify-center gap-1.5 font-medium">
+                    <Clock className="w-4 h-4 text-amber-400 animate-spin" />
+                    <span>
+                      {language === 'am'
+                        ? 'አስተናጋጁ አዲስ ዙር እስኪጀምር በመጠበቅ ላይ...'
+                        : 'Waiting for host to start a new round...'}
                     </span>
                   </p>
                 </div>

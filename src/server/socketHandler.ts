@@ -140,6 +140,9 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
     // Auth & identify user socket
     socket.on('auth:identify', (data: { userId: string }) => {
       currentUserId = data.userId;
+      if (data.userId) {
+        socket.join(`user_${data.userId}`);
+      }
       const user = db.getUserById(data.userId);
       if (user) {
         socket.emit('auth:success', { user });
@@ -291,9 +294,10 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
       const user = db.getUserById(userId);
       if (!user) return;
 
-      const msg: ChatMessage = {
+      const msg = {
         id: `msg_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
         roomId,
+        groupId: roomId,
         userId,
         username: user.username || user.firstName || 'Player',
         text: text.trim(),
@@ -301,18 +305,19 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
       };
 
       const roomMsgs = db.chatMessages.get(roomId) || [];
-      roomMsgs.push(msg);
+      roomMsgs.push(msg as any);
       if (roomMsgs.length > 100) roomMsgs.shift();
       db.chatMessages.set(roomId, roomMsgs);
 
-      io.to(roomId).emit('chat:message', msg);
+      io.to(roomId).to(`private_grp_${roomId}`).emit('chat:message', msg);
+      io.to(roomId).to(`private_grp_${roomId}`).emit('private_group:message', msg);
     });
 
     // --- PRIVATE GROUP SOCKET EVENTS ---
     socket.on('private_group:join', (data: { groupId: string; userId?: string }) => {
       const { groupId } = data;
       const details = db.getPrivateGroupByIdOrCode(groupId);
-      if (!details.group) return;
+      if (!details?.group) return;
 
       const roomName = `private_grp_${details.group.id}`;
       socket.join(roomName);
@@ -322,11 +327,13 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
         ? Array.from(db.tickets.values()).filter((t) => t.roomId === details.group!.id && t.userId === currentUserId)
         : [];
 
+      const groupChatMsgs = db.chatMessages.get(details.group.id) || [];
+
       socket.emit('private_group:snapshot', {
         group: details.group,
         members: details.members,
         tickets: userTickets,
-        messages: details.messages,
+        messages: groupChatMsgs,
       });
 
       io.to(details.group.id).to(roomName).emit('private_group:updated', {
@@ -352,11 +359,12 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
       if (!isMember) return;
 
       const user = db.getUserById(userId);
-      const username = user?.username || 'Player';
+      const username = user?.username || user?.firstName || 'Player';
 
-      const msgs = db.groupMessages.get(groupId) || [];
+      const msgs = db.chatMessages.get(groupId) || [];
       const msg = {
-        id: `gmsg_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+        id: `msg_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+        roomId: groupId,
         groupId,
         userId,
         username,
@@ -364,13 +372,11 @@ export function setupSocketIO(httpServer: HttpServer): SocketIOServer {
         timestamp: new Date().toISOString(),
       };
 
-      msgs.push(msg);
+      msgs.push(msg as any);
       if (msgs.length > 100) msgs.shift();
-      db.groupMessages.set(groupId, msgs);
+      db.chatMessages.set(groupId, msgs);
 
-      // Async Firestore write
-      adminDb.collection('groupMessages').doc(msg.id).set(msg).catch(() => {});
-
+      io.to(groupId).to(`private_grp_${groupId}`).emit('chat:message', msg);
       io.to(groupId).to(`private_grp_${groupId}`).emit('private_group:message', msg);
     });
 

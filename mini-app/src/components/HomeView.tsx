@@ -132,9 +132,39 @@ export const HomeView: React.FC<HomeViewProps> = ({
           }
           return [inv, ...prev];
         });
+        triggerHaptic('medium');
       } else {
         fetchPrivateGroups();
       }
+    };
+
+    const handleNewRound = (data: { groupId?: string; group?: PrivateGroup; message?: string }) => {
+      const newGroup = data?.group;
+      const targetId = data?.groupId || newGroup?.id;
+      if (!targetId) return;
+
+      setMyPrivateGroups((prev) => {
+        const idx = prev.findIndex((g) => g.id === targetId);
+        if (idx !== -1) {
+          const next = [...prev];
+          next[idx] = {
+            ...next[idx],
+            ...(newGroup || {}),
+            status: 'LOBBY',
+            drawnBalls: [],
+            currentBall: null,
+            prizePool: 0,
+            ticketsSold: 0,
+            activePlayersCount: 0,
+          };
+          return next;
+        }
+        if (newGroup) {
+          return [newGroup, ...prev];
+        }
+        return prev;
+      });
+      triggerHaptic('medium');
     };
 
     const handleInvitationResponded = (data: any) => {
@@ -152,7 +182,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
     socket.on('private_group:closed', handleGroupUpdated);
     socket.on('private_group:reset', handleGroupUpdated);
     socket.on('private_group:play_again', handleGroupUpdated);
+    socket.on('private_group:new_round', handleNewRound);
     socket.on('invitation:received', handleInvitationReceived);
+    socket.on('private_group:invitation_received', handleInvitationReceived);
     socket.on('private_group:invitation_created', handleInvitationReceived);
     socket.on('private_group:invitation_responded', handleInvitationResponded);
 
@@ -165,7 +197,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
       socket.off('private_group:closed', handleGroupUpdated);
       socket.off('private_group:reset', handleGroupUpdated);
       socket.off('private_group:play_again', handleGroupUpdated);
+      socket.off('private_group:new_round', handleNewRound);
       socket.off('invitation:received', handleInvitationReceived);
+      socket.off('private_group:invitation_received', handleInvitationReceived);
       socket.off('private_group:invitation_created', handleInvitationReceived);
       socket.off('private_group:invitation_responded', handleInvitationResponded);
     };

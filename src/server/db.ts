@@ -1890,7 +1890,7 @@ class FirestoreDatabaseStore {
     return group;
   }
 
-  public getPrivateGroupByIdOrCode(idOrCode: string): { group: PrivateGroup; members: GroupMember[]; messages: GroupMessage[] } | undefined {
+  public getPrivateGroupByIdOrCode(idOrCode: string): { group: PrivateGroup; members: GroupMember[]; messages: any[] } | undefined {
     let group = this.privateGroups.get(idOrCode);
     if (!group) {
       const groupId = this.privateGroupCodeIndex.get(idOrCode.trim().toUpperCase());
@@ -1899,7 +1899,7 @@ class FirestoreDatabaseStore {
     if (!group) return undefined;
     this.computePrivateGroupStats(group.id);
     const members = this.groupMembers.get(group.id) || [];
-    const messages = this.groupMessages.get(group.id) || [];
+    const messages = this.chatMessages.get(group.id) || [];
     return { group, members, messages };
   }
 
