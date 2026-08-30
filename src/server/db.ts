@@ -264,6 +264,10 @@ class FirestoreDatabaseStore {
 
   public hasFullyHydrated = false;
   private isInitialized = false;
+  private lastSyncTimestamp: string | null = null;
+  private lastFullSyncAttempt: number = 0;
+  private lastUsersSyncAttempt: number = 0;
+  private lastPersistedGroupStats: Map<string, { stats: any; at: number }> = new Map();
 
   constructor() {
     // Immediately seed official rooms in memory
@@ -406,7 +410,7 @@ class FirestoreDatabaseStore {
       // 3. Synchronize All Registered Users from Firestore
       await this.syncUsersFromFirestore();
 
-      // 4. Synchronize all other collections from Firestore (Rooms, Deposits, Withdrawals, Transactions, Tickets, Winners, Game History, Audit Logs, Notifications, Groups)
+      // 4. Synchronize all other collections from Firestore (with capped incremental bounds)
       await this.syncAllDataFromFirestore();
 
       this.hasFullyHydrated = true;
@@ -422,20 +426,28 @@ class FirestoreDatabaseStore {
   }
 
   /**
-   * Complete hydration of all persistent data from Firestore.
-   * Guarantees zero data loss across Render redeployments, restarts, and browser refreshes.
+   * Hydration of persistent data from Firestore with cooldown, capped queries, and incremental updates.
+   * Guarantees zero data loss across Render redeployments while preventing Firestore quota exhaustion.
    */
-  public async syncAllDataFromFirestore(): Promise<void> {
+  public async syncAllDataFromFirestore(force = false): Promise<void> {
+    const now = Date.now();
+    if (!force && this.lastFullSyncAttempt > 0 && now - this.lastFullSyncAttempt < 10 * 60 * 1000) {
+      logger.debug('[FirestoreSync] Skipped full sync - last sync was recent (< 10 minutes ago).');
+      return;
+    }
+    this.lastFullSyncAttempt = now;
+
     try {
       await firestoreGuard.safeRead('all_collections', 'syncAllDataFromFirestore', async () => {
+        const since = this.lastSyncTimestamp;
+
         // A. Synchronize Rooms (Custom rooms created by Admin + ensure official rooms)
         try {
-          const roomsSnap = await adminDb.collection('rooms').get().catch(() => null);
+          const roomsSnap = await adminDb.collection('rooms').limit(20).get().catch(() => null);
           if (roomsSnap && !roomsSnap.empty) {
             roomsSnap.docs.forEach((doc) => {
               const r = doc.data() as BingoRoom;
               if (r && r.id) {
-                // If room doesn't exist in memory yet, add it
                 if (!this.rooms.has(r.id)) {
                   this.rooms.set(r.id, {
                     ...r,
@@ -457,10 +469,14 @@ class FirestoreDatabaseStore {
           logger.debug('[FirestoreSync] Rooms sync note:', e);
         }
 
-        // B. Synchronize Deposits (from 'payments' and fallback 'deposits' collections)
+        // B. Synchronize Deposits (capped at 50)
         try {
-          const paymentsSnap = await adminDb.collection('payments').orderBy('createdAt', 'desc').limit(500).get().catch(async () => {
-            return adminDb.collection('payments').limit(500).get().catch(() => null);
+          let q = adminDb.collection('payments').orderBy('createdAt', 'desc');
+          if (since) {
+            q = (adminDb.collection('payments').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
+          }
+          const paymentsSnap = await q.limit(50).get().catch(async () => {
+            return adminDb.collection('payments').limit(50).get().catch(() => null);
           });
           const existingDepIds = new Set(this.deposits.map((d) => d.id));
           if (paymentsSnap && !paymentsSnap.empty) {
@@ -472,25 +488,18 @@ class FirestoreDatabaseStore {
               }
             });
           }
-          // Fallback check on 'deposits' collection if any legacy docs exist
-          const legacyDepSnap = await adminDb.collection('deposits').limit(200).get().catch(() => null);
-          if (legacyDepSnap && !legacyDepSnap.empty) {
-            legacyDepSnap.docs.forEach((doc) => {
-              const dep = doc.data() as DepositRequest;
-              if (dep && dep.id && !existingDepIds.has(dep.id)) {
-                this.deposits.push(dep);
-                existingDepIds.add(dep.id);
-              }
-            });
-          }
         } catch (e) {
           logger.debug('[FirestoreSync] Deposits sync note:', e);
         }
 
-        // C. Synchronize Withdrawals
+        // C. Synchronize Withdrawals (capped at 50)
         try {
-          const wdSnap = await adminDb.collection('withdrawals').orderBy('createdAt', 'desc').limit(500).get().catch(async () => {
-            return adminDb.collection('withdrawals').limit(500).get().catch(() => null);
+          let q = adminDb.collection('withdrawals').orderBy('createdAt', 'desc');
+          if (since) {
+            q = (adminDb.collection('withdrawals').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
+          }
+          const wdSnap = await q.limit(50).get().catch(async () => {
+            return adminDb.collection('withdrawals').limit(50).get().catch(() => null);
           });
           const existingWdIds = new Set(this.withdrawals.map((w) => w.id));
           if (wdSnap && !wdSnap.empty) {
@@ -506,10 +515,14 @@ class FirestoreDatabaseStore {
           logger.debug('[FirestoreSync] Withdrawals sync note:', e);
         }
 
-        // D. Synchronize Transactions (Wallet Ledger)
+        // D. Synchronize Transactions (Wallet Ledger - capped at 50)
         try {
-          const txSnap = await adminDb.collection('transactions').orderBy('createdAt', 'desc').limit(500).get().catch(async () => {
-            return adminDb.collection('transactions').limit(500).get().catch(() => null);
+          let q = adminDb.collection('transactions').orderBy('createdAt', 'desc');
+          if (since) {
+            q = (adminDb.collection('transactions').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
+          }
+          const txSnap = await q.limit(50).get().catch(async () => {
+            return adminDb.collection('transactions').limit(50).get().catch(() => null);
           });
           const existingTxIds = new Set(this.transactions.map((t) => t.id));
           if (txSnap && !txSnap.empty) {
@@ -525,10 +538,14 @@ class FirestoreDatabaseStore {
           logger.debug('[FirestoreSync] Transactions sync note:', e);
         }
 
-        // E. Synchronize Tickets
+        // E. Synchronize Tickets (capped at 100)
         try {
-          const tktSnap = await adminDb.collection('tickets').orderBy('boughtAt', 'desc').limit(1000).get().catch(async () => {
-            return adminDb.collection('tickets').limit(1000).get().catch(() => null);
+          let q = adminDb.collection('tickets').orderBy('boughtAt', 'desc');
+          if (since) {
+            q = (adminDb.collection('tickets').where('boughtAt', '>', since).orderBy('boughtAt', 'desc') as any);
+          }
+          const tktSnap = await q.limit(100).get().catch(async () => {
+            return adminDb.collection('tickets').limit(100).get().catch(() => null);
           });
           if (tktSnap && !tktSnap.empty) {
             tktSnap.docs.forEach((doc) => {
@@ -542,10 +559,14 @@ class FirestoreDatabaseStore {
           logger.debug('[FirestoreSync] Tickets sync note:', e);
         }
 
-        // F. Synchronize Winners
+        // F. Synchronize Winners (capped at 50)
         try {
-          const winSnap = await adminDb.collection('winners').orderBy('wonAt', 'desc').limit(500).get().catch(async () => {
-            return adminDb.collection('winners').limit(500).get().catch(() => null);
+          let q = adminDb.collection('winners').orderBy('wonAt', 'desc');
+          if (since) {
+            q = (adminDb.collection('winners').where('wonAt', '>', since).orderBy('wonAt', 'desc') as any);
+          }
+          const winSnap = await q.limit(50).get().catch(async () => {
+            return adminDb.collection('winners').limit(50).get().catch(() => null);
           });
           const existingWinIds = new Set(this.winners.map((w) => w.id));
           if (winSnap && !winSnap.empty) {
@@ -561,10 +582,14 @@ class FirestoreDatabaseStore {
           logger.debug('[FirestoreSync] Winners sync note:', e);
         }
 
-        // G. Synchronize Game History
+        // G. Synchronize Game History (capped at 50)
         try {
-          const ghSnap = await adminDb.collection('gameHistory').orderBy('playedAt', 'desc').limit(500).get().catch(async () => {
-            return adminDb.collection('gameHistory').limit(500).get().catch(() => null);
+          let q = adminDb.collection('gameHistory').orderBy('playedAt', 'desc');
+          if (since) {
+            q = (adminDb.collection('gameHistory').where('playedAt', '>', since).orderBy('playedAt', 'desc') as any);
+          }
+          const ghSnap = await q.limit(50).get().catch(async () => {
+            return adminDb.collection('gameHistory').limit(50).get().catch(() => null);
           });
           const existingGhIds = new Set(this.gameHistoryRecords.map((gh) => gh.id));
           if (ghSnap && !ghSnap.empty) {
@@ -580,10 +605,14 @@ class FirestoreDatabaseStore {
           logger.debug('[FirestoreSync] GameHistory sync note:', e);
         }
 
-        // H. Synchronize Audit Logs
+        // H. Synchronize Audit Logs (capped at 50)
         try {
-          const auditSnap = await adminDb.collection('auditLogs').orderBy('timestamp', 'desc').limit(500).get().catch(async () => {
-            return adminDb.collection('auditLogs').limit(500).get().catch(() => null);
+          let q = adminDb.collection('auditLogs').orderBy('timestamp', 'desc');
+          if (since) {
+            q = (adminDb.collection('auditLogs').where('timestamp', '>', since).orderBy('timestamp', 'desc') as any);
+          }
+          const auditSnap = await q.limit(50).get().catch(async () => {
+            return adminDb.collection('auditLogs').limit(50).get().catch(() => null);
           });
           const existingAuditIds = new Set(this.auditLogs.map((a) => a.id));
           if (auditSnap && !auditSnap.empty) {
@@ -599,10 +628,14 @@ class FirestoreDatabaseStore {
           logger.debug('[FirestoreSync] AuditLogs sync note:', e);
         }
 
-        // I. Synchronize Notifications
+        // I. Synchronize Notifications (capped at 50)
         try {
-          const notifSnap = await adminDb.collection('notifications').orderBy('createdAt', 'desc').limit(500).get().catch(async () => {
-            return adminDb.collection('notifications').limit(500).get().catch(() => null);
+          let q = adminDb.collection('notifications').orderBy('createdAt', 'desc');
+          if (since) {
+            q = (adminDb.collection('notifications').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
+          }
+          const notifSnap = await q.limit(50).get().catch(async () => {
+            return adminDb.collection('notifications').limit(50).get().catch(() => null);
           });
           const existingNotifIds = new Set(this.notifications.map((n) => n.id));
           if (notifSnap && !notifSnap.empty) {
@@ -618,9 +651,11 @@ class FirestoreDatabaseStore {
           logger.debug('[FirestoreSync] Notifications sync note:', e);
         }
 
-        // J. Synchronize Private Groups
+        // J. Synchronize Private Groups (capped at 20)
         try {
-          const groupSnap = await adminDb.collection('groupGames').get().catch(() => null);
+          const groupSnap = await adminDb.collection('groupGames').orderBy('updatedAt', 'desc').limit(20).get().catch(async () => {
+            return adminDb.collection('groupGames').limit(20).get().catch(() => null);
+          });
           if (groupSnap && !groupSnap.empty) {
             groupSnap.docs.forEach((doc) => {
               const grp = doc.data() as PrivateGroup;
@@ -633,6 +668,8 @@ class FirestoreDatabaseStore {
         } catch (e) {
           logger.debug('[FirestoreSync] GroupGames sync note:', e);
         }
+
+        this.lastSyncTimestamp = new Date().toISOString();
       }, null);
     } catch (err: any) {
       logger.warn('[FirestoreSync] Notice during full data sync:', err.message || err);
@@ -640,13 +677,20 @@ class FirestoreDatabaseStore {
   }
 
   /**
-   * Synchronizes all registered users and authentication credentials from Firestore.
-   * Ensures zero omission of registered players in the Admin Panel directory.
+   * Synchronizes registered users and authentication credentials from Firestore.
+   * Uses in-memory cache and 10-minute cooldown to protect Firestore read quotas.
    */
-  public async syncUsersFromFirestore(): Promise<UserProfile[]> {
+  public async syncUsersFromFirestore(force = false): Promise<UserProfile[]> {
+    const now = Date.now();
+    if (!force && this.users.size > 0 && this.lastUsersSyncAttempt > 0 && now - this.lastUsersSyncAttempt < 10 * 60 * 1000) {
+      logger.debug('[FirestoreSync] Skipped users sync - last sync was recent (< 10 minutes ago).');
+      return Array.from(this.users.values());
+    }
+    this.lastUsersSyncAttempt = now;
+
     try {
       await firestoreGuard.safeRead('users', 'syncUsersFromFirestore', async () => {
-        const usersSnapshot = await adminDb.collection('users').get();
+        const usersSnapshot = await adminDb.collection('users').limit(100).get();
         if (!usersSnapshot.empty) {
           usersSnapshot.docs.forEach((doc) => {
             const data = doc.data() as any;
@@ -691,7 +735,7 @@ class FirestoreDatabaseStore {
         }
 
         // Also sync phoneUserAuthMap
-        const authSnapshot = await adminDb.collection('userAuth').get().catch(() => null);
+        const authSnapshot = await adminDb.collection('userAuth').limit(100).get().catch(() => null);
         if (authSnapshot && !authSnapshot.empty) {
           authSnapshot.docs.forEach((doc) => {
             const authData = doc.data() as PhoneUserAuth;
@@ -1853,7 +1897,7 @@ class FirestoreDatabaseStore {
       if (groupId) group = this.privateGroups.get(groupId);
     }
     if (!group) return undefined;
-    this.recalculatePrivateGroupStats(group.id);
+    this.computePrivateGroupStats(group.id);
     const members = this.groupMembers.get(group.id) || [];
     const messages = this.groupMessages.get(group.id) || [];
     return { group, members, messages };
@@ -1970,7 +2014,18 @@ class FirestoreDatabaseStore {
     return this.joinPrivateGroupCode(code, userId);
   }
 
-  public recalculatePrivateGroupStats(groupId: string) {
+  /**
+   * Pure in-memory computation of Private Group statistics.
+   * Performs ZERO Firestore reads/writes.
+   */
+  public computePrivateGroupStats(groupId: string): {
+    ticketsSold: number;
+    remainingTickets: number;
+    totalSales: number;
+    platformFee: number;
+    prizePool: number;
+    activePlayersCount: number;
+  } | null {
     const group = this.privateGroups.get(groupId);
     if (!group) return null;
 
@@ -2000,16 +2055,6 @@ class FirestoreDatabaseStore {
     group.prizePool = prizePool;
     group.activePlayersCount = Math.max(uniquePlayers, members.length > 0 ? 1 : 0);
 
-    adminDb.collection('groupGames').doc(group.id).set({
-      ticketsSold,
-      remainingTickets: group.remainingTickets,
-      totalSales,
-      platformFee,
-      prizePool,
-      activePlayersCount: group.activePlayersCount,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true }).catch(console.error);
-
     return {
       ticketsSold,
       remainingTickets: group.remainingTickets,
@@ -2018,6 +2063,65 @@ class FirestoreDatabaseStore {
       prizePool,
       activePlayersCount: group.activePlayersCount,
     };
+  }
+
+  /**
+   * Persists Private Group statistics to Firestore only when values changed or forced.
+   * Throttles writes to at most once per 5 seconds per group.
+   */
+  public async persistPrivateGroupStats(groupId: string, stats?: any): Promise<void> {
+    const group = this.privateGroups.get(groupId);
+    if (!group) return;
+
+    const currentStats = stats || this.computePrivateGroupStats(groupId);
+    if (!currentStats) return;
+
+    const lastEntry = this.lastPersistedGroupStats.get(groupId);
+    const now = Date.now();
+
+    if (lastEntry) {
+      const prev = lastEntry.stats;
+      const isIdentical =
+        prev.ticketsSold === currentStats.ticketsSold &&
+        prev.prizePool === currentStats.prizePool &&
+        prev.activePlayersCount === currentStats.activePlayersCount &&
+        prev.status === group.status;
+
+      if (isIdentical || (now - lastEntry.at < 5000 && prev.status === group.status)) {
+        return;
+      }
+    }
+
+    this.lastPersistedGroupStats.set(groupId, {
+      stats: {
+        ticketsSold: currentStats.ticketsSold,
+        prizePool: currentStats.prizePool,
+        activePlayersCount: currentStats.activePlayersCount,
+        status: group.status,
+      },
+      at: now,
+    });
+
+    firestoreGuard.safeWrite('groupGames', 'persistGroupStats', async () => {
+      await adminDb.collection('groupGames').doc(group.id).set({
+        ticketsSold: currentStats.ticketsSold,
+        remainingTickets: currentStats.remainingTickets,
+        totalSales: currentStats.totalSales,
+        platformFee: currentStats.platformFee,
+        prizePool: currentStats.prizePool,
+        activePlayersCount: currentStats.activePlayersCount,
+        status: group.status,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    });
+  }
+
+  public recalculatePrivateGroupStats(groupId: string, persist = false) {
+    const stats = this.computePrivateGroupStats(groupId);
+    if (persist && stats) {
+      this.persistPrivateGroupStats(groupId, stats).catch(() => {});
+    }
+    return stats;
   }
 
   public buyPrivateGroupTickets(
@@ -2072,7 +2176,6 @@ class FirestoreDatabaseStore {
     if (member) {
       member.ticketCount += tktCount;
       member.status = 'READY';
-      adminDb.collection('groupMembers').doc(`${group.id}_${uid}`).set(member).catch(console.error);
     }
 
     const createdTickets: BingoTicket[] = [];
@@ -2109,21 +2212,33 @@ class FirestoreDatabaseStore {
       };
       this.tickets.set(ticket.id, ticket);
       createdTickets.push(ticket);
-
-      const reservation = {
-        id: `${group.id}_${cardNum}`,
-        roomId: group.id,
-        cardNumber: cardNum,
-        userId: uid,
-        username: user.username,
-        status: 'SOLD',
-        purchasedAt: new Date().toISOString(),
-      };
-
-      adminDb.collection('tickets').doc(ticket.id).set(ticket).catch(console.error);
     }
 
-    this.recalculatePrivateGroupStats(group.id);
+    const computedStats = this.computePrivateGroupStats(group.id);
+
+    // Atomically batch write member, tickets, and group stats
+    const batch = adminDb.batch();
+    if (member) {
+      batch.set(adminDb.collection('groupMembers').doc(`${group.id}_${uid}`), member);
+    }
+    for (const ticket of createdTickets) {
+      batch.set(adminDb.collection('tickets').doc(ticket.id), ticket);
+    }
+    if (computedStats) {
+      batch.set(adminDb.collection('groupGames').doc(group.id), {
+        ticketsSold: computedStats.ticketsSold,
+        remainingTickets: computedStats.remainingTickets,
+        totalSales: computedStats.totalSales,
+        platformFee: computedStats.platformFee,
+        prizePool: computedStats.prizePool,
+        activePlayersCount: computedStats.activePlayersCount,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    }
+
+    firestoreGuard.safeWrite('groupTickets', 'buyPrivateGroupTickets', async () => {
+      await batch.commit();
+    });
 
     return { tickets: createdTickets, user };
   }
@@ -2137,10 +2252,11 @@ class FirestoreDatabaseStore {
     group.gameReferenceId = generateGameReferenceId(group.ticketPrice, group.id);
 
     // 2. Mark existing active tickets for this room as COMPLETED/PRESERVED
+    const batch = adminDb.batch();
     Array.from(this.tickets.values()).forEach((tkt) => {
       if (tkt.roomId === groupId && tkt.status === 'ACTIVE') {
         tkt.status = 'COMPLETED';
-        adminDb.collection('tickets').doc(tkt.id).update({ status: 'COMPLETED' }).catch(console.error);
+        batch.update(adminDb.collection('tickets').doc(tkt.id), { status: 'COMPLETED' });
       }
     });
 
@@ -2162,7 +2278,7 @@ class FirestoreDatabaseStore {
     group.hostBonus = 0;
     group.hostBonusPaid = false;
 
-    // 5. Reset group member ticketCounts
+    // 4. Reset group member ticketCounts
     const members = this.groupMembers.get(groupId) || [];
     members.forEach((m) => {
       m.ticketCount = 0;
@@ -2171,10 +2287,14 @@ class FirestoreDatabaseStore {
       } else {
         m.status = 'JOINED';
       }
-      adminDb.collection('groupMembers').doc(`${groupId}_${m.userId}`).update({ ticketCount: 0, status: m.status }).catch(console.error);
+      batch.update(adminDb.collection('groupMembers').doc(`${groupId}_${m.userId}`), { ticketCount: 0, status: m.status });
     });
 
-    adminDb.collection('groupGames').doc(group.id).set(group, { merge: true }).catch(console.error);
+    batch.set(adminDb.collection('groupGames').doc(group.id), group, { merge: true });
+
+    firestoreGuard.safeWrite('groupGames', 'playAgainPrivateGroupGame', async () => {
+      await batch.commit();
+    });
 
     return group;
   }
@@ -2187,7 +2307,9 @@ class FirestoreDatabaseStore {
     group.status = 'CLOSED';
     group.hostDecisionTimeout = undefined;
 
-    adminDb.collection('groupGames').doc(group.id).update({ status: 'CLOSED' }).catch(console.error);
+    firestoreGuard.safeWrite('groupGames', 'closePrivateGroupGame', async () => {
+      await adminDb.collection('groupGames').doc(group.id).update({ status: 'CLOSED' });
+    });
 
     return group;
   }
@@ -2198,7 +2320,9 @@ class FirestoreDatabaseStore {
     if (!member) throw new Error('Member not found in group');
 
     member.status = member.status === 'READY' ? 'JOINED' : 'READY';
-    adminDb.collection('groupMembers').doc(`${groupId}_${userId}`).update({ status: member.status }).catch(console.error);
+    firestoreGuard.safeWrite('groupMembers', 'togglePlayerReady', async () => {
+      await adminDb.collection('groupMembers').doc(`${groupId}_${userId}`).update({ status: member.status });
+    });
 
     return member;
   }
@@ -2215,12 +2339,14 @@ class FirestoreDatabaseStore {
     group.hostBonusPaid = false;
     group.startedAt = new Date().toISOString();
 
-    adminDb.collection('groupGames').doc(group.id).update({
-      status: 'PLAYING',
-      drawnBalls: [],
-      currentBall: null,
-      startedAt: group.startedAt,
-    }).catch(console.error);
+    firestoreGuard.safeWrite('groupGames', 'startPrivateGroupGame', async () => {
+      await adminDb.collection('groupGames').doc(group.id).update({
+        status: 'PLAYING',
+        drawnBalls: [],
+        currentBall: null,
+        startedAt: group.startedAt,
+      });
+    });
 
     return group;
   }
@@ -2232,7 +2358,6 @@ class FirestoreDatabaseStore {
       throw new Error('Only host can cancel game');
     }
 
-    // Idempotency: if already cancelled, return immediately without duplicate refunds
     if (group.status === 'CANCELLED') {
       return { group, refundedUsersCount: 0, totalRefunded: 0 };
     }
@@ -2240,7 +2365,6 @@ class FirestoreDatabaseStore {
     group.status = 'CANCELLED';
     group.cancelReason = reason || 'Cancelled by host';
 
-    // Find all active tickets for this group/game
     const activeTickets = Array.from(this.tickets.values()).filter(
       (t) => t.roomId === group.id && t.status === 'ACTIVE'
     );
@@ -2284,17 +2408,22 @@ class FirestoreDatabaseStore {
     group.prizePool = 0;
     group.ticketsSold = 0;
 
-    adminDb.collection('groupGames').doc(group.id).set({
+    const batch = adminDb.batch();
+    batch.set(adminDb.collection('groupGames').doc(group.id), {
       status: 'CANCELLED',
       cancelReason: group.cancelReason,
       prizePool: 0,
       ticketsSold: 0,
       updatedAt: new Date().toISOString(),
-    }, { merge: true }).catch(console.error);
+    }, { merge: true });
 
     for (const tkt of activeTickets) {
-      adminDb.collection('tickets').doc(tkt.id).update({ status: 'CANCELLED' }).catch(console.error);
+      batch.update(adminDb.collection('tickets').doc(tkt.id), { status: 'CANCELLED' });
     }
+
+    firestoreGuard.safeWrite('groupGames', 'cancelPrivateGroupGame', async () => {
+      await batch.commit();
+    });
 
     return { group, refundedUsersCount: userRefunds.size, totalRefunded };
   }
@@ -2319,7 +2448,6 @@ class FirestoreDatabaseStore {
     for (const tkt of activeTickets) {
       tkt.status = 'CANCELLED';
       refundedAmount += (tkt.purchasePrice ?? group.ticketPrice);
-      adminDb.collection('tickets').doc(tkt.id).update({ status: 'CANCELLED' }).catch(console.error);
     }
 
     if (refundedAmount > 0) {
@@ -2344,10 +2472,27 @@ class FirestoreDatabaseStore {
       }
     }
 
-    this.recalculatePrivateGroupStats(group.id);
+    const computedStats = this.computePrivateGroupStats(group.id);
 
-    firestoreGuard.safeDelete('groupMembers', 'removeGroupMember', async () => {
-      await adminDb.collection('groupMembers').doc(`${groupId}_${targetUserId}`).delete();
+    const batch = adminDb.batch();
+    for (const tkt of activeTickets) {
+      batch.update(adminDb.collection('tickets').doc(tkt.id), { status: 'CANCELLED' });
+    }
+    batch.delete(adminDb.collection('groupMembers').doc(`${groupId}_${targetUserId}`));
+    if (computedStats) {
+      batch.set(adminDb.collection('groupGames').doc(group.id), {
+        ticketsSold: computedStats.ticketsSold,
+        remainingTickets: computedStats.remainingTickets,
+        totalSales: computedStats.totalSales,
+        platformFee: computedStats.platformFee,
+        prizePool: computedStats.prizePool,
+        activePlayersCount: computedStats.activePlayersCount,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    }
+
+    firestoreGuard.safeWrite('groupMembers', 'removeGroupMember', async () => {
+      await batch.commit();
     });
 
     return { success: true, refundedAmount };

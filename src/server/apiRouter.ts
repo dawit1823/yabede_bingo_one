@@ -2841,6 +2841,7 @@ apiRouter.post('/admin/private-groups/action', async (req: Request, res: Respons
     if (action === 'CANCEL' || action === 'REFUND') {
       const groupTickets = Array.from(db.tickets.values()).filter((t) => t.roomId === group.id || t.roomId === group.code);
       let totalRefunded = 0;
+      const cancelledTickets: typeof groupTickets = [];
       for (const ticket of groupTickets) {
         if (ticket.status === 'ACTIVE') {
           const user = db.getUserById(ticket.userId);
@@ -2849,6 +2850,7 @@ apiRouter.post('/admin/private-groups/action', async (req: Request, res: Respons
             totalRefunded += ticket.purchasePrice;
           }
           ticket.status = 'CANCELLED';
+          cancelledTickets.push(ticket);
         }
       }
 
@@ -2858,12 +2860,21 @@ apiRouter.post('/admin/private-groups/action', async (req: Request, res: Respons
       group.prizePool = 0;
       group.ticketsSold = 0;
 
-      await adminDb.collection('groupGames').doc(group.id).set(group, { merge: true });
+      const batch = adminDb.batch();
+      batch.set(adminDb.collection('groupGames').doc(group.id), group, { merge: true });
+      for (const tkt of cancelledTickets) {
+        batch.update(adminDb.collection('tickets').doc(tkt.id), { status: 'CANCELLED' });
+      }
+
+      await firestoreGuard.safeWrite('groupGames', 'adminCancelPrivateGroup', async () => {
+        await batch.commit();
+      });
+
       adminService.logAction('ADMIN_CANCEL_PRIVATE_GROUP', 'SUCCESS', `Cancelled private group ${group.id} and refunded ${totalRefunded} Birr`);
 
       if (io) {
         io.to(`group_${group.id}`).emit('private_group:cancelled', { groupId: group.id, message: 'Group cancelled by Administrator. All tickets refunded.' });
-        io.emit('private_group:stats_updated', { groupId: group.id, status: 'CANCELLED' });
+        io.emit('private_group:stats_updated', { groupId: group.id, status: 'CANCELLED', prizePool: 0, ticketsSold: 0 });
       }
 
       res.json({ success: true, message: `Group ${group.code} cancelled and ${totalRefunded} Birr refunded to players.` });
@@ -2873,7 +2884,9 @@ apiRouter.post('/admin/private-groups/action', async (req: Request, res: Respons
     if (action === 'FORCE_START') {
       group.status = 'PLAYING';
       group.startedAt = new Date().toISOString();
-      await adminDb.collection('groupGames').doc(group.id).set(group, { merge: true });
+      await firestoreGuard.safeWrite('groupGames', 'adminForceStartPrivateGroup', async () => {
+        await adminDb.collection('groupGames').doc(group.id).set(group, { merge: true });
+      });
       adminService.logAction('ADMIN_FORCE_START_PRIVATE_GROUP', 'SUCCESS', `Force started private group ${group.id}`);
 
       if (io) {
@@ -2890,7 +2903,9 @@ apiRouter.post('/admin/private-groups/action', async (req: Request, res: Respons
       group.drawnBalls = [];
       group.currentBall = null;
       group.lastWinners = [];
-      await adminDb.collection('groupGames').doc(group.id).set(group, { merge: true });
+      await firestoreGuard.safeWrite('groupGames', 'adminResetPrivateGroup', async () => {
+        await adminDb.collection('groupGames').doc(group.id).set(group, { merge: true });
+      });
       adminService.logAction('ADMIN_RESET_PRIVATE_GROUP', 'SUCCESS', `Reset private group ${group.id}`);
 
       if (io) {

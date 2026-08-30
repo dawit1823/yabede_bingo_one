@@ -118,7 +118,6 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
   useEffect(() => {
     if (isOpen && groupId) {
       fetchGroupDetails();
-      const interval = setInterval(fetchGroupDetails, 3000);
 
       // Join socket room for this private group
       if (socket) {
@@ -175,7 +174,6 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
         socket.on('private_group:message', handleNewChatMessage);
 
         return () => {
-          clearInterval(interval);
           socket.emit('room:leave', { roomId: groupId, userId: user.id });
           socket.off('private_group:updated', handleGroupUpdated);
           socket.off('private_group:stats_updated', handleStatsUpdated);
@@ -184,8 +182,6 @@ export const PrivateGroupLobbyModal: React.FC<PrivateGroupLobbyModalProps> = ({
           socket.off('private_group:message', handleNewChatMessage);
         };
       }
-
-      return () => clearInterval(interval);
     }
   }, [isOpen, groupId, socket, user.id]);
 

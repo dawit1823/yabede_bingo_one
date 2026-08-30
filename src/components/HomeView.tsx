@@ -38,6 +38,7 @@ interface HomeViewProps {
   language: 'en' | 'am';
   onlineUsersCount?: number;
   isLoggedIn?: boolean;
+  socket?: any;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
@@ -54,6 +55,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   language,
   onlineUsersCount = 1,
   isLoggedIn = false,
+  socket,
 }) => {
   const [activeMode, setActiveMode] = useState<'public' | 'private'>('public');
   const [myPrivateGroups, setMyPrivateGroups] = useState<PrivateGroup[]>([]);
@@ -82,9 +84,99 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   useEffect(() => {
     fetchPrivateGroups();
-    const interval = setInterval(fetchPrivateGroups, 4000);
-    return () => clearInterval(interval);
-  }, [user.id]);
+
+    if (!socket) return;
+
+    const handleGroupUpdated = (data: { group?: PrivateGroup; members?: any[] } | PrivateGroup) => {
+      const updatedGroup = (data as any)?.group || ((data as any)?.id ? (data as any) : null);
+      if (!updatedGroup || !updatedGroup.id) {
+        fetchPrivateGroups();
+        return;
+      }
+
+      setMyPrivateGroups((prev) => {
+        const index = prev.findIndex((g) => g.id === updatedGroup.id);
+        if (index !== -1) {
+          const next = [...prev];
+          next[index] = { ...next[index], ...updatedGroup };
+          return next;
+        }
+
+        const members = (data as any)?.members || [];
+        const isMember = members.some((m: any) => m.userId === user.id);
+        const isHost = updatedGroup.hostId === user.id;
+        if (isMember || isHost) {
+          return [updatedGroup, ...prev];
+        }
+        return prev;
+      });
+    };
+
+    const handleStatsUpdated = (data: { groupId: string; status?: string; prizePool?: number; ticketsSold?: number; activePlayersCount?: number }) => {
+      if (!data?.groupId) return;
+      setMyPrivateGroups((prev) =>
+        prev.map((g) => {
+          if (g.id === data.groupId) {
+            return {
+              ...g,
+              ...(data.status ? { status: data.status as any } : {}),
+              ...(data.prizePool !== undefined ? { prizePool: data.prizePool } : {}),
+              ...(data.ticketsSold !== undefined ? { ticketsSold: data.ticketsSold } : {}),
+              ...(data.activePlayersCount !== undefined ? { activePlayersCount: data.activePlayersCount } : {}),
+            };
+          }
+          return g;
+        })
+      );
+    };
+
+    const handleInvitationReceived = (data: any) => {
+      const inv = data?.invitation || data;
+      if (inv && (inv.invitedUserId === user.id || inv.invitedUsername === user.username)) {
+        setPendingInvitations((prev) => {
+          if (prev.some((item) => item.id === inv.id)) {
+            return prev.map((item) => (item.id === inv.id ? { ...item, ...inv } : item));
+          }
+          return [inv, ...prev];
+        });
+      } else {
+        fetchPrivateGroups();
+      }
+    };
+
+    const handleInvitationResponded = (data: any) => {
+      if (data?.invitationId) {
+        setPendingInvitations((prev) => prev.filter((i) => i.id !== data.invitationId));
+      }
+      fetchPrivateGroups();
+    };
+
+    socket.on('private_group:updated', handleGroupUpdated);
+    socket.on('private_group:stats_updated', handleStatsUpdated);
+    socket.on('private_group:game_started', handleGroupUpdated);
+    socket.on('private_group:started', handleGroupUpdated);
+    socket.on('private_group:cancelled', handleGroupUpdated);
+    socket.on('private_group:closed', handleGroupUpdated);
+    socket.on('private_group:reset', handleGroupUpdated);
+    socket.on('private_group:play_again', handleGroupUpdated);
+    socket.on('invitation:received', handleInvitationReceived);
+    socket.on('private_group:invitation_created', handleInvitationReceived);
+    socket.on('private_group:invitation_responded', handleInvitationResponded);
+
+    return () => {
+      socket.off('private_group:updated', handleGroupUpdated);
+      socket.off('private_group:stats_updated', handleStatsUpdated);
+      socket.off('private_group:game_started', handleGroupUpdated);
+      socket.off('private_group:started', handleGroupUpdated);
+      socket.off('private_group:cancelled', handleGroupUpdated);
+      socket.off('private_group:closed', handleGroupUpdated);
+      socket.off('private_group:reset', handleGroupUpdated);
+      socket.off('private_group:play_again', handleGroupUpdated);
+      socket.off('invitation:received', handleInvitationReceived);
+      socket.off('private_group:invitation_created', handleInvitationReceived);
+      socket.off('private_group:invitation_responded', handleInvitationResponded);
+    };
+  }, [user.id, user.username, socket]);
 
   const handleRespondInvite = async (invitationId: string, action: 'ACCEPT' | 'DECLINE') => {
     try {

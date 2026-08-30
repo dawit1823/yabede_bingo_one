@@ -1101,6 +1101,7 @@ export default function App() {
                 language={language}
                 onlineUsersCount={onlineUsersCount}
                 isLoggedIn={isLoggedIn}
+                socket={socket}
               />
             )}
 
