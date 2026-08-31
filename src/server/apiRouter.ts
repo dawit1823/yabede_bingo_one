@@ -730,7 +730,7 @@ apiRouter.post('/telegram/link', (req: Request, res: Response) => {
 });
 
 // --- USER PROFILE & REFERRALS ---
-apiRouter.get('/user/profile', (req: Request, res: Response) => {
+apiRouter.get('/user/profile', async (req: Request, res: Response) => {
   const userId = (req.query.userId as string) || 'usr_abebe';
   const user = db.getUserById(userId);
 
@@ -739,6 +739,7 @@ apiRouter.get('/user/profile', (req: Request, res: Response) => {
     return;
   }
 
+  await db.hydrateTransactions();
   const referredUsers = Array.from(db.users.values()).filter((u) => u.referredBy === user.id);
   const totalEarnings = db.transactions
     .filter((tx) => tx.userId === user.id && tx.type === 'REFERRAL_BONUS')
@@ -764,8 +765,9 @@ apiRouter.get('/user/profile', (req: Request, res: Response) => {
 });
 
 // --- USER NOTIFICATIONS ---
-apiRouter.get('/user/notifications', (req: Request, res: Response) => {
+apiRouter.get('/user/notifications', async (req: Request, res: Response) => {
   const userId = (req.query.userId as string) || 'usr_abebe';
+  await db.hydrateNotifications(userId);
   const notifications = db.getUserNotifications(userId);
   res.json({ notifications });
 });
@@ -832,14 +834,16 @@ apiRouter.delete('/admin/payment-methods/:id', (req: Request, res: Response) => 
 });
 
 // --- WALLET DEPOSIT & WITHDRAWAL (MANUAL APPROVAL FLOW) ---
-apiRouter.get('/wallet/transactions', (req: Request, res: Response) => {
+apiRouter.get('/wallet/transactions', async (req: Request, res: Response) => {
   const userId = (req.query.userId as string) || 'usr_abebe';
+  await db.hydrateTransactions();
   const userTxs = db.transactions.filter((tx) => tx.userId === userId);
   res.json({ transactions: userTxs });
 });
 
-apiRouter.get('/user/deposits', (req: Request, res: Response) => {
+apiRouter.get('/user/deposits', async (req: Request, res: Response) => {
   const userId = (req.query.userId as string) || 'usr_abebe';
+  await db.hydrateDeposits();
   const userDeposits = db.deposits.filter((d) => d.userId === userId);
   res.json({ deposits: userDeposits });
 });
@@ -927,6 +931,7 @@ apiRouter.get('/admin/deposits', async (req: Request, res: Response) => {
   const search = ((req.query.search as string) || '').toLowerCase();
 
   try {
+    await db.hydrateDeposits();
     let list = db.deposits;
 
     if (status && status !== 'ALL') {
@@ -991,7 +996,8 @@ apiRouter.post('/admin/deposits/verify', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.get('/admin/withdrawals/pending', (req: Request, res: Response) => {
+apiRouter.get('/admin/withdrawals/pending', async (req: Request, res: Response) => {
+  await db.hydrateWithdrawals();
   const pending = db.withdrawals.filter((w) => w.status === 'PENDING');
   res.json({ requests: pending });
 });
@@ -1001,6 +1007,7 @@ apiRouter.get('/admin/withdrawals', async (req: Request, res: Response) => {
   const search = ((req.query.search as string) || '').toLowerCase();
 
   try {
+    await db.hydrateWithdrawals();
     let list = db.withdrawals;
 
     if (status && status !== 'ALL') {
@@ -1048,6 +1055,11 @@ apiRouter.post('/admin/withdrawals/process', (req: Request, res: Response) => {
 // --- ADMIN DASHBOARD & SYSTEM METRICS ---
 apiRouter.get('/admin/metrics', async (req: Request, res: Response) => {
   try {
+    await Promise.all([
+      db.hydrateDeposits(),
+      db.hydrateWithdrawals(),
+      db.hydrateAuditLogs(),
+    ]);
     const metrics = await adminService.getDashboardMetrics();
     const pendingDeposits = db.deposits.filter((d) => d.status === 'PENDING');
     const pendingWithdrawals = db.withdrawals.filter((w) => w.status === 'PENDING');
@@ -1072,8 +1084,10 @@ apiRouter.get('/admin/metrics', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.get('/admin/audit-logs', (req: Request, res: Response) => {
-  res.json({ auditLogs: adminService.getAuditLogs() });
+apiRouter.get('/admin/audit-logs', async (req: Request, res: Response) => {
+  await db.hydrateAuditLogs();
+  const logs = db.auditLogs.length > 0 ? db.auditLogs : adminService.getAuditLogs();
+  res.json({ auditLogs: logs });
 });
 
 apiRouter.post('/admin/users/status', async (req: Request, res: Response) => {
@@ -1317,6 +1331,14 @@ apiRouter.get('/admin/users/:userId', async (req: Request, res: Response) => {
     return;
   }
 
+  await Promise.all([
+    db.hydrateTransactions(),
+    db.hydrateDeposits(),
+    db.hydrateWithdrawals(),
+    db.hydrateTickets(),
+    db.hydrateGameHistory(),
+  ]);
+
   const userTransactions = db.transactions.filter((tx) => tx.userId === userId);
   const userDeposits = db.deposits.filter((d) => d.userId === userId);
   const userWithdrawals = db.withdrawals.filter((w) => w.userId === userId);
@@ -1364,12 +1386,13 @@ apiRouter.post('/admin/users/reset-password', (req: Request, res: Response) => {
   }
 });
 
-apiRouter.get('/admin/transactions', (req: Request, res: Response) => {
+apiRouter.get('/admin/transactions', async (req: Request, res: Response) => {
   const type = req.query.type as string;
   const search = ((req.query.search as string) || '').toLowerCase();
   const startDate = req.query.startDate as string;
   const endDate = req.query.endDate as string;
 
+  await db.hydrateTransactions();
   let list = db.transactions || [];
 
   if (type && type !== 'ALL') {
@@ -1743,27 +1766,8 @@ apiRouter.get('/admin/tickets', async (req: Request, res: Response) => {
   const endDate = req.query.endDate as string;
 
   try {
+    await db.hydrateTickets();
     let allTickets = Array.from(db.tickets.values());
-
-    // Query Firestore collection ONLY if in-memory db.tickets is empty
-    if (allTickets.length === 0) {
-      await firestoreGuard.safeRead('tickets', 'getAdminTickets', async () => {
-        const ticketsSnap = await adminDb
-          .collection('tickets')
-          .orderBy('boughtAt', 'desc')
-          .limit(100)
-          .get()
-          .catch(async () => adminDb.collection('tickets').limit(100).get());
-
-        ticketsSnap.forEach((docSnap) => {
-          const tkt = docSnap.data() as BingoTicket;
-          if (tkt && tkt.id) {
-            db.tickets.set(tkt.id, tkt);
-          }
-        });
-      }, null);
-      allTickets = Array.from(db.tickets.values());
-    }
 
     // Enhance tickets with username fallback & winning status for UI mapping
     allTickets = allTickets.map((tkt) => {
@@ -2094,35 +2098,12 @@ apiRouter.get('/admin/winners', async (req: Request, res: Response) => {
   const startDate = req.query.startDate as string;
   const endDate = req.query.endDate as string;
 
-  let winnersMap = new Map<string, GameWinner>();
+  await db.hydrateWinners();
+  let winners = Array.from(db.winners);
 
-  // Load from memory first
-  if (db.winners && Array.isArray(db.winners)) {
-    db.winners.forEach((w) => {
-      if (w && w.id) winnersMap.set(w.id, w);
-    });
-  }
-
-  // Load from Firestore only if in-memory cache is empty
-  if (winnersMap.size === 0) {
-    await firestoreGuard.safeRead('winners', 'getAdminWinners', async () => {
-      const wSnap = await adminDb.collection('winners').orderBy('wonAt', 'desc').limit(100).get().catch(async () => {
-        return adminDb.collection('winners').limit(100).get();
-      });
-      if (!wSnap.empty) {
-        wSnap.docs.forEach((doc) => {
-          const w = doc.data() as GameWinner;
-          if (w && w.id) winnersMap.set(w.id, w);
-        });
-        db.winners = Array.from(winnersMap.values());
-      }
-    }, null);
-  }
-
-  let winners = Array.from(winnersMap.values());
-
-  // Fallback: collect from gameHistoryRecords if winners map is still empty
+  // Fallback: collect from gameHistoryRecords if winners list is still empty
   if (winners.length === 0 && db.gameHistoryRecords.length > 0) {
+    const winnersMap = new Map<string, GameWinner>();
     for (const gh of db.gameHistoryRecords) {
       if (gh.winners && gh.winners.length > 0) {
         gh.winners.forEach((w) => {
@@ -2250,18 +2231,33 @@ apiRouter.post('/admin/settings', async (req: Request, res: Response) => {
 
 // --- ADMIN SYSTEM MAINTENANCE & FULL DATA RESET ---
 apiRouter.post('/admin/system/resync', async (req: Request, res: Response) => {
+  const adminId = (req.body?.adminId as string) || (req.query?.adminId as string) || 'usr_admin';
+  const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
   try {
-    const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
-    await db.syncAllDataFromFirestore();
+    await db.syncAllDataFromFirestore(true, true);
+    await db.syncUsersFromFirestore(true);
     await adminService.logAction(
       'SYSTEM_UPDATE',
       'SUCCESS',
       'Admin manually triggered full Firestore data re-synchronization into memory',
-      clientIp
+      clientIp,
+      undefined,
+      undefined,
+      adminId
     );
     res.json({
       success: true,
-      message: 'Firestore data resynchronized into memory successfully',
+      message: 'Full Firestore data synchronization completed successfully.',
+      timestamp: new Date().toISOString(),
+      counts: {
+        users: db.users.size,
+        deposits: db.deposits.length,
+        withdrawals: db.withdrawals.length,
+        transactions: db.transactions.length,
+        tickets: db.tickets.size,
+        winners: db.winners.length,
+        rooms: db.rooms.size,
+      },
       stats: {
         usersCount: db.users.size,
         depositsCount: db.deposits.length,
@@ -2960,6 +2956,15 @@ apiRouter.get('/admin/reports', async (req: Request, res: Response) => {
   const roomIdFilter = req.query.roomId as string;
   const gameRefIdFilter = (req.query.gameReferenceId as string || '').toLowerCase();
   const usernameFilter = (req.query.username as string || '').toLowerCase();
+
+  await Promise.all([
+    db.hydrateDeposits(),
+    db.hydrateWithdrawals(),
+    db.hydrateTransactions(),
+    db.hydrateTickets(),
+    db.hydrateWinners(),
+    db.hydrateGameHistory(),
+  ]);
 
   const metrics = await adminService.getDashboardMetrics();
 
@@ -3718,6 +3723,7 @@ apiRouter.get('/bingo/history/:userId', async (req: Request, res: Response) => {
       return;
     }
 
+    await db.hydrateGameHistory();
     const history = db.getUserGameHistory(userId, 5);
     res.json({
       success: true,
@@ -3940,33 +3946,6 @@ apiRouter.post('/bingo/reset-all', async (req: Request, res: Response) => {
     res.json({ success: true, message: 'All bingo games reset successfully', rooms });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to reset bingo games' });
-  }
-});
-
-// Admin-only on-demand Firestore resynchronization endpoint
-apiRouter.post('/admin/system/resync', async (req: Request, res: Response) => {
-  const adminId = (req.body?.adminId as string) || (req.query?.adminId as string) || 'usr_admin';
-  const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
-  try {
-    await db.syncAllDataFromFirestore();
-    await db.syncUsersFromFirestore();
-    await adminService.logAction('SYSTEM_RESYNC', 'SUCCESS', 'Administrator triggered on-demand Firestore data resynchronization', clientIp, undefined, undefined, adminId);
-    res.json({
-      success: true,
-      message: 'Full Firestore data synchronization completed successfully.',
-      timestamp: new Date().toISOString(),
-      counts: {
-        users: db.users.size,
-        deposits: db.deposits.length,
-        withdrawals: db.withdrawals.length,
-        transactions: db.transactions.length,
-        tickets: db.tickets.size,
-        winners: db.winners.length,
-        rooms: db.rooms.size,
-      },
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Failed to resynchronize data from Firestore' });
   }
 });
 

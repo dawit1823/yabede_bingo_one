@@ -118,7 +118,7 @@ export default function AdminApp() {
   useEffect(() => {
     if (isAdminAuthenticated) {
       fetchAdminData();
-      const interval = setInterval(fetchAdminData, 10000);
+      const interval = setInterval(fetchAdminData, 300000);
       return () => clearInterval(interval);
     }
   }, [isAdminAuthenticated, fetchAdminData]);

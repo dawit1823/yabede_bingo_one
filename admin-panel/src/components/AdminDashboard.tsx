@@ -991,12 +991,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, [propSocket]);
 
-  // 1. Periodic background polling: only polls the active tab every 45s without resetting on filter keystrokes
+  // 1. Periodic background polling: only polls the active tab every 5 minutes (300,000ms) without resetting on filter keystrokes
   useEffect(() => {
     fetchTabData(activeTab);
     const interval = setInterval(() => {
       fetchTabData(activeTab);
-    }, 45000);
+    }, 300000);
     return () => clearInterval(interval);
   }, [activeTab, fetchTabData]);
 

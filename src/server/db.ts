@@ -416,7 +416,7 @@ class FirestoreDatabaseStore {
       this.hasFullyHydrated = true;
       this.pruneOldInMemoryRecords(30);
 
-      logger.info(`[Firestore] Memory store initialized and fully hydrated with ${this.rooms.size} Bingo arenas, ${this.users.size} registered users, ${this.deposits.length} deposits, ${this.withdrawals.length} withdrawals, ${this.transactions.length} transactions, ${this.tickets.size} tickets, and ${this.winners.length} winners.`);
+      logger.info(`[Firestore] Memory store initialized with ${this.rooms.size} Bingo arenas and ${this.users.size} registered users (historical collections configured for cache-first lazy-load).`);
     } catch (err: any) {
       console.warn('⚠️ [Firestore] Notice during startup sync:', err.message || err);
       if (this.users.size === 0) {
@@ -426,24 +426,75 @@ class FirestoreDatabaseStore {
   }
 
   /**
-   * Hydration of persistent data from Firestore with cooldown, capped queries, and incremental updates.
-   * Guarantees zero data loss across Render redeployments while preventing Firestore quota exhaustion.
+   * Retrieves sync checkpoint metadata from Firestore (doc: system/syncMeta)
    */
-  public async syncAllDataFromFirestore(force = false): Promise<void> {
+  public async getSyncMeta(): Promise<{ lastSyncedAt?: string; collections?: Record<string, string> }> {
+    return (
+      (await firestoreGuard.safeRead(
+        'system',
+        'getSyncMeta',
+        async () => {
+          try {
+            const snap = await adminDb.collection('system').doc('syncMeta').get();
+            if (snap && snap.exists) {
+              return (snap.data() as any) || {};
+            }
+          } catch (err: any) {
+            logger.debug('[FirestoreSync] getSyncMeta note:', err.message || err);
+          }
+          return {};
+        },
+        {}
+      )) || {}
+    );
+  }
+
+  /**
+   * Updates sync checkpoint metadata in Firestore (doc: system/syncMeta)
+   */
+  public async updateSyncMeta(update: { lastSyncedAt?: string; collections?: Record<string, string> }): Promise<void> {
+    await firestoreGuard.safeWrite(
+      'system',
+      'updateSyncMeta',
+      async () => {
+        try {
+          await adminDb.collection('system').doc('syncMeta').set(update, { merge: true });
+        } catch (err: any) {
+          logger.debug('[FirestoreSync] updateSyncMeta note:', err.message || err);
+        }
+      },
+      undefined
+    );
+  }
+
+  /**
+   * Synchronize active game state from Firestore at startup or upon sync trigger.
+   * Only pulls active game state (rooms and groupGames) by default to minimize Firestore reads across Render restarts.
+   * If fullSync = true (e.g. manual admin override via /admin/system/resync), also pulls all historical collections.
+   */
+  public async syncAllDataFromFirestore(force = false, fullSync = false): Promise<void> {
     const now = Date.now();
     if (!force && this.lastFullSyncAttempt > 0 && now - this.lastFullSyncAttempt < 10 * 60 * 1000) {
-      logger.debug('[FirestoreSync] Skipped full sync - last sync was recent (< 10 minutes ago).');
+      logger.debug('[FirestoreSync] Skipped sync - last sync was recent (< 10 minutes ago).');
       return;
     }
     this.lastFullSyncAttempt = now;
 
     try {
       await firestoreGuard.safeRead('all_collections', 'syncAllDataFromFirestore', async () => {
-        const since = this.lastSyncTimestamp;
+        const syncMeta = await this.getSyncMeta();
+        const since = this.lastSyncTimestamp || syncMeta.lastSyncedAt || null;
+        const colMeta = syncMeta.collections || {};
 
-        // A. Synchronize Rooms (Custom rooms created by Admin + ensure official rooms)
+        // A. Synchronize Rooms (Active / Waiting / Playing rooms only at boot)
         try {
-          const roomsSnap = await adminDb.collection('rooms').limit(20).get().catch(() => null);
+          const roomsSnap = await adminDb
+            .collection('rooms')
+            .where('status', 'in', ['WAITING', 'COUNTDOWN', 'PLAYING'])
+            .limit(20)
+            .get()
+            .catch(async () => adminDb.collection('rooms').limit(20).get().catch(() => null));
+
           if (roomsSnap && !roomsSnap.empty) {
             roomsSnap.docs.forEach((doc) => {
               const r = doc.data() as BingoRoom;
@@ -469,193 +520,15 @@ class FirestoreDatabaseStore {
           logger.debug('[FirestoreSync] Rooms sync note:', e);
         }
 
-        // B. Synchronize Deposits (capped at 50)
+        // B. Synchronize Private Groups (Active / Lobby / Playing groups only at boot)
         try {
-          let q = adminDb.collection('payments').orderBy('createdAt', 'desc');
-          if (since) {
-            q = (adminDb.collection('payments').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
-          }
-          const paymentsSnap = await q.limit(50).get().catch(async () => {
-            return adminDb.collection('payments').limit(50).get().catch(() => null);
-          });
-          const existingDepIds = new Set(this.deposits.map((d) => d.id));
-          if (paymentsSnap && !paymentsSnap.empty) {
-            paymentsSnap.docs.forEach((doc) => {
-              const dep = doc.data() as DepositRequest;
-              if (dep && dep.id && !existingDepIds.has(dep.id)) {
-                this.deposits.push(dep);
-                existingDepIds.add(dep.id);
-              }
-            });
-          }
-        } catch (e) {
-          logger.debug('[FirestoreSync] Deposits sync note:', e);
-        }
+          const groupSnap = await adminDb
+            .collection('groupGames')
+            .where('status', 'in', ['LOBBY', 'COUNTDOWN', 'PLAYING', 'WAITING_HOST_DECISION'])
+            .limit(20)
+            .get()
+            .catch(async () => adminDb.collection('groupGames').orderBy('updatedAt', 'desc').limit(20).get().catch(() => null));
 
-        // C. Synchronize Withdrawals (capped at 50)
-        try {
-          let q = adminDb.collection('withdrawals').orderBy('createdAt', 'desc');
-          if (since) {
-            q = (adminDb.collection('withdrawals').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
-          }
-          const wdSnap = await q.limit(50).get().catch(async () => {
-            return adminDb.collection('withdrawals').limit(50).get().catch(() => null);
-          });
-          const existingWdIds = new Set(this.withdrawals.map((w) => w.id));
-          if (wdSnap && !wdSnap.empty) {
-            wdSnap.docs.forEach((doc) => {
-              const wd = doc.data() as WithdrawalRequest;
-              if (wd && wd.id && !existingWdIds.has(wd.id)) {
-                this.withdrawals.push(wd);
-                existingWdIds.add(wd.id);
-              }
-            });
-          }
-        } catch (e) {
-          logger.debug('[FirestoreSync] Withdrawals sync note:', e);
-        }
-
-        // D. Synchronize Transactions (Wallet Ledger - capped at 50)
-        try {
-          let q = adminDb.collection('transactions').orderBy('createdAt', 'desc');
-          if (since) {
-            q = (adminDb.collection('transactions').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
-          }
-          const txSnap = await q.limit(50).get().catch(async () => {
-            return adminDb.collection('transactions').limit(50).get().catch(() => null);
-          });
-          const existingTxIds = new Set(this.transactions.map((t) => t.id));
-          if (txSnap && !txSnap.empty) {
-            txSnap.docs.forEach((doc) => {
-              const tx = doc.data() as WalletTransaction;
-              if (tx && tx.id && !existingTxIds.has(tx.id)) {
-                this.transactions.push(tx);
-                existingTxIds.add(tx.id);
-              }
-            });
-          }
-        } catch (e) {
-          logger.debug('[FirestoreSync] Transactions sync note:', e);
-        }
-
-        // E. Synchronize Tickets (capped at 100)
-        try {
-          let q = adminDb.collection('tickets').orderBy('boughtAt', 'desc');
-          if (since) {
-            q = (adminDb.collection('tickets').where('boughtAt', '>', since).orderBy('boughtAt', 'desc') as any);
-          }
-          const tktSnap = await q.limit(100).get().catch(async () => {
-            return adminDb.collection('tickets').limit(100).get().catch(() => null);
-          });
-          if (tktSnap && !tktSnap.empty) {
-            tktSnap.docs.forEach((doc) => {
-              const tkt = doc.data() as BingoTicket;
-              if (tkt && tkt.id) {
-                this.tickets.set(tkt.id, tkt);
-              }
-            });
-          }
-        } catch (e) {
-          logger.debug('[FirestoreSync] Tickets sync note:', e);
-        }
-
-        // F. Synchronize Winners (capped at 50)
-        try {
-          let q = adminDb.collection('winners').orderBy('wonAt', 'desc');
-          if (since) {
-            q = (adminDb.collection('winners').where('wonAt', '>', since).orderBy('wonAt', 'desc') as any);
-          }
-          const winSnap = await q.limit(50).get().catch(async () => {
-            return adminDb.collection('winners').limit(50).get().catch(() => null);
-          });
-          const existingWinIds = new Set(this.winners.map((w) => w.id));
-          if (winSnap && !winSnap.empty) {
-            winSnap.docs.forEach((doc) => {
-              const w = doc.data() as GameWinner;
-              if (w && w.id && !existingWinIds.has(w.id)) {
-                this.winners.push(w);
-                existingWinIds.add(w.id);
-              }
-            });
-          }
-        } catch (e) {
-          logger.debug('[FirestoreSync] Winners sync note:', e);
-        }
-
-        // G. Synchronize Game History (capped at 50)
-        try {
-          let q = adminDb.collection('gameHistory').orderBy('playedAt', 'desc');
-          if (since) {
-            q = (adminDb.collection('gameHistory').where('playedAt', '>', since).orderBy('playedAt', 'desc') as any);
-          }
-          const ghSnap = await q.limit(50).get().catch(async () => {
-            return adminDb.collection('gameHistory').limit(50).get().catch(() => null);
-          });
-          const existingGhIds = new Set(this.gameHistoryRecords.map((gh) => gh.id));
-          if (ghSnap && !ghSnap.empty) {
-            ghSnap.docs.forEach((doc) => {
-              const gh = doc.data() as GameHistoryRecord;
-              if (gh && gh.id && !existingGhIds.has(gh.id)) {
-                this.gameHistoryRecords.push(gh);
-                existingGhIds.add(gh.id);
-              }
-            });
-          }
-        } catch (e) {
-          logger.debug('[FirestoreSync] GameHistory sync note:', e);
-        }
-
-        // H. Synchronize Audit Logs (capped at 50)
-        try {
-          let q = adminDb.collection('auditLogs').orderBy('timestamp', 'desc');
-          if (since) {
-            q = (adminDb.collection('auditLogs').where('timestamp', '>', since).orderBy('timestamp', 'desc') as any);
-          }
-          const auditSnap = await q.limit(50).get().catch(async () => {
-            return adminDb.collection('auditLogs').limit(50).get().catch(() => null);
-          });
-          const existingAuditIds = new Set(this.auditLogs.map((a) => a.id));
-          if (auditSnap && !auditSnap.empty) {
-            auditSnap.docs.forEach((doc) => {
-              const log = doc.data() as AuditLog;
-              if (log && log.id && !existingAuditIds.has(log.id)) {
-                this.auditLogs.push(log);
-                existingAuditIds.add(log.id);
-              }
-            });
-          }
-        } catch (e) {
-          logger.debug('[FirestoreSync] AuditLogs sync note:', e);
-        }
-
-        // I. Synchronize Notifications (capped at 50)
-        try {
-          let q = adminDb.collection('notifications').orderBy('createdAt', 'desc');
-          if (since) {
-            q = (adminDb.collection('notifications').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
-          }
-          const notifSnap = await q.limit(50).get().catch(async () => {
-            return adminDb.collection('notifications').limit(50).get().catch(() => null);
-          });
-          const existingNotifIds = new Set(this.notifications.map((n) => n.id));
-          if (notifSnap && !notifSnap.empty) {
-            notifSnap.docs.forEach((doc) => {
-              const notif = doc.data() as UserNotification;
-              if (notif && notif.id && !existingNotifIds.has(notif.id)) {
-                this.notifications.push(notif);
-                existingNotifIds.add(notif.id);
-              }
-            });
-          }
-        } catch (e) {
-          logger.debug('[FirestoreSync] Notifications sync note:', e);
-        }
-
-        // J. Synchronize Private Groups (capped at 20)
-        try {
-          const groupSnap = await adminDb.collection('groupGames').orderBy('updatedAt', 'desc').limit(20).get().catch(async () => {
-            return adminDb.collection('groupGames').limit(20).get().catch(() => null);
-          });
           if (groupSnap && !groupSnap.empty) {
             groupSnap.docs.forEach((doc) => {
               const grp = doc.data() as PrivateGroup;
@@ -669,11 +542,259 @@ class FirestoreDatabaseStore {
           logger.debug('[FirestoreSync] GroupGames sync note:', e);
         }
 
-        this.lastSyncTimestamp = new Date().toISOString();
+        // If fullSync is requested (e.g. manual admin resync override), hydrate all other collections
+        if (fullSync) {
+          await Promise.all([
+            this.hydrateDeposits(true),
+            this.hydrateWithdrawals(true),
+            this.hydrateTransactions(true),
+            this.hydrateTickets(true),
+            this.hydrateWinners(true),
+            this.hydrateGameHistory(true),
+            this.hydrateAuditLogs(true),
+            this.hydrateNotifications(undefined, true),
+          ]);
+        }
+
+        const newSyncTime = new Date().toISOString();
+        this.lastSyncTimestamp = newSyncTime;
+        await this.updateSyncMeta({
+          lastSyncedAt: newSyncTime,
+          collections: {
+            ...colMeta,
+            rooms: newSyncTime,
+            groupGames: newSyncTime,
+          },
+        });
       }, null);
     } catch (err: any) {
-      logger.warn('[FirestoreSync] Notice during full data sync:', err.message || err);
+      logger.warn('[FirestoreSync] Notice during data sync:', err.message || err);
     }
+  }
+
+  /**
+   * Lazy Cache-First Hydrators for Admin / Historical Collections
+   */
+  public async hydrateTickets(force = false): Promise<BingoTicket[]> {
+    if (!force && this.tickets.size > 0) {
+      return Array.from(this.tickets.values());
+    }
+    await firestoreGuard.safeRead('tickets', 'hydrateTickets', async () => {
+      const syncMeta = await this.getSyncMeta();
+      const since = syncMeta.collections?.tickets || syncMeta.lastSyncedAt || null;
+      let q = adminDb.collection('tickets').orderBy('boughtAt', 'desc');
+      if (since) {
+        q = (adminDb.collection('tickets').where('boughtAt', '>', since).orderBy('boughtAt', 'desc') as any);
+      }
+      const tktSnap = await q.limit(100).get().catch(async () => adminDb.collection('tickets').limit(100).get().catch(() => null));
+      if (tktSnap && !tktSnap.empty) {
+        tktSnap.docs.forEach((doc) => {
+          const tkt = doc.data() as BingoTicket;
+          if (tkt && tkt.id) {
+            this.tickets.set(tkt.id, tkt);
+          }
+        });
+      }
+      const newSync = new Date().toISOString();
+      await this.updateSyncMeta({ collections: { ...(syncMeta.collections || {}), tickets: newSync } });
+    }, null);
+    return Array.from(this.tickets.values());
+  }
+
+  public async hydrateTransactions(force = false): Promise<WalletTransaction[]> {
+    if (!force && this.transactions.length > 0) {
+      return this.transactions;
+    }
+    await firestoreGuard.safeRead('transactions', 'hydrateTransactions', async () => {
+      const syncMeta = await this.getSyncMeta();
+      const since = syncMeta.collections?.transactions || syncMeta.lastSyncedAt || null;
+      let q = adminDb.collection('transactions').orderBy('createdAt', 'desc');
+      if (since) {
+        q = (adminDb.collection('transactions').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
+      }
+      const txSnap = await q.limit(100).get().catch(async () => adminDb.collection('transactions').limit(100).get().catch(() => null));
+      const existingIds = new Set(this.transactions.map((t) => t.id));
+      if (txSnap && !txSnap.empty) {
+        txSnap.docs.forEach((doc) => {
+          const tx = doc.data() as WalletTransaction;
+          if (tx && tx.id && !existingIds.has(tx.id)) {
+            this.transactions.push(tx);
+            existingIds.add(tx.id);
+          }
+        });
+      }
+      const newSync = new Date().toISOString();
+      await this.updateSyncMeta({ collections: { ...(syncMeta.collections || {}), transactions: newSync } });
+    }, null);
+    return this.transactions;
+  }
+
+  public async hydrateDeposits(force = false): Promise<DepositRequest[]> {
+    if (!force && this.deposits.length > 0) {
+      return this.deposits;
+    }
+    await firestoreGuard.safeRead('payments', 'hydrateDeposits', async () => {
+      const syncMeta = await this.getSyncMeta();
+      const since = syncMeta.collections?.payments || syncMeta.lastSyncedAt || null;
+      let q = adminDb.collection('payments').orderBy('createdAt', 'desc');
+      if (since) {
+        q = (adminDb.collection('payments').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
+      }
+      const paymentsSnap = await q.limit(50).get().catch(async () => adminDb.collection('payments').limit(50).get().catch(() => null));
+      const existingIds = new Set(this.deposits.map((d) => d.id));
+      if (paymentsSnap && !paymentsSnap.empty) {
+        paymentsSnap.docs.forEach((doc) => {
+          const dep = doc.data() as DepositRequest;
+          if (dep && dep.id && !existingIds.has(dep.id)) {
+            this.deposits.push(dep);
+            existingIds.add(dep.id);
+          }
+        });
+      }
+      const newSync = new Date().toISOString();
+      await this.updateSyncMeta({ collections: { ...(syncMeta.collections || {}), payments: newSync } });
+    }, null);
+    return this.deposits;
+  }
+
+  public async hydrateWithdrawals(force = false): Promise<WithdrawalRequest[]> {
+    if (!force && this.withdrawals.length > 0) {
+      return this.withdrawals;
+    }
+    await firestoreGuard.safeRead('withdrawals', 'hydrateWithdrawals', async () => {
+      const syncMeta = await this.getSyncMeta();
+      const since = syncMeta.collections?.withdrawals || syncMeta.lastSyncedAt || null;
+      let q = adminDb.collection('withdrawals').orderBy('createdAt', 'desc');
+      if (since) {
+        q = (adminDb.collection('withdrawals').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
+      }
+      const wdSnap = await q.limit(50).get().catch(async () => adminDb.collection('withdrawals').limit(50).get().catch(() => null));
+      const existingIds = new Set(this.withdrawals.map((w) => w.id));
+      if (wdSnap && !wdSnap.empty) {
+        wdSnap.docs.forEach((doc) => {
+          const wd = doc.data() as WithdrawalRequest;
+          if (wd && wd.id && !existingIds.has(wd.id)) {
+            this.withdrawals.push(wd);
+            existingIds.add(wd.id);
+          }
+        });
+      }
+      const newSync = new Date().toISOString();
+      await this.updateSyncMeta({ collections: { ...(syncMeta.collections || {}), withdrawals: newSync } });
+    }, null);
+    return this.withdrawals;
+  }
+
+  public async hydrateWinners(force = false): Promise<GameWinner[]> {
+    if (!force && this.winners.length > 0) {
+      return this.winners;
+    }
+    await firestoreGuard.safeRead('winners', 'hydrateWinners', async () => {
+      const syncMeta = await this.getSyncMeta();
+      const since = syncMeta.collections?.winners || syncMeta.lastSyncedAt || null;
+      let q = adminDb.collection('winners').orderBy('wonAt', 'desc');
+      if (since) {
+        q = (adminDb.collection('winners').where('wonAt', '>', since).orderBy('wonAt', 'desc') as any);
+      }
+      const winSnap = await q.limit(100).get().catch(async () => adminDb.collection('winners').limit(100).get().catch(() => null));
+      const existingIds = new Set(this.winners.map((w) => w.id));
+      if (winSnap && !winSnap.empty) {
+        winSnap.docs.forEach((doc) => {
+          const w = doc.data() as GameWinner;
+          if (w && w.id && !existingIds.has(w.id)) {
+            this.winners.push(w);
+            existingIds.add(w.id);
+          }
+        });
+      }
+      const newSync = new Date().toISOString();
+      await this.updateSyncMeta({ collections: { ...(syncMeta.collections || {}), winners: newSync } });
+    }, null);
+    return this.winners;
+  }
+
+  public async hydrateGameHistory(force = false): Promise<GameHistoryRecord[]> {
+    if (!force && this.gameHistoryRecords.length > 0) {
+      return this.gameHistoryRecords;
+    }
+    await firestoreGuard.safeRead('gameHistory', 'hydrateGameHistory', async () => {
+      const syncMeta = await this.getSyncMeta();
+      const since = syncMeta.collections?.gameHistory || syncMeta.lastSyncedAt || null;
+      let q = adminDb.collection('gameHistory').orderBy('playedAt', 'desc');
+      if (since) {
+        q = (adminDb.collection('gameHistory').where('playedAt', '>', since).orderBy('playedAt', 'desc') as any);
+      }
+      const ghSnap = await q.limit(50).get().catch(async () => adminDb.collection('gameHistory').limit(50).get().catch(() => null));
+      const existingIds = new Set(this.gameHistoryRecords.map((gh) => gh.id));
+      if (ghSnap && !ghSnap.empty) {
+        ghSnap.docs.forEach((doc) => {
+          const gh = doc.data() as GameHistoryRecord;
+          if (gh && gh.id && !existingIds.has(gh.id)) {
+            this.gameHistoryRecords.push(gh);
+            existingIds.add(gh.id);
+          }
+        });
+      }
+      const newSync = new Date().toISOString();
+      await this.updateSyncMeta({ collections: { ...(syncMeta.collections || {}), gameHistory: newSync } });
+    }, null);
+    return this.gameHistoryRecords;
+  }
+
+  public async hydrateAuditLogs(force = false): Promise<AuditLog[]> {
+    if (!force && this.auditLogs.length > 0) {
+      return this.auditLogs;
+    }
+    await firestoreGuard.safeRead('auditLogs', 'hydrateAuditLogs', async () => {
+      const syncMeta = await this.getSyncMeta();
+      const since = syncMeta.collections?.auditLogs || syncMeta.lastSyncedAt || null;
+      let q = adminDb.collection('auditLogs').orderBy('timestamp', 'desc');
+      if (since) {
+        q = (adminDb.collection('auditLogs').where('timestamp', '>', since).orderBy('timestamp', 'desc') as any);
+      }
+      const auditSnap = await q.limit(50).get().catch(async () => adminDb.collection('auditLogs').limit(50).get().catch(() => null));
+      const existingIds = new Set(this.auditLogs.map((a) => a.id));
+      if (auditSnap && !auditSnap.empty) {
+        auditSnap.docs.forEach((doc) => {
+          const log = doc.data() as AuditLog;
+          if (log && log.id && !existingIds.has(log.id)) {
+            this.auditLogs.push(log);
+            existingIds.add(log.id);
+          }
+        });
+      }
+      const newSync = new Date().toISOString();
+      await this.updateSyncMeta({ collections: { ...(syncMeta.collections || {}), auditLogs: newSync } });
+    }, null);
+    return this.auditLogs;
+  }
+
+  public async hydrateNotifications(userId?: string, force = false): Promise<UserNotification[]> {
+    if (!force && this.notifications.length > 0) {
+      return userId ? this.notifications.filter((n) => n.userId === userId) : this.notifications;
+    }
+    await firestoreGuard.safeRead('notifications', 'hydrateNotifications', async () => {
+      const syncMeta = await this.getSyncMeta();
+      const since = syncMeta.collections?.notifications || syncMeta.lastSyncedAt || null;
+      let q = adminDb.collection('notifications').orderBy('createdAt', 'desc');
+      if (since) {
+        q = (adminDb.collection('notifications').where('createdAt', '>', since).orderBy('createdAt', 'desc') as any);
+      }
+      const notifSnap = await q.limit(50).get().catch(async () => adminDb.collection('notifications').limit(50).get().catch(() => null));
+      const existingIds = new Set(this.notifications.map((n) => n.id));
+      if (notifSnap && !notifSnap.empty) {
+        notifSnap.docs.forEach((doc) => {
+          const notif = doc.data() as UserNotification;
+          if (notif && notif.id && !existingIds.has(notif.id)) {
+            this.notifications.push(notif);
+            existingIds.add(notif.id);
+          }
+        });
+      }
+      const newSync = new Date().toISOString();
+      await this.updateSyncMeta({ collections: { ...(syncMeta.collections || {}), notifications: newSync } });
+    }, null);
+    return userId ? this.notifications.filter((n) => n.userId === userId) : this.notifications;
   }
 
   /**
