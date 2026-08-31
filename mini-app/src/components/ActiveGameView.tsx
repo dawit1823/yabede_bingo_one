@@ -367,54 +367,42 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
 
   // Helper to check if a ticket has met pattern requirements
   const checkReadyForBingo = (ticket: BingoTicket): boolean => {
-    const daubedMatrix: boolean[][] = ticket.matrix.map((row, rIdx) =>
+    const rawMatrix = (Array.isArray(ticket.matrix) && ticket.matrix.length === 5)
+      ? ticket.matrix
+      : generateCardMatrixByNumber(ticket.cardNumber || 1);
+
+    const daubedMatrix: boolean[][] = rawMatrix.map((row, rIdx) =>
       row.map((cell, cIdx) => isCellMarked(ticket.id, rIdx, cIdx, cell))
     );
 
-    // FOUR CORNERS: All four corner cells matched (0,0), (0,4), (4,0), (4,4)
-    const hasCorners =
+    // 1. Horizontal Rows (Any of the 5 rows)
+    const completedHorizontalRow = daubedMatrix.some((row) => row.every((c) => c));
+
+    // 2. Vertical Columns (Any of the 5 columns)
+    const completedVerticalColumn = [0, 1, 2, 3, 4].some((c) =>
+      [0, 1, 2, 3, 4].every((r) => daubedMatrix[r][c])
+    );
+
+    // 3. Main Diagonal (Top-left to bottom-right)
+    const completedMainDiagonal = [0, 1, 2, 3, 4].every((i) => daubedMatrix[i][i]);
+
+    // 4. Reverse Diagonal (Top-right to bottom-left)
+    const completedReverseDiagonal = [0, 1, 2, 3, 4].every((i) => daubedMatrix[i][4 - i]);
+
+    // 5. Four Corners (All four corner cells)
+    const completedFourCorners =
       Boolean(daubedMatrix[0][0]) &&
       Boolean(daubedMatrix[0][4]) &&
       Boolean(daubedMatrix[4][0]) &&
       Boolean(daubedMatrix[4][4]);
 
-    // Count completed lines (rows, columns, diagonals)
-    let lineCount = 0;
-    // Rows (any full horizontal row)
-    for (let r = 0; r < 5; r++) {
-      if (daubedMatrix[r].every((c) => c)) lineCount++;
-    }
-    // Cols (any full vertical column)
-    for (let c = 0; c < 5; c++) {
-      if (daubedMatrix.every((row) => row[c])) lineCount++;
-    }
-    // Main diagonal
-    if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][i])) lineCount++;
-    // Anti diagonal
-    if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][4 - i])) lineCount++;
-
-    const patterns: WinningPattern[] =
-      Array.isArray(room.winningPatterns) && room.winningPatterns.length > 0
-        ? (room.winningPatterns as WinningPattern[])
-        : [(room as any).winningPattern || 'FULL_HOUSE'];
-
-    for (const pattern of patterns) {
-      if (pattern === 'FOUR_CORNERS' || (pattern as string) === 'CORNERS') {
-        if (hasCorners) return true;
-      } else if (pattern === 'FULL_HOUSE') {
-        if (daubedMatrix.every((r) => r.every((c) => c))) return true;
-      } else if (pattern === 'ONE_LINE') {
-        if (lineCount >= 1) return true;
-      } else if (pattern === 'TWO_LINES') {
-        if (lineCount >= 2) return true;
-      } else if (
-        pattern === 'ONE_LINE_FAST_AND_CORNERS' ||
-        (pattern as string) === 'ONE_LINE_AND_CORNERS'
-      ) {
-        if (lineCount >= 1 || hasCorners) return true;
-      }
-    }
-    return false;
+    return (
+      completedHorizontalRow ||
+      completedVerticalColumn ||
+      completedMainDiagonal ||
+      completedReverseDiagonal ||
+      completedFourCorners
+    );
   };
 
   const handleClaim = (ticketId: string) => {

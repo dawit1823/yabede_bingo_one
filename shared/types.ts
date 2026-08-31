@@ -163,7 +163,11 @@ export type WinningPattern =
   | 'FOUR_CORNERS'
   | 'CORNERS'
   | 'ONE_LINE_FAST_AND_CORNERS'
-  | 'ONE_LINE_AND_CORNERS';
+  | 'ONE_LINE_AND_CORNERS'
+  | 'HORIZONTAL_ROW'
+  | 'VERTICAL_COLUMN'
+  | 'MAIN_DIAGONAL'
+  | 'REVERSE_DIAGONAL';
 
 export type RoomStatus =
   | 'WAITING'

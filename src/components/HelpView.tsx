@@ -280,10 +280,10 @@ export const HelpView: React.FC<HelpViewProps> = (props) => {
             },
             {
               stepNumber: '02',
-              title: { en: 'Winning Patterns Supported', am: 'የአሸናፊነት ቅጦች (Patterns)' },
+              title: { en: '5 Strict Winning Patterns', am: '5ቱ የአሸናፊነት ቅጦች (Winning Patterns)' },
               description: {
-                en: 'You can win by completing any of the active room patterns: (1) Any 1 Complete Line (Horizontal, Vertical, or Diagonal), (2) Four Corners, or (3) Full House (Coverall - all 24 numbers).',
-                am: 'ማንኛውም 1 መስመር (አግድም፣ ቁልቁል፣ ወይም ገደልማ)፣ 4ቱ ማዕዘናት ወይም ሙሉ ካርድ ሲሞላ ማሸነፍ ይቻላል።',
+                en: 'You win as soon as your card completes any 1 of the 5 winning patterns: (1) Any Horizontal Row (all 5 cells in any of the 5 rows), (2) Any Vertical Column (all 5 cells in any column), (3) Main Diagonal (top-left to bottom-right), (4) Reverse Diagonal (top-right to bottom-left), or (5) Four Corners. The Center FREE cell is always automatically marked!',
+                am: 'ከ5ቱ የአሸናፊነት ቅጦች አንዱን ሲያሟሉ ወዲያውኑ ያሸንፋሉ፡ (1) ማንኛውም አግድም ረድፍ (5ቱ ሙሉ ሴሎች)፣ (2) ማንኛውም ቁልቁል አምድ (5ቱ ሙሉ ሴሎች)፣ (3) ዋናው ገደልማ መስመር (ከግራ ከላይ ወደ ቀኝ ታች)፣ (4) ተቃራኒ ገደልማ መስመር (ከቀኝ ከላይ ወደ ግራ ታች)፣ ወይም (5) 4ቱ ማዕዘናት። የመሃሉ ነፃ ቦታ (FREE) ሁልጊዜ የበራ ነው!',
               },
             },
             {

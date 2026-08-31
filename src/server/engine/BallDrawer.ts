@@ -138,23 +138,12 @@ export class BallDrawer {
     }
 
     // Check valid pattern against current drawn balls
-    const winningPatterns: WinningPattern[] = room.winningPatterns || [
-      'ONE_LINE',
-      'TWO_LINES',
-      'FOUR_CORNERS',
-      'FULL_HOUSE',
-    ];
-    let matchedPattern: WinningPattern | null = null;
-    for (const pattern of winningPatterns) {
-      if (winnerValidator.checkWinningPattern(ticket, room.drawnBalls, pattern)) {
-        matchedPattern = pattern;
-        break;
-      }
-    }
-
-    if (!matchedPattern) {
+    const evalResult = winnerValidator.evaluateBingoCard(ticket, room.drawnBalls);
+    if (!evalResult.isWinner) {
       return { success: false, message: 'Bingo pattern requirements not met yet with current drawn balls' };
     }
+
+    const matchedPattern: WinningPattern = evalResult.matchedPattern || 'ONE_LINE';
 
     const user = db.getUserById(userId);
     if (!user) return { success: false, message: 'User not found' };

@@ -14,7 +14,7 @@ import { ballDrawer } from './engine/BallDrawer.js';
 import { webSocketGateway } from './engine/WebSocketGateway.js';
 import { getIO } from './socketHandler.js';
 import { BingoRoom, BingoTicket, GameWinner, WinningPattern, WalletTransaction } from '../types.js';
-import { generateCardMatrixByNumber } from '../lib/bingoUtils.js';
+import { generateCardMatrixByNumber, evaluateBingoCard, checkWinningPattern as unifiedCheckWinningPattern } from '../lib/bingoUtils.js';
 
 export function generateBingoTicketMatrix(): (number | 'FREE')[][] {
   const getRandomUniqueRange = (min: number, max: number, count: number): number[] => {
@@ -125,65 +125,11 @@ export function drawNextBall(roomId: string): number | null {
 }
 
 export function checkWinningPattern(
-  ticket: BingoTicket,
+  ticket: BingoTicket | (number | 'FREE')[][],
   drawnBalls: number[],
-  pattern: WinningPattern
+  pattern?: WinningPattern | null
 ): boolean {
-  if (!ticket || !ticket.matrix || !Array.isArray(ticket.matrix)) return false;
-  if (!Array.isArray(drawnBalls) || drawnBalls.length === 0) return false;
-
-  // Create boolean daubed matrix based on drawn numbers + FREE space
-  const daubedMatrix: boolean[][] = ticket.matrix.map((row) =>
-    row.map((cell) => cell === 'FREE' || drawnBalls.includes(cell as number))
-  );
-
-  const hasCorners =
-    Boolean(daubedMatrix[0][0]) &&
-    Boolean(daubedMatrix[0][4]) &&
-    Boolean(daubedMatrix[4][0]) &&
-    Boolean(daubedMatrix[4][4]);
-
-  if (pattern === 'FOUR_CORNERS' || (pattern as string) === 'CORNERS') {
-    return hasCorners;
-  }
-
-  if (pattern === 'FULL_HOUSE') {
-    return daubedMatrix.every((row) => row.every((cell) => cell));
-  }
-
-  // Count completed lines (horizontal, vertical, diagonals)
-  let lineCount = 0;
-
-  // Rows
-  for (let r = 0; r < 5; r++) {
-    if (daubedMatrix[r].every((c) => c)) lineCount++;
-  }
-
-  // Columns
-  for (let c = 0; c < 5; c++) {
-    if (daubedMatrix.every((row) => row[c])) lineCount++;
-  }
-
-  // Main diagonal
-  if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][i])) {
-    lineCount++;
-  }
-
-  // Anti diagonal
-  if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][4 - i])) {
-    lineCount++;
-  }
-
-  if (pattern === 'ONE_LINE') return lineCount >= 1;
-  if (pattern === 'TWO_LINES') return lineCount >= 2;
-  if (
-    pattern === 'ONE_LINE_FAST_AND_CORNERS' ||
-    (pattern as string) === 'ONE_LINE_AND_CORNERS'
-  ) {
-    return lineCount >= 1 || hasCorners;
-  }
-
-  return false;
+  return unifiedCheckWinningPattern(ticket, drawnBalls, pattern);
 }
 
 export function processBingoClaim(
@@ -311,11 +257,9 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
   const winningTickets: { ticket: BingoTicket; pattern: WinningPattern }[] = [];
 
   for (const ticket of roomTickets) {
-    for (const pattern of (room.winningPatterns || ['ONE_LINE', 'TWO_LINES', 'FOUR_CORNERS', 'FULL_HOUSE'])) {
-      if (checkWinningPattern(ticket, room.drawnBalls, pattern)) {
-        winningTickets.push({ ticket, pattern });
-        break; // Only count highest/first pattern for a ticket on this draw
-      }
+    const evalResult = evaluateBingoCard(ticket, room.drawnBalls);
+    if (evalResult.isWinner) {
+      winningTickets.push({ ticket, pattern: evalResult.matchedPattern || 'ONE_LINE' });
     }
   }
 
@@ -535,7 +479,8 @@ export function autoCheckPrivateGroupWinners(groupId: string): { winners: GameWi
 
   const winningTickets: BingoTicket[] = [];
   for (const ticket of groupTickets) {
-    if (checkWinningPattern(ticket, group.drawnBalls, group.winningPattern)) {
+    const evalResult = evaluateBingoCard(ticket, group.drawnBalls);
+    if (evalResult.isWinner) {
       winningTickets.push(ticket);
     }
   }
