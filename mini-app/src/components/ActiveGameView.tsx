@@ -371,21 +371,47 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
       row.map((cell, cIdx) => isCellMarked(ticket.id, rIdx, cIdx, cell))
     );
 
-    for (const pattern of room.winningPatterns) {
-      if (pattern === 'FOUR_CORNERS') {
-        if (daubedMatrix[0][0] && daubedMatrix[0][4] && daubedMatrix[4][0] && daubedMatrix[4][4]) return true;
+    // FOUR CORNERS: All four corner cells matched (0,0), (0,4), (4,0), (4,4)
+    const hasCorners =
+      Boolean(daubedMatrix[0][0]) &&
+      Boolean(daubedMatrix[0][4]) &&
+      Boolean(daubedMatrix[4][0]) &&
+      Boolean(daubedMatrix[4][4]);
+
+    // Count completed lines (rows, columns, diagonals)
+    let lineCount = 0;
+    // Rows (any full horizontal row)
+    for (let r = 0; r < 5; r++) {
+      if (daubedMatrix[r].every((c) => c)) lineCount++;
+    }
+    // Cols (any full vertical column)
+    for (let c = 0; c < 5; c++) {
+      if (daubedMatrix.every((row) => row[c])) lineCount++;
+    }
+    // Main diagonal
+    if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][i])) lineCount++;
+    // Anti diagonal
+    if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][4 - i])) lineCount++;
+
+    const patterns: WinningPattern[] =
+      Array.isArray(room.winningPatterns) && room.winningPatterns.length > 0
+        ? (room.winningPatterns as WinningPattern[])
+        : [(room as any).winningPattern || 'FULL_HOUSE'];
+
+    for (const pattern of patterns) {
+      if (pattern === 'FOUR_CORNERS' || (pattern as string) === 'CORNERS') {
+        if (hasCorners) return true;
       } else if (pattern === 'FULL_HOUSE') {
         if (daubedMatrix.every((r) => r.every((c) => c))) return true;
       } else if (pattern === 'ONE_LINE') {
-        // Rows
-        if (daubedMatrix.some((r) => r.every((c) => c))) return true;
-        // Cols
-        for (let c = 0; c < 5; c++) {
-          if (daubedMatrix.every((r) => r[c])) return true;
-        }
-        // Diagonals
-        if (daubedMatrix[0][0] && daubedMatrix[1][1] && daubedMatrix[2][2] && daubedMatrix[3][3] && daubedMatrix[4][4]) return true;
-        if (daubedMatrix[0][4] && daubedMatrix[1][3] && daubedMatrix[2][2] && daubedMatrix[3][1] && daubedMatrix[4][0]) return true;
+        if (lineCount >= 1) return true;
+      } else if (pattern === 'TWO_LINES') {
+        if (lineCount >= 2) return true;
+      } else if (
+        pattern === 'ONE_LINE_FAST_AND_CORNERS' ||
+        (pattern as string) === 'ONE_LINE_AND_CORNERS'
+      ) {
+        if (lineCount >= 1 || hasCorners) return true;
       }
     }
     return false;
@@ -878,7 +904,19 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
                         )}
                       </div>
                       <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
-                        {room.winningPatterns.join(', ')}
+                        {(Array.isArray(room.winningPatterns) && room.winningPatterns.length > 0
+                          ? room.winningPatterns
+                          : [(room as any).winningPattern || 'FULL_HOUSE']
+                        )
+                          .map((p) => {
+                            if (p === 'FOUR_CORNERS' || (p as string) === 'CORNERS') return 'Corners (4)';
+                            if (p === 'ONE_LINE_FAST_AND_CORNERS' || (p as string) === 'ONE_LINE_AND_CORNERS') return '1 Line / Corners';
+                            if (p === 'ONE_LINE') return '1 Line';
+                            if (p === 'TWO_LINES') return '2 Lines';
+                            if (p === 'FULL_HOUSE') return 'Full House';
+                            return p;
+                          })
+                          .join(', ')}
                       </span>
                     </div>
 

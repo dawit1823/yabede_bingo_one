@@ -91,12 +91,14 @@ export function createTicket(roomId: string, userId: string): BingoTicket {
 
   db.tickets.set(ticket.id, ticket);
 
-  // Increase room prize pool
+  // Increase room prize pool based on total sales minus platform rake fee
   const sysSettings = adminService.getSystemSettings();
   const platformFeePct = sysSettings.platformFeePercent ?? 20;
-  const prizePct = sysSettings.prizePercentage ?? 80;
-  room.prizePool += Math.round(room.ticketPrice * (prizePct / 100));
-  room.platformFee = (room.platformFee || 0) + Math.round(room.ticketPrice * (platformFeePct / 100));
+  room.ticketsSold = (room.ticketsSold || 0) + 1;
+  const totalSales = room.ticketsSold * room.ticketPrice;
+  const finalPlatformFee = Math.round(totalSales * (platformFeePct / 100));
+  room.platformFee = finalPlatformFee;
+  room.prizePool = Math.max(0, totalSales - finalPlatformFee);
   room.activePlayersCount += 1;
 
   return ticket;

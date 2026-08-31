@@ -1959,45 +1959,59 @@ apiRouter.get('/admin/tickets/:id/inspect', async (req: Request, res: Response) 
       }
     }
 
-    // Check rows
-    for (let r = 0; r < 5; r++) {
-      if (daubedMatrix[r].every(Boolean)) {
-        for (let c = 0; c < 5; c++) {
-          winningCells.push({ r, c });
+    const patternUpper = (winningPattern || 'ONE_LINE').toUpperCase();
+    const isCornersOnly = patternUpper === 'FOUR_CORNERS' || patternUpper === 'CORNERS';
+    const isOneLineAndCorners = patternUpper === 'ONE_LINE_FAST_AND_CORNERS' || patternUpper === 'ONE_LINE_AND_CORNERS';
+    const isFullHouse = patternUpper === 'FULL_HOUSE';
+
+    // Check rows (any full horizontal row)
+    if (!isCornersOnly) {
+      for (let r = 0; r < 5; r++) {
+        if (daubedMatrix[r].every(Boolean)) {
+          for (let c = 0; c < 5; c++) {
+            winningCells.push({ r, c });
+          }
         }
+      }
+
+      // Check columns (any full vertical column)
+      for (let c = 0; c < 5; c++) {
+        if (daubedMatrix.every((row) => row[c])) {
+          for (let r = 0; r < 5; r++) {
+            winningCells.push({ r, c });
+          }
+        }
+      }
+
+      // Check diagonals
+      if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][i])) {
+        for (let i = 0; i < 5; i++) winningCells.push({ r: i, c: i });
+      }
+      if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][4 - i])) {
+        for (let i = 0; i < 5; i++) winningCells.push({ r: i, c: 4 - i });
       }
     }
 
-    // Check columns
-    for (let c = 0; c < 5; c++) {
-      if (daubedMatrix.every((row) => row[c])) {
-        for (let r = 0; r < 5; r++) {
-          winningCells.push({ r, c });
-        }
-      }
-    }
-
-    // Check diagonals
-    if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][i])) {
-      for (let i = 0; i < 5; i++) winningCells.push({ r: i, c: i });
-    }
-    if ([0, 1, 2, 3, 4].every((i) => daubedMatrix[i][4 - i])) {
-      for (let i = 0; i < 5; i++) winningCells.push({ r: i, c: 4 - i });
-    }
-
-    // Check corners
-    const hasCorners = daubedMatrix[0][0] && daubedMatrix[0][4] && daubedMatrix[4][0] && daubedMatrix[4][4];
-    if (hasCorners && (winningPattern === 'FOUR_CORNERS' || winningPattern === 'CORNERS' || winningPattern.includes('CORNERS'))) {
+    // Check corners: all four corner cells matched (0,0), (0,4), (4,0), (4,4)
+    const hasCorners = Boolean(daubedMatrix[0][0]) && Boolean(daubedMatrix[0][4]) && Boolean(daubedMatrix[4][0]) && Boolean(daubedMatrix[4][4]);
+    if (hasCorners && (isCornersOnly || isOneLineAndCorners || patternUpper.includes('CORNERS'))) {
       winningCells.push({ r: 0, c: 0 }, { r: 0, c: 4 }, { r: 4, c: 0 }, { r: 4, c: 4 });
     }
 
     // Deduplicate winning cells
-    const uniqueWinningCells = Array.from(
+    let uniqueWinningCells = Array.from(
       new Set(winningCells.map((cell) => `${cell.r}_${cell.c}`))
     ).map((key) => {
       const [r, c] = key.split('_').map(Number);
       return { r, c };
     });
+
+    if (isFullHouse && uniqueWinningCells.length < 25) {
+      const isCompleteFullHouse = daubedMatrix.every((row) => row.every(Boolean));
+      if (!isCompleteFullHouse) {
+        uniqueWinningCells = [];
+      }
+    }
 
     const isWinner = uniqueWinningCells.length > 0 || (ticket as any).winningStatus === 'WON' || Boolean(winnerRecord);
 

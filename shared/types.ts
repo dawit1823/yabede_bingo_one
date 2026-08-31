@@ -156,7 +156,14 @@ export interface UserNotification {
   createdAt: string;
 }
 
-export type WinningPattern = 'ONE_LINE' | 'TWO_LINES' | 'FULL_HOUSE' | 'FOUR_CORNERS';
+export type WinningPattern =
+  | 'ONE_LINE'
+  | 'TWO_LINES'
+  | 'FULL_HOUSE'
+  | 'FOUR_CORNERS'
+  | 'CORNERS'
+  | 'ONE_LINE_FAST_AND_CORNERS'
+  | 'ONE_LINE_AND_CORNERS';
 
 export type RoomStatus =
   | 'WAITING'
