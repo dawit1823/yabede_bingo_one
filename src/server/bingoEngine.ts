@@ -158,13 +158,12 @@ export function processBingoClaim(
   if (!user) return { success: false, message: 'User not found' };
 
   // Check valid pattern against drawn balls
-  let matchedPattern: WinningPattern | null = null;
-  for (const pattern of (room.winningPatterns || ['ONE_LINE', 'TWO_LINES', 'FOUR_CORNERS', 'FULL_HOUSE'])) {
-    if (checkWinningPattern(ticket, room.drawnBalls, pattern)) {
-      matchedPattern = pattern;
-      break;
-    }
-  }
+  const allowedPatterns: WinningPattern[] = (Array.isArray(room.winningPatterns) && room.winningPatterns.length > 0)
+    ? room.winningPatterns
+    : ['ONE_LINE', 'TWO_LINES', 'FOUR_CORNERS', 'ONE_LINE_AND_CORNERS', 'FULL_HOUSE'];
+
+  const evalResult = evaluateBingoCard(ticket, room.drawnBalls);
+  const matchedPattern: WinningPattern | null = evalResult.matchedPatterns.find((p) => allowedPatterns.includes(p)) || null;
 
   if (!matchedPattern) {
     return { success: false, message: 'Bingo claim failed: Pattern requirements not met yet!' };
@@ -255,11 +254,15 @@ export function autoCheckRoomWinners(roomId: string): { winners: GameWinner[]; r
   }
 
   const winningTickets: { ticket: BingoTicket; pattern: WinningPattern }[] = [];
+  const allowedPatterns: WinningPattern[] = (Array.isArray(room.winningPatterns) && room.winningPatterns.length > 0)
+    ? room.winningPatterns
+    : ['ONE_LINE', 'TWO_LINES', 'FOUR_CORNERS', 'ONE_LINE_AND_CORNERS', 'FULL_HOUSE'];
 
   for (const ticket of roomTickets) {
     const evalResult = evaluateBingoCard(ticket, room.drawnBalls);
-    if (evalResult.isWinner) {
-      winningTickets.push({ ticket, pattern: evalResult.matchedPattern || 'ONE_LINE' });
+    const matched = evalResult.matchedPatterns.find((p) => allowedPatterns.includes(p));
+    if (matched) {
+      winningTickets.push({ ticket, pattern: matched });
     }
   }
 

@@ -75,11 +75,15 @@ export class WinnerValidator {
       const user = db.getUserById(ticket.userId);
       if (!user) continue;
 
+      const allowedPatterns: WinningPattern[] = (Array.isArray(room.winningPatterns) && room.winningPatterns.length > 0)
+        ? room.winningPatterns
+        : [(room as any).winningPattern || 'ONE_LINE'];
+
       const evalResult = this.evaluateBingoCard(ticket, room.drawnBalls);
-      if (evalResult.isWinner) {
-        const pattern = evalResult.matchedPattern || 'ONE_LINE';
+      const matched = evalResult.matchedPatterns.find((p) => allowedPatterns.includes(p));
+      if (matched) {
         const winnerRecord: GameWinner = {
-          id: `win_${roomId}_${ticket.id}_${pattern}`,
+          id: `win_${roomId}_${ticket.id}_${matched}`,
           roomId,
           gameReferenceId: room.gameReferenceId,
           ticketId: ticket.id,
@@ -87,7 +91,7 @@ export class WinnerValidator {
           username: user.username || ticket.username || 'Player',
           cardNumber: ticket.cardNumber || 1,
           ticketPrice: ticket.purchasePrice || room.ticketPrice,
-          pattern,
+          pattern: matched,
           prizeAmount: 0, // Calculated authoritatively by PrizeCalculator
           wonAt: nowIso,
         };

@@ -202,7 +202,7 @@ export const CreatePrivateGroupModal: React.FC<CreatePrivateGroupModalProps> = (
                     : 'bg-slate-950 border-slate-800 text-slate-400'
                 }`}
               >
-                <div className="text-xs font-extrabold text-white">Full House (3X)</div>
+                <div className="text-xs font-extrabold text-white">Full House</div>
                 <div className="text-[10px]">All 24 numbers daubed</div>
               </button>
 
@@ -215,34 +215,47 @@ export const CreatePrivateGroupModal: React.FC<CreatePrivateGroupModalProps> = (
                     : 'bg-slate-950 border-slate-800 text-slate-400'
                 }`}
               >
-                <div className="text-xs font-extrabold text-white">One Line Fast</div>
+                <div className="text-xs font-extrabold text-white">One Line</div>
                 <div className="text-[10px]">Any 1 row/col/diagonal</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWinningPattern('TWO_LINES')}
+                className={`p-3 rounded-2xl border text-left transition ${
+                  winningPattern === 'TWO_LINES'
+                    ? 'bg-amber-500/10 border-amber-500 text-amber-300 font-bold'
+                    : 'bg-slate-950 border-slate-800 text-slate-400'
+                }`}
+              >
+                <div className="text-xs font-extrabold text-white">Two Lines</div>
+                <div className="text-[10px]">Any 2 distinct lines</div>
               </button>
 
               <button
                 type="button"
                 onClick={() => setWinningPattern('FOUR_CORNERS')}
                 className={`p-3 rounded-2xl border text-left transition ${
-                  winningPattern === 'FOUR_CORNERS' || (winningPattern as string) === 'CORNERS'
+                  winningPattern === 'FOUR_CORNERS'
                     ? 'bg-amber-500/10 border-amber-500 text-amber-300 font-bold'
                     : 'bg-slate-950 border-slate-800 text-slate-400'
                 }`}
               >
-                <div className="text-xs font-extrabold text-white">Corners (4 ማዕዘን)</div>
+                <div className="text-xs font-extrabold text-white">Four Corners</div>
                 <div className="text-[10px]">All 4 corner numbers</div>
               </button>
 
               <button
                 type="button"
-                onClick={() => setWinningPattern('ONE_LINE_FAST_AND_CORNERS')}
-                className={`p-3 rounded-2xl border text-left transition ${
-                  winningPattern === 'ONE_LINE_FAST_AND_CORNERS'
+                onClick={() => setWinningPattern('ONE_LINE_AND_CORNERS')}
+                className={`p-3 rounded-2xl border text-left transition col-span-2 ${
+                  winningPattern === 'ONE_LINE_AND_CORNERS'
                     ? 'bg-amber-500/10 border-amber-500 text-amber-300 font-bold'
                     : 'bg-slate-950 border-slate-800 text-slate-400'
                 }`}
               >
-                <div className="text-xs font-extrabold text-white">One Line + Corners</div>
-                <div className="text-[10px]">Any 1 line or 4 corners</div>
+                <div className="text-xs font-extrabold text-white">One Line + Four Corners</div>
+                <div className="text-[10px]">1 complete line AND all 4 corners</div>
               </button>
             </div>
           </div>

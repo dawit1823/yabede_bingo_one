@@ -27,14 +27,8 @@ const PATTERN_LABELS: Record<WinningPattern, { en: string; am: string; badge: st
   ONE_LINE: { en: 'Single Line (1 Line)', am: 'አንድ መስመር', badge: '1 LINE' },
   TWO_LINES: { en: 'Double Line (2 Lines)', am: 'ሁለት መስመር', badge: '2 LINES' },
   FOUR_CORNERS: { en: 'Four Corners', am: 'አራት ማዕዘን', badge: 'CORNERS' },
-  CORNERS: { en: 'Four Corners', am: 'አራት ማዕዘን', badge: 'CORNERS' },
-  ONE_LINE_FAST_AND_CORNERS: { en: 'One Line + Corners', am: 'አንድ መስመር ወይም ማዕዘን', badge: 'LINE+CORNERS' },
   ONE_LINE_AND_CORNERS: { en: 'One Line + Corners', am: 'አንድ መስመር ወይም ማዕዘን', badge: 'LINE+CORNERS' },
   FULL_HOUSE: { en: 'Full House (BINGO)', am: 'ሙሉ ካርድ (ቢንጎ)', badge: 'FULL HOUSE' },
-  HORIZONTAL_ROW: { en: 'Horizontal Row', am: 'አግድም ረድፍ', badge: 'ROW' },
-  VERTICAL_COLUMN: { en: 'Vertical Column', am: 'ቁልቁል አምድ', badge: 'COLUMN' },
-  MAIN_DIAGONAL: { en: 'Main Diagonal', am: 'ዋና ገደልማ', badge: 'DIAGONAL' },
-  REVERSE_DIAGONAL: { en: 'Reverse Diagonal', am: 'ተቃራኒ ገደልማ', badge: 'REV DIAG' },
 };
 
 export const GameHistoryView: React.FC<GameHistoryViewProps> = ({ user, language }) => {

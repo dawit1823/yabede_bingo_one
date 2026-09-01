@@ -3,7 +3,7 @@ import { Socket } from 'socket.io-client';
 import { BingoRoom, BingoTicket, ChatMessage, UserProfile, WinningPattern, RoomStats } from '@shared/types';
 import { triggerHaptic, triggerNotificationHaptic } from '../lib/telegramSDK';
 import { audioEngine, getAmharicNumberText } from '../lib/audioEngine';
-import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds } from '@shared/bingoUtils';
+import { formatCardNumber, generateCardMatrixByNumber, getRemainingSeconds, checkWinningPattern, evaluateBingoCard } from '@shared/bingoUtils';
 import { apiUrl } from '@shared/apiConfig';
 import { logger } from '@shared/logger';
 import confetti from 'canvas-confetti';
@@ -354,54 +354,35 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
 
   // Helper to check if ticket cell is drawn or FREE
   const isCellDrawn = (cellVal: number | 'FREE') => {
-    if (cellVal === 'FREE') return true;
+    if (cellVal === 'FREE' || cellVal === 0) return true;
     return (room?.drawnBalls || []).includes(cellVal);
   };
 
   // Helper to check if ticket cell is daubed locally or by auto-daub
   const isCellMarked = (ticketId: string, rIdx: number, cIdx: number, cellVal: number | 'FREE') => {
-    if (cellVal === 'FREE') return true;
-    if (autoDaub) return isCellDrawn(cellVal);
-    return localDaubed[ticketId]?.[rIdx]?.[cIdx] || false;
+    if (cellVal === 'FREE' || cellVal === 0) return true;
+    const drawn = isCellDrawn(cellVal);
+    if (!drawn) return false;
+    if (autoDaub) return true;
+    return Boolean(localDaubed[ticketId]?.[rIdx]?.[cIdx]);
   };
 
   // Helper to check if a ticket has met pattern requirements
   const checkReadyForBingo = (ticket: BingoTicket): boolean => {
+    if (!room || !room.drawnBalls || room.drawnBalls.length === 0) return false;
+
     const rawMatrix = (Array.isArray(ticket.matrix) && ticket.matrix.length === 5)
       ? ticket.matrix
       : generateCardMatrixByNumber(ticket.cardNumber || 1);
 
-    const daubedMatrix: boolean[][] = rawMatrix.map((row, rIdx) =>
-      row.map((cell, cIdx) => isCellMarked(ticket.id, rIdx, cIdx, cell))
-    );
+    const manualDaubMatrix = autoDaub ? undefined : localDaubed[ticket.id];
 
-    // 1. Horizontal Rows (Any of the 5 rows)
-    const completedHorizontalRow = daubedMatrix.some((row) => row.every((c) => c));
+    const allowedPatterns: WinningPattern[] = (Array.isArray(room.winningPatterns) && room.winningPatterns.length > 0)
+      ? room.winningPatterns
+      : [(room as any).winningPattern || 'ONE_LINE'];
 
-    // 2. Vertical Columns (Any of the 5 columns)
-    const completedVerticalColumn = [0, 1, 2, 3, 4].some((c) =>
-      [0, 1, 2, 3, 4].every((r) => daubedMatrix[r][c])
-    );
-
-    // 3. Main Diagonal (Top-left to bottom-right)
-    const completedMainDiagonal = [0, 1, 2, 3, 4].every((i) => daubedMatrix[i][i]);
-
-    // 4. Reverse Diagonal (Top-right to bottom-left)
-    const completedReverseDiagonal = [0, 1, 2, 3, 4].every((i) => daubedMatrix[i][4 - i]);
-
-    // 5. Four Corners (All four corner cells)
-    const completedFourCorners =
-      Boolean(daubedMatrix[0][0]) &&
-      Boolean(daubedMatrix[0][4]) &&
-      Boolean(daubedMatrix[4][0]) &&
-      Boolean(daubedMatrix[4][4]);
-
-    return (
-      completedHorizontalRow ||
-      completedVerticalColumn ||
-      completedMainDiagonal ||
-      completedReverseDiagonal ||
-      completedFourCorners
+    return allowedPatterns.some((pattern) =>
+      checkWinningPattern(rawMatrix, room.drawnBalls || [], pattern, manualDaubMatrix)
     );
   };
 

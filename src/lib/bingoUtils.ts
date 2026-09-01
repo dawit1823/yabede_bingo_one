@@ -126,16 +126,17 @@ import { WinningPattern } from '../types.js';
 export interface BingoEvaluationResult {
   isWinner: boolean;
   matchedPattern: WinningPattern | null;
+  matchedPatterns: WinningPattern[];
   patternName: string;
   winningCells: [number, number][];
   daubedMatrix: boolean[][];
-  completedHorizontalRow: boolean;
-  completedHorizontalRowIndices: number[];
-  completedVerticalColumn: boolean;
-  completedVerticalColumnIndices: number[];
+  completedLinesCount: number;
+  completedHorizontalRows: number[];
+  completedVerticalColumns: number[];
   completedMainDiagonal: boolean;
   completedReverseDiagonal: boolean;
   completedFourCorners: boolean;
+  completedFullHouse: boolean;
 }
 
 /**
@@ -161,39 +162,32 @@ export function isCardCellMarked(
 /**
  * Authoritative 75-ball 5x5 Bingo Evaluation.
  *
- * CRITICAL WINNING RULES:
- * The ONLY valid winning patterns are:
- * 1. Horizontal Row (Any of the 5 rows: all 5 cells marked)
- * 2. Vertical Column (Any of the 5 columns: all 5 cells marked)
- * 3. Main Diagonal (Top-left to bottom-right: [0][0], [1][1], [2][2], [3][3], [4][4])
- * 4. Reverse Diagonal (Top-right to bottom-left: [0][4], [1][3], [2][2], [3][1], [4][0])
- * 5. Four Corners ([0][0], [0][4], [4][0], [4][4] - ALL 4 marked, sufficient on its own)
- *
- * Center cell [2][2] is ALWAYS automatically marked.
- *
- * WIN = completedHorizontalRow
- *    OR completedVerticalColumn
- *    OR completedMainDiagonal
- *    OR completedReverseDiagonal
- *    OR completedFourCorners
+ * CRITICAL WINNING RULES (5 Essential Patterns):
+ * 1. ONE_LINE: Any 1 complete line (5 horizontal rows, 5 vertical columns, main diagonal, reverse diagonal). Center FREE is automatically marked.
+ * 2. TWO_LINES: Any 2 different complete lines (from the 12 possible lines).
+ * 3. FOUR_CORNERS: All 4 corner cells (0,0), (0,4), (4,0), (4,4) marked.
+ * 4. ONE_LINE_AND_CORNERS: BOTH at least one valid line AND all 4 corners marked on the same ticket.
+ * 5. FULL_HOUSE: All 24 numbers + FREE center cell (all 25 cells) marked.
  */
 export function evaluateBingoCard(
-  ticketOrMatrix: { matrix?: (number | 'FREE')[][]; cardNumber?: number } | (number | 'FREE')[][],
-  drawnBalls: number[]
+  ticketOrMatrix: { matrix?: (number | 'FREE')[][]; cardNumber?: number; daubed?: boolean[][] } | (number | 'FREE')[][],
+  drawnBalls: number[],
+  manualDaubMatrix?: boolean[][]
 ): BingoEvaluationResult {
   const defaultEmptyResult: BingoEvaluationResult = {
     isWinner: false,
     matchedPattern: null,
+    matchedPatterns: [],
     patternName: '',
     winningCells: [],
     daubedMatrix: Array(5).fill(null).map(() => Array(5).fill(false)),
-    completedHorizontalRow: false,
-    completedHorizontalRowIndices: [],
-    completedVerticalColumn: false,
-    completedVerticalColumnIndices: [],
+    completedLinesCount: 0,
+    completedHorizontalRows: [],
+    completedVerticalColumns: [],
     completedMainDiagonal: false,
     completedReverseDiagonal: false,
     completedFourCorners: false,
+    completedFullHouse: false,
   };
 
   if (!ticketOrMatrix) return defaultEmptyResult;
@@ -234,59 +228,113 @@ export function evaluateBingoCard(
 
   for (let r = 0; r < 5; r++) {
     for (let c = 0; c < 5; c++) {
-      const val = matrix[r] ? matrix[r][c] : undefined;
-      daubedMatrix[r][c] = isCardCellMarked(val, r, c, drawnSet);
+      if (r === 2 && c === 2) {
+        daubedMatrix[r][c] = true;
+        continue;
+      }
+      const cellVal = matrix[r] ? matrix[r][c] : undefined;
+      if (cellVal === 'FREE' || cellVal === 0 || (cellVal as any) === '0') {
+        daubedMatrix[r][c] = true;
+        continue;
+      }
+      if (typeof cellVal === 'number' && drawnSet.has(cellVal)) {
+        if (manualDaubMatrix) {
+          daubedMatrix[r][c] = Boolean(manualDaubMatrix[r]?.[c]);
+        } else {
+          daubedMatrix[r][c] = true;
+        }
+      } else {
+        daubedMatrix[r][c] = false;
+      }
     }
   }
 
-  // 1. Horizontal Rows
-  const completedHorizontalRowIndices: number[] = [];
+  // 1. Horizontal Rows (Any of the 5 rows)
+  const completedHorizontalRows: number[] = [];
   for (let r = 0; r < 5; r++) {
     if (daubedMatrix[r][0] && daubedMatrix[r][1] && daubedMatrix[r][2] && daubedMatrix[r][3] && daubedMatrix[r][4]) {
-      completedHorizontalRowIndices.push(r);
+      completedHorizontalRows.push(r);
     }
   }
-  const completedHorizontalRow = completedHorizontalRowIndices.length > 0;
 
-  // 2. Vertical Columns
-  const completedVerticalColumnIndices: number[] = [];
+  // 2. Vertical Columns (Any of the 5 columns)
+  const completedVerticalColumns: number[] = [];
   for (let c = 0; c < 5; c++) {
     if (daubedMatrix[0][c] && daubedMatrix[1][c] && daubedMatrix[2][c] && daubedMatrix[3][c] && daubedMatrix[4][c]) {
-      completedVerticalColumnIndices.push(c);
+      completedVerticalColumns.push(c);
     }
   }
-  const completedVerticalColumn = completedVerticalColumnIndices.length > 0;
 
-  // 3. Main Diagonal
+  // 3. Main Diagonal (Top-left to bottom-right: 0,0 -> 4,4)
   const completedMainDiagonal =
-    daubedMatrix[0][0] &&
-    daubedMatrix[1][1] &&
-    daubedMatrix[2][2] &&
-    daubedMatrix[3][3] &&
-    daubedMatrix[4][4];
+    Boolean(daubedMatrix[0][0]) &&
+    Boolean(daubedMatrix[1][1]) &&
+    Boolean(daubedMatrix[2][2]) &&
+    Boolean(daubedMatrix[3][3]) &&
+    Boolean(daubedMatrix[4][4]);
 
-  // 4. Reverse Diagonal
+  // 4. Reverse Diagonal (Top-right to bottom-left: 0,4 -> 4,0)
   const completedReverseDiagonal =
-    daubedMatrix[0][4] &&
-    daubedMatrix[1][3] &&
-    daubedMatrix[2][2] &&
-    daubedMatrix[3][1] &&
-    daubedMatrix[4][0];
+    Boolean(daubedMatrix[0][4]) &&
+    Boolean(daubedMatrix[1][3]) &&
+    Boolean(daubedMatrix[2][2]) &&
+    Boolean(daubedMatrix[3][1]) &&
+    Boolean(daubedMatrix[4][0]);
 
-  // 5. Four Corners
+  // Count of distinct completed lines (5 rows + 5 cols + 2 diagonals)
+  const completedLinesCount =
+    completedHorizontalRows.length +
+    completedVerticalColumns.length +
+    (completedMainDiagonal ? 1 : 0) +
+    (completedReverseDiagonal ? 1 : 0);
+
+  // 5. Four Corners (All four corner cells)
   const completedFourCorners =
     Boolean(daubedMatrix[0][0]) &&
     Boolean(daubedMatrix[0][4]) &&
     Boolean(daubedMatrix[4][0]) &&
     Boolean(daubedMatrix[4][4]);
 
-  // FINAL STRICT WINNING CONDITION
-  const isWinner =
-    completedHorizontalRow ||
-    completedVerticalColumn ||
-    completedMainDiagonal ||
-    completedReverseDiagonal ||
-    completedFourCorners;
+  // 6. Full House (All 25 cells daubed)
+  const completedFullHouse = daubedMatrix.every((row) => row.every((cell) => cell));
+
+  // Determine all matched patterns according to strict 5 rules
+  const matchedPatterns: WinningPattern[] = [];
+  if (completedFullHouse) {
+    matchedPatterns.push('FULL_HOUSE');
+  }
+  if (completedLinesCount >= 1 && completedFourCorners) {
+    matchedPatterns.push('ONE_LINE_AND_CORNERS');
+  }
+  if (completedLinesCount >= 2) {
+    matchedPatterns.push('TWO_LINES');
+  }
+  if (completedLinesCount >= 1) {
+    matchedPatterns.push('ONE_LINE');
+  }
+  if (completedFourCorners) {
+    matchedPatterns.push('FOUR_CORNERS');
+  }
+
+  const isWinner = matchedPatterns.length > 0;
+  const matchedPattern: WinningPattern | null = matchedPatterns[0] || null;
+
+  let patternName = '';
+  if (completedFullHouse) {
+    patternName = 'Full House';
+  } else if (completedLinesCount >= 1 && completedFourCorners) {
+    patternName = 'One Line + Four Corners';
+  } else if (completedLinesCount >= 2) {
+    patternName = `${completedLinesCount} Lines`;
+  } else if (completedLinesCount === 1) {
+    if (completedMainDiagonal) patternName = 'Main Diagonal Line';
+    else if (completedReverseDiagonal) patternName = 'Reverse Diagonal Line';
+    else if (completedHorizontalRows.length > 0) patternName = `Horizontal Row ${completedHorizontalRows[0] + 1}`;
+    else if (completedVerticalColumns.length > 0) patternName = `Vertical Column ${completedVerticalColumns[0] + 1}`;
+    else patternName = 'One Line';
+  } else if (completedFourCorners) {
+    patternName = 'Four Corners';
+  }
 
   const winningCellsSet = new Set<string>();
   const winningCells: [number, number][] = [];
@@ -299,68 +347,45 @@ export function evaluateBingoCard(
     }
   };
 
-  if (completedHorizontalRow) {
-    for (const r of completedHorizontalRowIndices) {
+  if (completedFullHouse) {
+    for (let r = 0; r < 5; r++) {
       for (let c = 0; c < 5; c++) addWinningCell(r, c);
     }
-  }
-
-  if (completedVerticalColumn) {
-    for (const c of completedVerticalColumnIndices) {
+  } else {
+    for (const r of completedHorizontalRows) {
+      for (let c = 0; c < 5; c++) addWinningCell(r, c);
+    }
+    for (const c of completedVerticalColumns) {
       for (let r = 0; r < 5; r++) addWinningCell(r, c);
     }
-  }
-
-  if (completedMainDiagonal) {
-    for (let i = 0; i < 5; i++) addWinningCell(i, i);
-  }
-
-  if (completedReverseDiagonal) {
-    for (let i = 0; i < 5; i++) addWinningCell(i, 4 - i);
-  }
-
-  if (completedFourCorners) {
-    addWinningCell(0, 0);
-    addWinningCell(0, 4);
-    addWinningCell(4, 0);
-    addWinningCell(4, 4);
-  }
-
-  let matchedPattern: WinningPattern | null = null;
-  let patternName = '';
-
-  if (isWinner) {
+    if (completedMainDiagonal) {
+      for (let i = 0; i < 5; i++) addWinningCell(i, i);
+    }
+    if (completedReverseDiagonal) {
+      for (let i = 0; i < 5; i++) addWinningCell(i, 4 - i);
+    }
     if (completedFourCorners) {
-      matchedPattern = 'FOUR_CORNERS';
-      patternName = 'Four Corners';
-    } else if (completedHorizontalRow) {
-      matchedPattern = 'HORIZONTAL_ROW';
-      patternName = `Horizontal Row ${completedHorizontalRowIndices[0] + 1}`;
-    } else if (completedVerticalColumn) {
-      matchedPattern = 'VERTICAL_COLUMN';
-      patternName = `Vertical Column ${completedVerticalColumnIndices[0] + 1}`;
-    } else if (completedMainDiagonal) {
-      matchedPattern = 'MAIN_DIAGONAL';
-      patternName = 'Main Diagonal';
-    } else if (completedReverseDiagonal) {
-      matchedPattern = 'REVERSE_DIAGONAL';
-      patternName = 'Reverse Diagonal';
+      addWinningCell(0, 0);
+      addWinningCell(0, 4);
+      addWinningCell(4, 0);
+      addWinningCell(4, 4);
     }
   }
 
   return {
     isWinner,
     matchedPattern,
+    matchedPatterns,
     patternName,
     winningCells,
     daubedMatrix,
-    completedHorizontalRow,
-    completedHorizontalRowIndices,
-    completedVerticalColumn,
-    completedVerticalColumnIndices,
+    completedLinesCount,
+    completedHorizontalRows,
+    completedVerticalColumns,
     completedMainDiagonal,
     completedReverseDiagonal,
     completedFourCorners,
+    completedFullHouse,
   };
 }
 
@@ -368,46 +393,29 @@ export function evaluateBingoCard(
  * Validates a card against a specific pattern or general winning rules.
  */
 export function checkWinningPattern(
-  ticket: { matrix?: (number | 'FREE')[][]; cardNumber?: number } | (number | 'FREE')[][],
+  ticket: { matrix?: (number | 'FREE')[][]; cardNumber?: number; daubed?: boolean[][] } | (number | 'FREE')[][],
   drawnBalls: number[],
-  pattern?: WinningPattern | null
+  pattern?: WinningPattern | null,
+  manualDaubMatrix?: boolean[][]
 ): boolean {
-  const result = evaluateBingoCard(ticket, drawnBalls);
+  const result = evaluateBingoCard(ticket, drawnBalls, manualDaubMatrix);
   if (!result.isWinner) return false;
-  if (!pattern) return true;
+  if (!pattern) return result.isWinner;
 
-  if (pattern === 'FOUR_CORNERS' || (pattern as string) === 'CORNERS') {
-    return result.completedFourCorners;
+  switch (pattern) {
+    case 'ONE_LINE':
+      return result.completedLinesCount >= 1;
+    case 'TWO_LINES':
+      return result.completedLinesCount >= 2;
+    case 'FOUR_CORNERS':
+      return result.completedFourCorners;
+    case 'ONE_LINE_AND_CORNERS':
+      return result.completedLinesCount >= 1 && result.completedFourCorners;
+    case 'FULL_HOUSE':
+      return result.completedFullHouse;
+    default:
+      return false;
   }
-  if (pattern === 'HORIZONTAL_ROW') {
-    return result.completedHorizontalRow;
-  }
-  if (pattern === 'VERTICAL_COLUMN') {
-    return result.completedVerticalColumn;
-  }
-  if (pattern === 'MAIN_DIAGONAL') {
-    return result.completedMainDiagonal;
-  }
-  if (pattern === 'REVERSE_DIAGONAL') {
-    return result.completedReverseDiagonal;
-  }
-  if (pattern === 'ONE_LINE') {
-    return (
-      result.completedHorizontalRow ||
-      result.completedVerticalColumn ||
-      result.completedMainDiagonal ||
-      result.completedReverseDiagonal
-    );
-  }
-  if (
-    pattern === 'ONE_LINE_FAST_AND_CORNERS' ||
-    (pattern as string) === 'ONE_LINE_AND_CORNERS' ||
-    pattern === 'FULL_HOUSE'
-  ) {
-    return result.isWinner;
-  }
-
-  return result.isWinner;
 }
 
 /**

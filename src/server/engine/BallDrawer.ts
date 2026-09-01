@@ -137,13 +137,16 @@ export class BallDrawer {
       return { success: false, message: 'Ticket is not in active playable status' };
     }
 
+    const allowedPatterns: WinningPattern[] = (Array.isArray(room.winningPatterns) && room.winningPatterns.length > 0)
+      ? room.winningPatterns
+      : [(room as any).winningPattern || 'ONE_LINE'];
+
     // Check valid pattern against current drawn balls
     const evalResult = winnerValidator.evaluateBingoCard(ticket, room.drawnBalls);
-    if (!evalResult.isWinner) {
+    const matchedPattern = evalResult.matchedPatterns.find((p) => allowedPatterns.includes(p));
+    if (!matchedPattern) {
       return { success: false, message: 'Bingo pattern requirements not met yet with current drawn balls' };
     }
-
-    const matchedPattern: WinningPattern = evalResult.matchedPattern || 'ONE_LINE';
 
     const user = db.getUserById(userId);
     if (!user) return { success: false, message: 'User not found' };

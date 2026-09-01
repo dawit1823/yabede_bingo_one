@@ -161,13 +161,7 @@ export type WinningPattern =
   | 'TWO_LINES'
   | 'FULL_HOUSE'
   | 'FOUR_CORNERS'
-  | 'CORNERS'
-  | 'ONE_LINE_FAST_AND_CORNERS'
-  | 'ONE_LINE_AND_CORNERS'
-  | 'HORIZONTAL_ROW'
-  | 'VERTICAL_COLUMN'
-  | 'MAIN_DIAGONAL'
-  | 'REVERSE_DIAGONAL';
+  | 'ONE_LINE_AND_CORNERS';
 
 export type RoomStatus =
   | 'WAITING'
