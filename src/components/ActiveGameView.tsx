@@ -98,6 +98,194 @@ const BingoMasterBoard = React.memo<{ drawnBalls: number[]; currentBall: number 
   }
 );
 
+const LAYOUT_STORAGE_KEY = 'ahun_bingo_layout_mode';
+type LayoutMode = 'classic' | 'compact';
+
+// Compact Master 75-Number Board (Always expanded, dense layout for side-by-side view)
+const CompactBingoMasterBoard = React.memo<{
+  drawnBalls: number[];
+  currentBall: number | null;
+  language: 'en' | 'am';
+}>(({ drawnBalls, currentBall, language }) => {
+  const drawnSet = React.useMemo(() => new Set(drawnBalls || []), [drawnBalls]);
+  const columns = React.useMemo(
+    () => [
+      { label: 'B', min: 1, max: 15, color: 'text-red-400 border-red-500/30 bg-red-500/15' },
+      { label: 'I', min: 16, max: 30, color: 'text-amber-400 border-amber-500/30 bg-amber-500/15' },
+      { label: 'N', min: 31, max: 45, color: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/15' },
+      { label: 'G', min: 46, max: 60, color: 'text-sky-400 border-sky-500/30 bg-sky-500/15' },
+      { label: 'O', min: 61, max: 75, color: 'text-purple-400 border-purple-500/30 bg-purple-500/15' },
+    ],
+    []
+  );
+
+  return (
+    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-1.5 sm:p-2 space-y-1.5 shadow-lg w-full">
+      <div className="flex items-center justify-between text-[10px] font-bold text-slate-300 border-b border-slate-800/80 pb-1 px-0.5">
+        <span className="flex items-center gap-1 text-amber-400 font-black truncate">
+          <Sparkles className="w-3 h-3 shrink-0" />
+          <span className="truncate">{language === 'am' ? 'የተጠሩ ቁጥሮች' : 'Board'}</span>
+        </span>
+        <span className="font-mono text-[9px] text-slate-400 bg-slate-950 px-1 py-0.5 rounded border border-slate-800 shrink-0">
+          {drawnSet.size}/75
+        </span>
+      </div>
+
+      <div className="grid grid-cols-5 gap-0.5 sm:gap-1">
+        {columns.map((col) => {
+          const numbers = Array.from({ length: col.max - col.min + 1 }, (_, i) => col.min + i);
+          return (
+            <div key={col.label} className="flex flex-col gap-0.5 text-center">
+              <div
+                className={`w-full py-0.5 rounded border font-black text-[9px] sm:text-[10px] flex items-center justify-center shrink-0 ${col.color}`}
+              >
+                {col.label}
+              </div>
+              <div className="flex flex-col gap-0.5">
+                {numbers.map((num) => {
+                  const isDrawn = drawnSet.has(num);
+                  const isCurrent = currentBall === num;
+
+                  return (
+                    <div
+                      key={num}
+                      className={`w-full h-4 sm:h-5 rounded text-[8px] sm:text-[9.5px] font-mono font-bold flex items-center justify-center transition-all ${
+                        isCurrent
+                          ? 'bg-amber-400 text-slate-950 font-black ring-1 ring-amber-300 animate-pulse scale-105 z-10 shadow-md'
+                          : isDrawn
+                          ? 'bg-emerald-500 text-white font-black shadow-xs'
+                          : 'bg-slate-950 text-slate-500 border border-slate-800/80'
+                      }`}
+                      title={`Ball #${num} ${isDrawn ? '(Drawn)' : ''}`}
+                    >
+                      {num}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
+// Compact Ticket Card for Vertical Stack in Compact View
+const CompactTicketCard = React.memo<{
+  ticket: BingoTicket;
+  room: BingoRoom;
+  isReady: boolean;
+  autoDaub: boolean;
+  isCellMarked: (ticketId: string, rIdx: number, cIdx: number, cellVal: number | 'FREE') => boolean;
+  onCellClick: (ticketId: string, rIdx: number, cIdx: number) => void;
+  onClaim: (ticketId: string) => void;
+  language: 'en' | 'am';
+}>(({ ticket, room, isReady, isCellMarked, onCellClick, onClaim, language }) => {
+  const cardDisplayNumber = ticket.cardNumber
+    ? formatCardNumber(ticket.cardNumber)
+    : `#${ticket.id.slice(-3)}`;
+
+  const rawMatrix = React.useMemo(() => {
+    return Array.isArray(ticket.matrix) && ticket.matrix.length === 5
+      ? ticket.matrix
+      : generateCardMatrixByNumber(ticket.cardNumber || 1);
+  }, [ticket.matrix, ticket.cardNumber]);
+
+  const patterns = (room.winningPatterns || [(room as any).winningPattern || 'FULL_HOUSE']).join(', ');
+
+  return (
+    <div
+      className={`bg-slate-900 border ${
+        isReady ? 'border-emerald-500/80 shadow-emerald-500/20 ring-1 ring-emerald-500/40' : 'border-slate-800'
+      } rounded-2xl p-2 sm:p-2.5 space-y-2 shadow-lg relative transition w-full`}
+    >
+      {/* Ticket Header */}
+      <div className="flex items-center justify-between text-[11px] border-b border-slate-800/90 pb-1.5 px-0.5">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="font-black text-emerald-400 text-xs truncate">
+            Card {cardDisplayNumber}
+          </span>
+          {isReady && (
+            <span className="text-[8.5px] font-black bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full border border-emerald-500/30 animate-pulse shrink-0">
+              READY!
+            </span>
+          )}
+        </div>
+        <span
+          className="text-[9px] text-amber-400 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-500/20 truncate max-w-[110px]"
+          title={patterns}
+        >
+          {patterns}
+        </span>
+      </div>
+
+      {/* 5x5 Bingo Matrix Grid */}
+      <div className="grid grid-cols-5 gap-0.5 sm:gap-1 text-center w-full">
+        {['B', 'I', 'N', 'G', 'O'].map((letter, lIdx) => (
+          <div
+            key={lIdx}
+            className="text-[9px] sm:text-[10px] font-black text-amber-400 py-0.5 bg-slate-950 rounded border border-slate-800 shadow-xs"
+          >
+            {letter}
+          </div>
+        ))}
+
+        {rawMatrix.map((row, rIdx) =>
+          row.map((cell, cIdx) => {
+            const marked = isCellMarked(ticket.id, rIdx, cIdx, cell);
+            const isFree = cell === 'FREE' || cell === 0;
+
+            return (
+              <button
+                key={`${rIdx}-${cIdx}`}
+                type="button"
+                onClick={() => onCellClick(ticket.id, rIdx, cIdx)}
+                className={`w-full aspect-square rounded sm:rounded-md text-[9px] sm:text-xs font-black flex items-center justify-center transition border min-w-0 min-h-[26px] sm:min-h-[32px] active:scale-95 touch-manipulation ${
+                  isFree
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-black shadow-inner text-xs sm:text-sm'
+                    : marked
+                    ? 'bg-gradient-to-br from-emerald-400 to-emerald-600 text-slate-950 border-emerald-300 shadow-sm font-black'
+                    : 'bg-slate-950 text-slate-200 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                {isFree ? '★' : cell}
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      {/* Compact BINGO Claim Button */}
+      <button
+        type="button"
+        onClick={() => onClaim(ticket.id)}
+        disabled={!isReady || ticket.status === 'BINGO_CLAIMED'}
+        className={`w-full py-2 px-2 rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition shadow-md ${
+          isReady && ticket.status !== 'BINGO_CLAIMED'
+            ? 'bg-gradient-to-r from-emerald-400 via-green-400 to-emerald-500 text-slate-950 shadow-emerald-500/30 animate-pulse hover:brightness-110 cursor-pointer active:scale-95'
+            : 'bg-slate-800/80 text-slate-500 cursor-not-allowed border border-slate-700/80'
+        }`}
+      >
+        <Sparkles className="w-3.5 h-3.5 shrink-0" />
+        <span className="truncate">
+          {ticket.status === 'BINGO_CLAIMED'
+            ? language === 'am'
+              ? '✅ ቢንጎ ተጠይቋል!'
+              : '✅ BINGO CLAIMED!'
+            : isReady
+            ? language === 'am'
+              ? '🎉 ቢንጎ በል!'
+              : '🎉 CLAIM BINGO!'
+            : language === 'am'
+            ? 'ቢንጎ (ስርዓተ-ንድፉ አልሞላም)'
+            : 'Complete Pattern to Claim'}
+        </span>
+      </button>
+    </div>
+  );
+});
+
 export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
   room,
   tickets,
@@ -127,6 +315,28 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
   const [isRefreshing, setIsRefreshing] = React.useState<boolean>(false);
   const [selectedCardIndex, setSelectedCardIndex] = React.useState<number>(0);
   const [showMasterBoard, setShowMasterBoard] = React.useState<boolean>(false);
+  const [layoutMode, setLayoutMode] = React.useState<LayoutMode>(() => {
+    try {
+      const saved = localStorage.getItem(LAYOUT_STORAGE_KEY);
+      if (saved === 'compact' || saved === 'classic') {
+        return saved;
+      }
+    } catch {
+      // ignore
+    }
+    return 'classic';
+  });
+
+  const handleSetLayoutMode = React.useCallback((mode: LayoutMode) => {
+    setLayoutMode(mode);
+    try {
+      localStorage.setItem(LAYOUT_STORAGE_KEY, mode);
+    } catch {
+      // ignore
+    }
+    triggerHaptic('light');
+  }, []);
+
   const isRefreshingRef = React.useRef<boolean>(false);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
@@ -589,6 +799,38 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
         </div>
       </div>
 
+      {/* View Mode Switcher: Classic View / Compact View */}
+      <div className="flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-2xl p-1.5 px-3 shadow-md">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+          <Grid className="w-3.5 h-3.5 text-amber-400" />
+          <span>{language === 'am' ? 'የጨዋታ እይታ' : 'Layout'}:</span>
+        </div>
+        <div className="inline-flex rounded-xl bg-slate-950 p-0.5 border border-slate-800/80">
+          <button
+            type="button"
+            onClick={() => handleSetLayoutMode('classic')}
+            className={`px-3 py-1 rounded-lg text-xs font-black transition flex items-center gap-1.5 ${
+              layoutMode === 'classic'
+                ? 'bg-amber-400 text-slate-950 shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>{language === 'am' ? 'ክላሲክ እይታ' : 'Classic View'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSetLayoutMode('compact')}
+            className={`px-3 py-1 rounded-lg text-xs font-black transition flex items-center gap-1.5 ${
+              layoutMode === 'compact'
+                ? 'bg-amber-400 text-slate-950 shadow-sm'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>{language === 'am' ? 'የተጣበበ እይታ' : 'Compact View'}</span>
+          </button>
+        </div>
+      </div>
+
       {/* Live Current Ball Callout / Winner Results Screen */}
       {room.status === 'FINISHED' ||
       room.status === 'WAITING_HOST_DECISION' ||
@@ -804,6 +1046,137 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
                 ⏱ Next Game Round Starting Shortly ({activeCountdown}s)...
               </div>
             )}
+          </div>
+        </div>
+      ) : layoutMode === 'compact' ? (
+        /* PERSISTENT TWO-COLUMN COMPACT VIEW */
+        <div className="space-y-2.5 max-w-2xl mx-auto w-full">
+          {/* Compact Top Ball & Draw Status Bar */}
+          <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl p-2 sm:p-2.5 shadow-lg">
+            <div className="flex items-center justify-between gap-2">
+              {/* Left: Status & Current Ball Callout */}
+              <div className="flex items-center gap-2 min-w-0">
+                {room.currentBall ? (
+                  <div
+                    className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-gradient-to-tr ${getBallColor(
+                      room.currentBall
+                    )} shadow-md flex flex-col items-center justify-center text-white border-2 border-slate-900 shrink-0 animate-pulse`}
+                  >
+                    <span className="text-[9px] font-black opacity-90 leading-none">
+                      {getBallLetter(room.currentBall)}
+                    </span>
+                    <span className="text-xs sm:text-sm font-black leading-none mt-0.5">
+                      {room.currentBall}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-amber-400 shrink-0">
+                    <Sparkles className="w-4 h-4 animate-spin" />
+                  </div>
+                )}
+
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex items-center gap-1.5 text-[10px] sm:text-xs font-black text-slate-200 truncate">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        room.status === 'PLAYING' ? 'bg-red-500 animate-ping' : 'bg-amber-400'
+                      }`}
+                    />
+                    <span className="truncate">
+                      {room.status === 'PLAYING'
+                        ? room.currentBall
+                          ? language === 'am'
+                            ? `${getAmharicLetter(room.currentBall)}, ${getAmharicNumberText(room.currentBall)}`
+                            : `${getBallLetter(room.currentBall)}, ${room.currentBall}`
+                          : language === 'am'
+                          ? 'ጨዋታው በሂደት ላይ'
+                          : 'Game In Progress'
+                        : language === 'am'
+                        ? 'ጨዋታው ሊጀምር ነው'
+                        : 'Starting Soon'}
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-slate-400 flex items-center gap-1.5">
+                    <span>
+                      {language === 'am' ? 'የተጠሩ' : 'Drawn'}:{' '}
+                      <strong className="text-amber-400 font-mono">
+                        {room.drawnBalls.length}/75
+                      </strong>
+                    </span>
+                    <span className="text-slate-600">•</span>
+                    <span>
+                      {language === 'am' ? 'ትኬቶች' : 'Cards'}:{' '}
+                      <strong className="text-emerald-400 font-mono">
+                        {liveTickets.length}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Timer / Countdown Pill */}
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <span className="px-2 py-0.5 rounded-full bg-amber-400/10 border border-amber-400/30 text-amber-300 font-bold font-mono text-[10px]">
+                  {room.status === 'PLAYING'
+                    ? `Next: ${nextDrawSeconds}s`
+                    : `00:${activeCountdown.toString().padStart(2, '0')}`}
+                </span>
+                {room.status === 'PLAYING' && (
+                  <div className="w-16 sm:w-20 h-1 bg-slate-800 rounded-full overflow-hidden border border-slate-700/80">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 transition-all duration-1000 ease-linear"
+                      style={{ width: `${(nextDrawSeconds / 3) * 100}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* TWO-COLUMN LAYOUT: Side-by-Side on all screens including narrow mobile */}
+          <div className="grid grid-cols-[130px_1fr] sm:grid-cols-[160px_1fr] gap-2 items-start w-full">
+            {/* Left Column: Full 1-75 Number Board (Always Expanded) */}
+            <div className="w-full sticky top-2">
+              <CompactBingoMasterBoard
+                drawnBalls={room.drawnBalls}
+                currentBall={room.currentBall}
+                language={language}
+              />
+            </div>
+
+            {/* Right Column: ALL Purchased Tickets (Stacked Vertically) */}
+            <div className="space-y-2.5 min-w-0 w-full">
+              {liveTickets.length > 0 ? (
+                liveTickets.map((ticket) => {
+                  const isReady = checkReadyForBingo(ticket);
+                  return (
+                    <CompactTicketCard
+                      key={ticket.id}
+                      ticket={ticket}
+                      room={room}
+                      isReady={isReady}
+                      autoDaub={autoDaub}
+                      isCellMarked={isCellMarked}
+                      onCellClick={handleCellClick}
+                      onClaim={handleClaim}
+                      language={language}
+                    />
+                  );
+                })
+              ) : (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-center space-y-2 shadow-lg">
+                  <AlertCircle className="w-6 h-6 text-amber-400 mx-auto" />
+                  <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider block">
+                    👁️ {language === 'am' ? 'ተመልካች ሁነታ' : 'Spectator Mode'}
+                  </span>
+                  <p className="text-[10px] text-slate-300 leading-normal">
+                    {language === 'am'
+                      ? 'ይህንን ዙር በቅድሚያ ትኬት ባለመግዛትዎ እየተመለከቱ ነው። ቀጣዩ ዙር ሲጀምር ካርድ ይምረጡ!'
+                      : 'You are spectating live ball draws. Get ready to select your card when the next round begins!'}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       ) : (
