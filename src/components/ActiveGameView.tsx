@@ -120,24 +120,24 @@ const CompactBingoMasterBoard = React.memo<{
   );
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-1.5 sm:p-2 space-y-1.5 shadow-lg w-full">
-      <div className="flex items-center justify-between text-[10px] font-bold text-slate-300 border-b border-slate-800/80 pb-1 px-0.5">
+    <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-1.5 space-y-1 shadow-lg w-full">
+      <div className="flex items-center justify-between text-[10px] font-bold text-slate-300 border-b border-slate-800/80 pb-1 px-0.5 leading-none">
         <span className="flex items-center gap-1 text-amber-400 font-black truncate">
           <Sparkles className="w-3 h-3 shrink-0" />
-          <span className="truncate">{language === 'am' ? 'የተጠሩ ቁጥሮች' : 'Board'}</span>
+          <span className="truncate">{language === 'am' ? 'የተጠሩ' : 'Board'}</span>
         </span>
         <span className="font-mono text-[9px] text-slate-400 bg-slate-950 px-1 py-0.5 rounded border border-slate-800 shrink-0">
           {drawnSet.size}/75
         </span>
       </div>
 
-      <div className="grid grid-cols-5 gap-0.5 sm:gap-1">
+      <div className="grid grid-cols-5 gap-0.5">
         {columns.map((col) => {
           const numbers = Array.from({ length: col.max - col.min + 1 }, (_, i) => col.min + i);
           return (
             <div key={col.label} className="flex flex-col gap-0.5 text-center">
               <div
-                className={`w-full py-0.5 rounded border font-black text-[9px] sm:text-[10px] flex items-center justify-center shrink-0 ${col.color}`}
+                className={`w-full h-4 rounded border font-black text-[9px] flex items-center justify-center shrink-0 leading-none ${col.color}`}
               >
                 {col.label}
               </div>
@@ -149,7 +149,7 @@ const CompactBingoMasterBoard = React.memo<{
                   return (
                     <div
                       key={num}
-                      className={`w-full h-4 sm:h-5 rounded text-[8px] sm:text-[9.5px] font-mono font-bold flex items-center justify-center transition-all ${
+                      className={`w-full h-[18px] sm:h-[19px] rounded text-[8px] sm:text-[9px] font-mono font-bold flex items-center justify-center transition-all ${
                         isCurrent
                           ? 'bg-amber-400 text-slate-950 font-black ring-1 ring-amber-300 animate-pulse scale-105 z-10 shadow-md'
                           : isDrawn
@@ -172,6 +172,7 @@ const CompactBingoMasterBoard = React.memo<{
 });
 
 // Compact Ticket Card for Vertical Stack in Compact View
+// Specifically sized to approximately half of CompactBingoMasterBoard height so 2 cards fit side-by-side
 const CompactTicketCard = React.memo<{
   ticket: BingoTicket;
   room: BingoRoom;
@@ -198,22 +199,22 @@ const CompactTicketCard = React.memo<{
     <div
       className={`bg-slate-900 border ${
         isReady ? 'border-emerald-500/80 shadow-emerald-500/20 ring-1 ring-emerald-500/40' : 'border-slate-800'
-      } rounded-2xl p-2 sm:p-2.5 space-y-2 shadow-lg relative transition w-full`}
+      } rounded-xl p-1.5 space-y-1 shadow-md relative transition w-full`}
     >
       {/* Ticket Header */}
-      <div className="flex items-center justify-between text-[11px] border-b border-slate-800/90 pb-1.5 px-0.5">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="font-black text-emerald-400 text-xs truncate">
+      <div className="flex items-center justify-between text-[10px] border-b border-slate-800/90 pb-1 px-0.5 leading-none">
+        <div className="flex items-center gap-1 min-w-0">
+          <span className="font-black text-emerald-400 text-[11px] truncate">
             Card {cardDisplayNumber}
           </span>
           {isReady && (
-            <span className="text-[8.5px] font-black bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full border border-emerald-500/30 animate-pulse shrink-0">
+            <span className="text-[7.5px] font-black bg-emerald-500/20 text-emerald-300 px-1 py-0.5 rounded-full border border-emerald-500/30 animate-pulse shrink-0">
               READY!
             </span>
           )}
         </div>
         <span
-          className="text-[9px] text-amber-400 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-500/20 truncate max-w-[110px]"
+          className="text-[8.5px] text-amber-400 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-500/20 truncate max-w-[90px]"
           title={patterns}
         >
           {patterns}
@@ -221,11 +222,11 @@ const CompactTicketCard = React.memo<{
       </div>
 
       {/* 5x5 Bingo Matrix Grid */}
-      <div className="grid grid-cols-5 gap-0.5 sm:gap-1 text-center w-full">
+      <div className="grid grid-cols-5 gap-0.5 text-center w-full">
         {['B', 'I', 'N', 'G', 'O'].map((letter, lIdx) => (
           <div
             key={lIdx}
-            className="text-[9px] sm:text-[10px] font-black text-amber-400 py-0.5 bg-slate-950 rounded border border-slate-800 shadow-xs"
+            className="h-4 text-[8.5px] font-black text-amber-400 bg-slate-950 rounded border border-slate-800/80 flex items-center justify-center leading-none"
           >
             {letter}
           </div>
@@ -241,12 +242,12 @@ const CompactTicketCard = React.memo<{
                 key={`${rIdx}-${cIdx}`}
                 type="button"
                 onClick={() => onCellClick(ticket.id, rIdx, cIdx)}
-                className={`w-full aspect-square rounded sm:rounded-md text-[9px] sm:text-xs font-black flex items-center justify-center transition border min-w-0 min-h-[26px] sm:min-h-[32px] active:scale-95 touch-manipulation ${
+                className={`w-full h-[18px] sm:h-[19px] rounded text-[8.5px] sm:text-[9.5px] font-mono font-bold flex items-center justify-center transition border min-w-0 active:scale-95 touch-manipulation leading-none ${
                   isFree
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-black shadow-inner text-xs sm:text-sm'
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-black shadow-inner text-[10px]'
                     : marked
-                    ? 'bg-gradient-to-br from-emerald-400 to-emerald-600 text-slate-950 border-emerald-300 shadow-sm font-black'
-                    : 'bg-slate-950 text-slate-200 border-slate-800 hover:border-slate-700'
+                    ? 'bg-gradient-to-br from-emerald-400 to-emerald-600 text-slate-950 border-emerald-300 shadow-xs font-black'
+                    : 'bg-slate-950 text-slate-200 border-slate-800/80 hover:border-slate-700'
                 }`}
               >
                 {isFree ? '★' : cell}
@@ -261,13 +262,13 @@ const CompactTicketCard = React.memo<{
         type="button"
         onClick={() => onClaim(ticket.id)}
         disabled={!isReady || ticket.status === 'BINGO_CLAIMED'}
-        className={`w-full py-2 px-2 rounded-xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition shadow-md ${
+        className={`w-full h-6 px-1.5 rounded-lg font-black text-[9.5px] sm:text-[10px] flex items-center justify-center gap-1 transition shadow-xs ${
           isReady && ticket.status !== 'BINGO_CLAIMED'
             ? 'bg-gradient-to-r from-emerald-400 via-green-400 to-emerald-500 text-slate-950 shadow-emerald-500/30 animate-pulse hover:brightness-110 cursor-pointer active:scale-95'
             : 'bg-slate-800/80 text-slate-500 cursor-not-allowed border border-slate-700/80'
         }`}
       >
-        <Sparkles className="w-3.5 h-3.5 shrink-0" />
+        <Sparkles className="w-3 h-3 shrink-0" />
         <span className="truncate">
           {ticket.status === 'BINGO_CLAIMED'
             ? language === 'am'
@@ -278,8 +279,8 @@ const CompactTicketCard = React.memo<{
               ? '🎉 ቢንጎ በል!'
               : '🎉 CLAIM BINGO!'
             : language === 'am'
-            ? 'ቢንጎ (ስርዓተ-ንድፉ አልሞላም)'
-            : 'Complete Pattern to Claim'}
+            ? 'ቢንጎ (አልሞላም)'
+            : 'BINGO (Not Ready)'}
         </span>
       </button>
     </div>
@@ -1145,7 +1146,7 @@ export const ActiveGameView: React.FC<ActiveGameViewProps> = ({
             </div>
 
             {/* Right Column: ALL Purchased Tickets (Stacked Vertically) */}
-            <div className="space-y-2.5 min-w-0 w-full">
+            <div className="space-y-1.5 min-w-0 w-full">
               {liveTickets.length > 0 ? (
                 liveTickets.map((ticket) => {
                   const isReady = checkReadyForBingo(ticket);
