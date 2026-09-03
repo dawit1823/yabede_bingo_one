@@ -849,6 +849,7 @@ export default function App() {
     amount: number;
     referenceCode: string;
     mobileNumber?: string;
+    senderAccountDigits?: string;
     screenshotUrl?: string;
     note?: string;
   }) => {
@@ -861,17 +862,19 @@ export default function App() {
         amount: params.amount,
         referenceCode: params.referenceCode,
         mobileNumber: params.mobileNumber,
+        senderAccountDigits: params.senderAccountDigits,
         screenshotUrl: params.screenshotUrl,
         note: params.note,
       }),
     });
 
+    const data = await res.json();
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Deposit failed');
+      throw new Error(data.error || 'Deposit failed');
     }
 
     await fetchData();
+    return data;
   };
 
   const handleWithdraw = async (params: {

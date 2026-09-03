@@ -810,7 +810,14 @@ apiRouter.post('/admin/payment-methods', (req: Request, res: Response) => {
     qrCodeUrl: paymentMethod.qrCodeUrl || '',
     instructions: paymentMethod.instructions || 'Please complete money transfer outside the app and submit transaction reference.',
     status: paymentMethod.status || 'ACTIVE',
-    providerType: paymentMethod.providerType || 'MANUAL',
+    providerType: paymentMethod.providerType || (paymentMethod.autoVerifyEnabled ? 'CHEKI_VERIFY' : 'MANUAL'),
+    autoVerifyEnabled: paymentMethod.autoVerifyEnabled ?? false,
+    chekiBankCode: paymentMethod.chekiBankCode,
+    requiresAccountDigitsFromSender: paymentMethod.requiresAccountDigitsFromSender ?? false,
+    senderAccountDigitsLength: paymentMethod.senderAccountDigitsLength,
+    receiverAccountDigits: paymentMethod.receiverAccountDigits,
+    receiverName: paymentMethod.receiverName,
+    allowPartialReceiverMatch: paymentMethod.allowPartialReceiverMatch ?? true,
     createdAt: paymentMethod.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -849,7 +856,7 @@ apiRouter.get('/user/deposits', async (req: Request, res: Response) => {
 });
 
 apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
-  const { userId, paymentMethodId, amount, referenceCode, mobileNumber, screenshotUrl, note } = req.body;
+  const { userId, paymentMethodId, amount, referenceCode, mobileNumber, senderAccountDigits, screenshotUrl, note } = req.body;
 
   if (!userId || !paymentMethodId || !amount || !referenceCode) {
     res.status(400).json({ error: 'Missing required deposit fields (Payment Method, Amount, Reference Code)' });
@@ -857,27 +864,87 @@ apiRouter.post('/wallet/deposit', async (req: Request, res: Response) => {
   }
 
   try {
+    const user = db.getUserById(userId);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const paymentMethod = db.paymentMethods.get(paymentMethodId);
+    if (!paymentMethod || paymentMethod.status !== 'ACTIVE') {
+      res.status(400).json({ error: 'Selected payment method is currently disabled or unavailable.' });
+      return;
+    }
+
+    // Build existing references set
+    const existingReferences = new Set(
+      db.deposits.filter((d) => d.status !== 'REJECTED').map((d) => d.referenceCode.trim().toUpperCase())
+    );
+
+    // Route through PaymentProviderRegistry
+    const provider = paymentRegistry.getProvider(paymentMethod.providerType, paymentMethod);
+    const submissionResult = await provider.submitDeposit({
+      userId,
+      userName: user.username,
+      userTelegramId: user.telegramId,
+      paymentMethod,
+      amount: Number(amount),
+      referenceCode,
+      mobileNumber,
+      senderAccountDigits,
+      screenshotUrl,
+      note,
+      existingReferences,
+    });
+
+    if (!submissionResult.success) {
+      res.status(400).json({ error: submissionResult.message || 'Deposit submission failed' });
+      return;
+    }
+
+    // Check if auto-approved by provider
+    const isAutoApproved = !!submissionResult.autoApproved && !submissionResult.requiresAdminApproval;
+
     const deposit = db.createDepositRequest({
       userId,
       paymentMethodId,
       amount: Number(amount),
       referenceCode,
       mobileNumber,
+      senderAccountDigits,
       screenshotUrl,
       note,
+      status: isAutoApproved ? 'APPROVED' : 'PENDING',
+      autoApproved: isAutoApproved,
+      verificationDetails: submissionResult.verificationDetails,
     });
+
+    let updatedUser = user;
+    if (isAutoApproved) {
+      const creditResult = db.creditApprovedDeposit(deposit, 'AUTOMATED');
+      updatedUser = creditResult.user;
+    }
 
     const io = getIO();
     if (io) {
       io.emit('deposit:created', { deposit });
       io.emit('deposit:updated', { deposit });
+      if (isAutoApproved) {
+        io.emit('deposit:approved', { deposit, userId });
+        io.emit('wallet:updated', { userId, newBalance: updatedUser.walletBalance });
+      }
       io.emit('deposits:pending', { count: db.deposits.filter((d) => d.status === 'PENDING').length });
       adminService.getDashboardMetrics().then((m) => io.emit('metrics:updated', m)).catch(() => {});
     }
 
     res.json({
       success: true,
-      message: 'Your payment request has been submitted and is awaiting administrator verification.',
+      autoApproved: isAutoApproved,
+      message:
+        submissionResult.message ||
+        (isAutoApproved
+          ? 'Your deposit has been automatically verified and credited to your wallet!'
+          : 'Your payment request has been submitted and is awaiting administrator verification.'),
       deposit,
       user: db.getUserById(userId),
     });

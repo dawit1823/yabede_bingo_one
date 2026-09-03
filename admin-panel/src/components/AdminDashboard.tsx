@@ -3040,10 +3040,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           className="rounded border-slate-700 bg-slate-900 text-amber-500 focus:ring-amber-500/40 w-4 h-4 cursor-pointer mt-1"
                         />
                         <div className="space-y-1">
-                          <div className="font-extrabold text-white text-sm">@{dep.userName}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-white text-sm">@{dep.userName}</span>
+                            {dep.autoApproved && (
+                              <span className="px-2 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-mono text-[9px] font-bold border border-cyan-500/30">
+                                ⚡ AUTO-APPROVED
+                              </span>
+                            )}
+                          </div>
                           <div className="text-slate-400">
                             Method: <strong className="text-amber-300">{dep.paymentMethodName}</strong> • Ref: <span className="font-mono text-white">{dep.referenceCode}</span>
+                            {dep.senderAccountDigits && (
+                              <span> • Digits: <strong className="font-mono text-cyan-300">{dep.senderAccountDigits}</strong></span>
+                            )}
                           </div>
+                          {dep.verificationDetails?.failureReason && dep.status === 'PENDING' && (
+                            <div className="text-[10px] text-amber-400/90 font-mono">
+                              Verification note: {dep.verificationDetails.failureReason}
+                            </div>
+                          )}
                           <div className="text-[10px] text-slate-500">Submitted: {new Date(dep.createdAt).toLocaleString()}</div>
                         </div>
                       </div>
@@ -4671,6 +4686,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="text-[11px] text-amber-300 font-mono">
                       Account: {pm.accountNumber || pm.phoneNumber || 'N/A'} ({pm.accountName})
                     </div>
+                    <div className="flex items-center gap-2 flex-wrap pt-1">
+                      {pm.autoVerifyEnabled ? (
+                        <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono text-[10px] font-bold border border-cyan-500/30">
+                          ⚡ Auto-Verify: {pm.chekiBankCode?.toUpperCase() || 'CHEKI'}
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono text-[10px]">
+                          Manual Approval
+                        </span>
+                      )}
+                      {pm.requiresAccountDigitsFromSender && (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-mono text-[9px] border border-amber-500/20">
+                          Requires Sender Digits
+                        </span>
+                      )}
+                    </div>
                     <div className="pt-2 flex justify-end">
                       <button
                         onClick={() => setEditingPaymentMethod(pm)}
@@ -5206,8 +5237,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div>Depositor: <strong className="text-white">@{selectedDepositForReceipt.userName}</strong></div>
               <div>Payment Method: <strong className="text-amber-400">{selectedDepositForReceipt.paymentMethodName}</strong></div>
               <div>Reference Code: <strong className="text-emerald-400 font-mono">{selectedDepositForReceipt.referenceCode}</strong></div>
+              {selectedDepositForReceipt.senderAccountDigits && (
+                <div>Sender Account Digits: <strong className="text-cyan-300 font-mono">{selectedDepositForReceipt.senderAccountDigits}</strong></div>
+              )}
               <div>Amount: <strong className="text-xl text-amber-400 font-black">{selectedDepositForReceipt.amount} Birr</strong></div>
               <div>Submitted At: {new Date(selectedDepositForReceipt.createdAt).toLocaleString()}</div>
+              {selectedDepositForReceipt.autoApproved && (
+                <div className="pt-1 text-cyan-400 font-bold flex items-center gap-1">
+                  <span>⚡ Automatically Verified & Credited</span>
+                </div>
+              )}
+              {selectedDepositForReceipt.verificationDetails && (
+                <div className="pt-2 border-t border-slate-800/80 space-y-1 text-[11px]">
+                  <div className="text-slate-400 font-bold">Verification Engine Output:</div>
+                  <div className="text-slate-300">
+                    Status: <strong className={selectedDepositForReceipt.verificationDetails.verified ? 'text-emerald-400' : 'text-amber-400'}>
+                      {selectedDepositForReceipt.verificationDetails.verified ? 'VERIFIED' : 'UNCONFIRMED (MANUAL REVIEW)'}
+                    </strong>
+                  </div>
+                  {selectedDepositForReceipt.verificationDetails.failureReason && (
+                    <div className="text-amber-400 font-mono text-[10px]">
+                      Reason: {selectedDepositForReceipt.verificationDetails.failureReason}
+                    </div>
+                  )}
+                  {selectedDepositForReceipt.verificationDetails.parsedData && (
+                    <div className="text-slate-400 text-[10px] space-y-0.5 pt-1">
+                      {selectedDepositForReceipt.verificationDetails.parsedData.senderName && (
+                        <div>Sender: <span className="text-white">{selectedDepositForReceipt.verificationDetails.parsedData.senderName}</span></div>
+                      )}
+                      {selectedDepositForReceipt.verificationDetails.parsedData.receiverName && (
+                        <div>Receiver: <span className="text-white">{selectedDepositForReceipt.verificationDetails.parsedData.receiverName}</span></div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {selectedDepositForReceipt.screenshotUrl ? (
@@ -5496,7 +5560,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* EDIT PAYMENT METHOD MODAL */}
       {editingPaymentMethod && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 shadow-2xl">
             <h3 className="text-sm font-black text-white">Configure Payment Provider</h3>
             <form onSubmit={handleSavePaymentMethod} className="space-y-3 text-xs">
               <div>
@@ -5559,6 +5623,131 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <option value="ACTIVE">Active</option>
                   <option value="INACTIVE">Inactive</option>
                 </select>
+              </div>
+
+              {/* AUTOMATED VERIFICATION SETTINGS */}
+              <div className="pt-3 border-t border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-extrabold text-white text-xs block">Automated Deposit Verification</span>
+                    <span className="text-[10px] text-slate-400">Verify receipts automatically via bank SMS / Cheki</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editingPaymentMethod.autoVerifyEnabled ?? false}
+                      onChange={(e) =>
+                        setEditingPaymentMethod({
+                          ...editingPaymentMethod,
+                          autoVerifyEnabled: e.target.checked,
+                          providerType: e.target.checked ? 'CHEKI_VERIFY' : 'MANUAL',
+                        })
+                      }
+                      className="w-4 h-4 rounded bg-slate-950 border-slate-800 text-cyan-500 focus:ring-cyan-500"
+                    />
+                  </label>
+                </div>
+
+                {editingPaymentMethod.autoVerifyEnabled && (
+                  <div className="space-y-3 p-3 bg-slate-950/60 rounded-2xl border border-cyan-500/30 text-xs animate-fade-in">
+                    <div>
+                      <label className="text-[10px] text-cyan-300 block font-bold mb-1">Cheki Bank Code:</label>
+                      <select
+                        value={editingPaymentMethod.chekiBankCode || 'telebirr'}
+                        onChange={(e) => setEditingPaymentMethod({ ...editingPaymentMethod, chekiBankCode: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono"
+                      >
+                        <option value="telebirr">telebirr (Ethio Telecom / Telebirr)</option>
+                        <option value="cbe">cbe (Commercial Bank of Ethiopia)</option>
+                        <option value="cbebirr">cbebirr (CBE Birr)</option>
+                        <option value="boa">boa (Bank of Abyssinia)</option>
+                        <option value="awash">awash (Awash Bank)</option>
+                        <option value="dashen">dashen (Dashen Bank)</option>
+                        <option value="amole">amole (Dashen Amole)</option>
+                      </select>
+                      <p className="text-[10px] text-slate-500 mt-1">Bank provider handler in Cheki verification system.</p>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <div>
+                        <span className="text-white font-bold block text-[11px]">Require Sender Account Digits</span>
+                        <span className="text-[10px] text-slate-400">Required by CBE to distinguish sender transaction</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={editingPaymentMethod.requiresAccountDigitsFromSender ?? false}
+                        onChange={(e) =>
+                          setEditingPaymentMethod({
+                            ...editingPaymentMethod,
+                            requiresAccountDigitsFromSender: e.target.checked,
+                            senderAccountDigitsLength: e.target.checked ? (editingPaymentMethod.senderAccountDigitsLength || 4) : undefined,
+                          })
+                        }
+                        className="w-4 h-4 rounded bg-slate-900 border-slate-800 text-cyan-500 focus:ring-cyan-500"
+                      />
+                    </div>
+
+                    {editingPaymentMethod.requiresAccountDigitsFromSender && (
+                      <div>
+                        <label className="text-[10px] text-slate-400 block font-bold mb-1">Required Sender Digits Length:</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="10"
+                          value={editingPaymentMethod.senderAccountDigitsLength ?? 4}
+                          onChange={(e) =>
+                            setEditingPaymentMethod({
+                              ...editingPaymentMethod,
+                              senderAccountDigitsLength: Number(e.target.value) || 4,
+                            })
+                          }
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-white font-mono"
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="text-[10px] text-slate-400 block font-bold mb-1">Receiver Name for Verification:</label>
+                      <input
+                        type="text"
+                        value={editingPaymentMethod.receiverName || ''}
+                        onChange={(e) => setEditingPaymentMethod({ ...editingPaymentMethod, receiverName: e.target.value })}
+                        placeholder={editingPaymentMethod.accountName || 'Leave blank to use Account Holder Name'}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-white"
+                      />
+                      <p className="text-[10px] text-slate-500 mt-0.5">Matched against recipient name in bank verification response.</p>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] text-slate-400 block font-bold mb-1">Receiver Account Digits (Optional):</label>
+                      <input
+                        type="text"
+                        value={editingPaymentMethod.receiverAccountDigits || ''}
+                        onChange={(e) => setEditingPaymentMethod({ ...editingPaymentMethod, receiverAccountDigits: e.target.value })}
+                        placeholder="e.g. Last 4 digits of merchant account"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-white font-mono"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <input
+                        type="checkbox"
+                        id="allowPartialReceiverMatch"
+                        checked={editingPaymentMethod.allowPartialReceiverMatch ?? true}
+                        onChange={(e) =>
+                          setEditingPaymentMethod({
+                            ...editingPaymentMethod,
+                            allowPartialReceiverMatch: e.target.checked,
+                          })
+                        }
+                        className="w-4 h-4 rounded bg-slate-900 border-slate-800 text-cyan-500 focus:ring-cyan-500"
+                      />
+                      <label htmlFor="allowPartialReceiverMatch" className="text-[10px] text-slate-400 cursor-pointer">
+                        Allow flexible / first-name receiver match (recommended for Ethiopian name formats)
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 pt-2">

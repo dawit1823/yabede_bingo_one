@@ -383,7 +383,11 @@ class FirestoreDatabaseStore {
               qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=telebirr://pay?phone=0918230227',
               instructions: '1. Open Telebirr or dial *127#\n2. Select "Send Money"\n3. Enter Phone: 0918230227 (Recipient: Dawit)\n4. Enter deposit amount\n5. Copy the transaction reference number.',
               status: 'ACTIVE',
-              providerType: 'MANUAL',
+              providerType: 'CHEKI_VERIFY',
+              autoVerifyEnabled: true,
+              chekiBankCode: 'telebirr',
+              expectedReceiverName: 'Dawit',
+              expectedReceiverAccount: '0918230227',
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             },
@@ -398,7 +402,11 @@ class FirestoreDatabaseStore {
               qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=CBE-1000123456789',
               instructions: '1. Transfer to Account: 1000123456789\n2. Account Recipient Name: Dawit\n3. Copy the transaction reference code.',
               status: 'ACTIVE',
-              providerType: 'MANUAL',
+              providerType: 'CHEKI_VERIFY',
+              autoVerifyEnabled: true,
+              chekiBankCode: 'cbe',
+              expectedReceiverName: 'Dawit',
+              expectedReceiverAccount: '1000123456789',
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             },
@@ -1462,17 +1470,33 @@ class FirestoreDatabaseStore {
     return true;
   }
 
-  // --- MANUAL DEPOSIT SUBMISSION & VERIFICATION ---
+  // --- DEPOSIT SUBMISSION & VERIFICATION ---
   public createDepositRequest(params: {
     userId: string;
     paymentMethodId: string;
     amount: number;
     referenceCode: string;
     mobileNumber?: string;
+    senderAccountDigits?: string;
     screenshotUrl?: string;
     note?: string;
+    status?: 'PENDING' | 'APPROVED' | 'REJECTED';
+    autoApproved?: boolean;
+    verificationDetails?: any;
   }): DepositRequest {
-    const { userId, paymentMethodId, amount, referenceCode, mobileNumber, screenshotUrl, note } = params;
+    const {
+      userId,
+      paymentMethodId,
+      amount,
+      referenceCode,
+      mobileNumber,
+      senderAccountDigits,
+      screenshotUrl,
+      note,
+      status = 'PENDING',
+      autoApproved = false,
+      verificationDetails,
+    } = params;
 
     const user = this.getUserById(userId);
     if (!user) throw new Error('User not found');
@@ -1499,10 +1523,13 @@ class FirestoreDatabaseStore {
       paymentMethodName: paymentMethod.name,
       amount,
       mobileNumber,
+      senderAccountDigits,
       referenceCode: cleanRef,
       screenshotUrl,
       note,
-      status: 'PENDING',
+      status,
+      autoApproved,
+      verificationDetails,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -1514,26 +1541,43 @@ class FirestoreDatabaseStore {
       await adminDb.collection('payments').doc(dep.id).set(dep);
     }, true);
 
-    this.addNotification({
-      userId: user.id,
-      title: 'Deposit Submitted ⏳',
-      message: `Your deposit request of ${amount} Birr via ${paymentMethod.name} (Ref: ${cleanRef}) has been submitted and is awaiting admin verification.`,
-      type: 'SYSTEM',
-    });
+    if (status === 'PENDING') {
+      this.addNotification({
+        userId: user.id,
+        title: 'Deposit Submitted ⏳',
+        message: `Your deposit request of ${amount} Birr via ${paymentMethod.name} (Ref: ${cleanRef}) has been submitted and is awaiting verification.`,
+        type: 'SYSTEM',
+      });
+    }
 
     return dep;
   }
 
-  public approveDeposit(depositId: string, adminId: string, ipAddress?: string): { deposit: DepositRequest; user: UserProfile } {
-    const dep = this.deposits.find((d) => d.id === depositId);
-    if (!dep) throw new Error('Deposit request not found');
-    if (dep.status === 'APPROVED') throw new Error('Deposit already approved');
+  /**
+   * Unified logic to credit an approved deposit (used by both manual admin approval and instant automated verification)
+   */
+  public creditApprovedDeposit(
+    dep: DepositRequest,
+    source: 'MANUAL' | 'AUTOMATED',
+    adminId?: string,
+    ipAddress?: string
+  ): { deposit: DepositRequest; user: UserProfile } {
+    if (dep.status === 'APPROVED' && dep.processedByAdminId) {
+      const user = this.getUserById(dep.userId);
+      if (!user) throw new Error('Deposit user not found');
+      return { deposit: dep, user };
+    }
 
     dep.status = 'APPROVED';
-    dep.processedByAdminId = adminId;
+    if (source === 'AUTOMATED') {
+      dep.autoApproved = true;
+      dep.processedByAdminId = 'SYSTEM_AUTO_VERIFY';
+    } else {
+      dep.processedByAdminId = adminId || 'usr_admin';
+    }
     dep.updatedAt = new Date().toISOString();
 
-    firestoreGuard.safeWrite('payments', 'approveDeposit', async () => {
+    firestoreGuard.safeWrite('payments', 'creditApprovedDeposit', async () => {
       await adminDb.collection('payments').doc(dep.id).set(dep, { merge: true });
     }, true);
 
@@ -1541,14 +1585,14 @@ class FirestoreDatabaseStore {
     if (!user) throw new Error('Deposit user not found');
 
     user.totalDeposited += dep.amount;
-    this.updateWalletBalance(
-      user.id,
-      dep.amount,
-      'DEPOSIT',
-      `Manual Deposit Approved via ${dep.paymentMethodName}`,
-      dep.referenceCode
-    );
+    const desc =
+      source === 'AUTOMATED'
+        ? `Automated Deposit Approved via ${dep.paymentMethodName}`
+        : `Manual Deposit Approved via ${dep.paymentMethodName}`;
 
+    this.updateWalletBalance(user.id, dep.amount, 'DEPOSIT', desc, dep.referenceCode);
+
+    // Referral commission: 5%
     if (user.referredBy) {
       const referrer = this.getUserById(user.referredBy);
       if (referrer) {
@@ -1572,23 +1616,41 @@ class FirestoreDatabaseStore {
       }
     }
 
+    const notifTitle = source === 'AUTOMATED' ? 'Deposit Auto-Verified! ⚡' : 'Deposit Approved! ✅';
+    const notifMsg =
+      source === 'AUTOMATED'
+        ? `Your deposit of ${dep.amount} Birr via ${dep.paymentMethodName} (Ref: ${dep.referenceCode}) has been automatically verified and credited to your wallet!`
+        : `Your deposit of ${dep.amount} Birr via ${dep.paymentMethodName} (Ref: ${dep.referenceCode}) has been verified and credited!`;
+
     this.addNotification({
       userId: user.id,
-      title: 'Deposit Approved! ✅',
-      message: `Your deposit of ${dep.amount} Birr via ${dep.paymentMethodName} (Ref: ${dep.referenceCode}) has been verified and credited!`,
+      title: notifTitle,
+      message: notifMsg,
       type: 'DEPOSIT_APPROVED',
     });
 
+    const auditAction = source === 'AUTOMATED' ? 'AUTO_APPROVE_DEPOSIT' : 'APPROVE_DEPOSIT';
+    const auditPerformer = source === 'AUTOMATED' ? 'SYSTEM_AUTO_VERIFY' : adminId || 'usr_admin';
+    const auditCategory = source === 'AUTOMATED' ? 'Automated Payment Verification' : 'Manual Payment Verification';
+
     this.logAudit(
-      adminId,
-      'APPROVE_DEPOSIT',
+      auditPerformer,
+      auditAction,
       user.id,
-      `Approved deposit #${dep.id} of ${dep.amount} Birr (Ref: ${dep.referenceCode})`,
-      'Manual Payment Verification',
+      `${source === 'AUTOMATED' ? 'Auto-verified' : 'Approved'} deposit #${dep.id} of ${dep.amount} Birr (Ref: ${dep.referenceCode})`,
+      auditCategory,
       ipAddress
     );
 
     return { deposit: dep, user };
+  }
+
+  public approveDeposit(depositId: string, adminId: string, ipAddress?: string): { deposit: DepositRequest; user: UserProfile } {
+    const dep = this.deposits.find((d) => d.id === depositId);
+    if (!dep) throw new Error('Deposit request not found');
+    if (dep.status === 'APPROVED') throw new Error('Deposit already approved');
+
+    return this.creditApprovedDeposit(dep, 'MANUAL', adminId, ipAddress);
   }
 
   public rejectDeposit(depositId: string, reason: string, adminId: string, ipAddress?: string): DepositRequest {

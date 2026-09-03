@@ -30,9 +30,10 @@ interface WalletViewProps {
     amount: number;
     referenceCode: string;
     mobileNumber?: string;
+    senderAccountDigits?: string;
     screenshotUrl?: string;
     note?: string;
-  }) => Promise<void>;
+  }) => Promise<any>;
   onWithdraw: (params: {
     paymentMethodId: string;
     paymentMethodName: string;
@@ -66,6 +67,7 @@ export const WalletView: React.FC<WalletViewProps> = ({
   // Deposit Form States
   const [depositAmount, setDepositAmount] = useState<number>(100);
   const [referenceCode, setReferenceCode] = useState<string>('');
+  const [senderAccountDigits, setSenderAccountDigits] = useState<string>('');
   const [mobileNumber, setMobileNumber] = useState<string>(user?.phone || '');
   const [depositNote, setDepositNote] = useState<string>('');
   const [screenshotUrl, setScreenshotUrl] = useState<string>('');
@@ -187,26 +189,43 @@ export const WalletView: React.FC<WalletViewProps> = ({
       return;
     }
 
+    const reqDigitsLen = selectedMethod.senderAccountDigitsLength || 4;
+    if (
+      selectedMethod.requiresAccountDigitsFromSender &&
+      (!senderAccountDigits || senderAccountDigits.trim().length < reqDigitsLen)
+    ) {
+      alert(`Please enter the last ${reqDigitsLen} digits of your sender bank/telebirr account for verification.`);
+      return;
+    }
+
     setIsSubmittingDeposit(true);
     setDepositSuccessMsg(null);
 
     try {
-      await onDeposit({
+      const res = await onDeposit({
         paymentMethodId: selectedMethod.id,
         amount: depositAmount,
         referenceCode: referenceCode.trim(),
         mobileNumber,
+        senderAccountDigits: senderAccountDigits.trim() || undefined,
         screenshotUrl,
         note: depositNote,
       });
 
       triggerNotificationHaptic('success');
-      setDepositSuccessMsg(
-        `Your deposit request of ${depositAmount} Birr via ${selectedMethod.name} has been submitted! Reference: ${referenceCode.trim()}. Administrator is verifying your payment.`
-      );
+      if (res && res.autoApproved) {
+        setDepositSuccessMsg(
+          `⚡ Instant Auto-Approval! Your deposit of ${depositAmount} Birr via ${selectedMethod.name} has been verified and added to your wallet balance!`
+        );
+      } else {
+        setDepositSuccessMsg(
+          `Your deposit request of ${depositAmount} Birr via ${selectedMethod.name} has been submitted! Reference: ${referenceCode.trim()}. Administrator is verifying your payment.`
+        );
+      }
 
       // Reset form
       setReferenceCode('');
+      setSenderAccountDigits('');
       setDepositNote('');
       setScreenshotUrl('');
       setScreenshotFileName('');
@@ -427,9 +446,16 @@ export const WalletView: React.FC<WalletViewProps> = ({
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-2xl">{m.logo}</span>
-                    {selectedMethod?.id === m.id && (
-                      <CheckCircle2 className="w-4 h-4 text-amber-400" />
-                    )}
+                    <div className="flex items-center gap-1">
+                      {m.autoVerifyEnabled && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono text-[9px] font-bold border border-cyan-500/30">
+                          ⚡ Instant
+                        </span>
+                      )}
+                      {selectedMethod?.id === m.id && (
+                        <CheckCircle2 className="w-4 h-4 text-amber-400" />
+                      )}
+                    </div>
                   </div>
                   <div>
                     <div className="text-xs font-black text-white leading-tight">{m.name}</div>
@@ -591,6 +617,45 @@ export const WalletView: React.FC<WalletViewProps> = ({
                   Copy the reference code from your SMS or Mobile Banking receipt.
                 </span>
               </div>
+
+              {/* Sender Account Digits (for banks requiring sender account, e.g. CBE) */}
+              {selectedMethod?.requiresAccountDigitsFromSender && (
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1.5 flex items-center justify-between">
+                    <span>
+                      Sender Account Digits <span className="text-cyan-400">*</span>:
+                    </span>
+                    <span className="text-[10px] text-cyan-400 font-mono">
+                      Last {selectedMethod.senderAccountDigitsLength || 4} digits
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={selectedMethod.senderAccountDigitsLength || 6}
+                    value={senderAccountDigits}
+                    onChange={(e) => setSenderAccountDigits(e.target.value.replace(/\D/g, ''))}
+                    placeholder={`e.g. ${'1234'.slice(0, selectedMethod.senderAccountDigitsLength || 4)}`}
+                    className="w-full bg-slate-950 border border-cyan-500/40 rounded-2xl px-4 py-3 text-xs font-mono text-cyan-300 focus:outline-none focus:border-cyan-400 font-bold"
+                  />
+                  <span className="text-[10px] text-slate-400 block mt-1">
+                    Enter the last {selectedMethod.senderAccountDigitsLength || 4} digits of your {selectedMethod.name} account to enable instant verification.
+                  </span>
+                </div>
+              )}
+
+              {/* Instant Verification Banner */}
+              {selectedMethod?.autoVerifyEnabled && (
+                <div className="flex items-center gap-2.5 p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-cyan-400" />
+                  <div className="leading-snug">
+                    <strong className="text-white block font-black">⚡ Instant Automated Verification Active</strong>
+                    <span className="text-[11px] text-cyan-300/80">
+                      Receipt reference will be cross-checked instantly. If confirmed, your wallet is credited immediately!
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Optional Phone Number */}
               <div>
@@ -879,6 +944,11 @@ export const WalletView: React.FC<WalletViewProps> = ({
                       <div>
                         Reference Code: <span className="text-amber-300 font-mono font-bold">{dep.referenceCode}</span>
                       </div>
+                      {dep.autoApproved && (
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono text-[9px] font-bold border border-cyan-500/30">
+                          ⚡ Instant Auto-Approval
+                        </div>
+                      )}
                       <div>Submitted: {dep?.createdAt ? new Date(dep.createdAt).toLocaleString() : 'N/A'}</div>
 
                       {dep.rejectionReason && (

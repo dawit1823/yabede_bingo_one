@@ -90,7 +90,7 @@ export interface WalletTransaction {
   createdAt: string;
 }
 
-export type PaymentProviderType = 'MANUAL' | 'TELEBIRR_GATEWAY' | 'CBE_GATEWAY' | 'CHAPA_GATEWAY' | 'SANTIMPAY_GATEWAY';
+export type PaymentProviderType = 'MANUAL' | 'CHEKI_VERIFY' | 'TELEBIRR_GATEWAY' | 'CBE_GATEWAY' | 'CHAPA_GATEWAY' | 'SANTIMPAY_GATEWAY';
 
 export interface PaymentMethodConfig {
   id: string;
@@ -103,7 +103,17 @@ export interface PaymentMethodConfig {
   qrCodeUrl?: string;         // Admin QR code image
   instructions: string;       // Detailed step-by-step payment instructions
   status: 'ACTIVE' | 'INACTIVE';
-  providerType: PaymentProviderType; // Default 'MANUAL'
+  providerType: PaymentProviderType; // Default 'MANUAL' or 'CHEKI_VERIFY'
+  autoVerifyEnabled?: boolean;       // Enable automated receipt verification (via cheki-verify)
+  chekiBankCode?: string;            // Supported bank/wallet code: 'cbe', 'telebirr', 'boa', 'cbebirr', etc.
+  expectedReceiverName?: string;     // Expected recipient account name on verified receipt
+  expectedReceiverAccount?: string;  // Expected recipient account number on verified receipt
+  receiverName?: string;             // Receiver account name override for Cheki receipt match
+  receiverAccountDigits?: string;    // Receiver account digits to verify
+  allowPartialReceiverMatch?: boolean; // Allow flexible partial receiver name matching
+  requiresAccountDigitsFromSender?: boolean; // Whether the user must provide account/phone digits
+  senderAccountDigitsLength?: number; // Number of digits required from sender (e.g. 4)
+  senderAccountDigitsLabel?: string; // Custom prompt label for sender digits
   createdAt: string;
   updatedAt: string;
 }
@@ -117,10 +127,13 @@ export interface DepositRequest {
   paymentMethodName: string;
   amount: number;
   mobileNumber?: string;
-  referenceCode: string;       // Transaction reference number
-  screenshotUrl?: string;      // Receipt screenshot image/file URL or base64
-  note?: string;               // User note
+  senderAccountDigits?: string;      // Optional/required sender account/phone digits
+  referenceCode: string;             // Transaction reference number
+  screenshotUrl?: string;            // Receipt screenshot image/file URL or base64
+  note?: string;                     // User note
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'INFO_REQUESTED';
+  autoApproved?: boolean;            // Flag indicating instant automated approval
+  verificationDetails?: any;         // Metadata/result from automated verification service
   rejectionReason?: string;
   adminNote?: string;
   processedByAdminId?: string;

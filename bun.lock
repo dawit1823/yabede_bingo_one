@@ -12,6 +12,7 @@
         "@vitejs/plugin-react": "^5.0.4",
         "bcryptjs": "^3.0.3",
         "canvas-confetti": "^1.9.4",
+        "cheki-verify": "^1.4.1",
         "clsx": "^2.1.1",
         "dotenv": "^17.2.3",
         "express": "^4.21.2",
@@ -482,6 +483,8 @@
     "caniuse-lite": ["caniuse-lite@1.0.30001806", "", {}, "sha512-72Cuvd95zbSYPKq6Fhg8eDJRlzgWDf7/mtoZv6Qe/DYNCEBdNxoA3+rZAU2ZhGCpZlns3EssFavaZomckT5Uuw=="],
 
     "canvas-confetti": ["canvas-confetti@1.9.4", "", {}, "sha512-yxQbJkAVrFXWNbTUjPqjF7G+g6pDotOUHGbkZq2NELZUMDpiJ85rIEazVb8GTaAptNW2miJAXbs1BtioA251Pw=="],
+
+    "cheki-verify": ["cheki-verify@1.4.1", "", {}, "sha512-fGR14RFryZFisOjaIjAmO0Ws+gb8sBX+nzEcKV2cOCW9hJE/FlZco7tHedebHGAYd85Xj4f/AJGt5+cHeZdRew=="],
 
     "cliui": ["cliui@6.0.0", "", { "dependencies": { "string-width": "^4.2.0", "strip-ansi": "^6.0.0", "wrap-ansi": "^6.2.0" } }, "sha512-t6wbgtoCXvAzst7QgXxJYqPt0usEfbgQdftEPbLL/cvv6HPE5VgvqCuAIDR0NgU52ds6rFwqrgakNLrHEjCbrQ=="],
 
